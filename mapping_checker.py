@@ -156,9 +156,11 @@ def plan_to_dict(sheet_name: str, intake: str, plan: pd.DataFrame) -> PlanExport
     return {"sheet": sheet_name, "intake": intake, "courses": courses}
 
 
-def export_plan(sheet_name: str, intake: str, plan: pd.DataFrame, output_dir: Path) -> Path:
-    """Write one plan to a JSON file; return the file path."""
+def export_plan(sheet_name: str, intake: str, plan: pd.DataFrame, output_dir: Path) -> Path | None:
+    """Write one plan to a JSON file; return the file path, or None if the plan has no courses."""
     plan_dict = plan_to_dict(sheet_name, intake, plan)
+    if not plan_dict["courses"]:
+        return None
     safe_name = f"{sheet_name}_{intake}".replace(" ", "_")
     filepath = output_dir / f"{safe_name}.json"
     with open(filepath, "w", encoding="utf-8") as fh:
@@ -218,7 +220,10 @@ def main(argv: list[str] | None = None) -> int:
             offering = course_terms(plan)
             offerings.append(offering)
             path = export_plan(sheet_name, intake, plan, output_dir_path)
-            logger.debug(f"  -> {path}")
+            if path is None:
+                logger.debug(f"  Skipped (no courses)")
+            else:
+                logger.debug(f"  -> {path}")
 
     # Write offerings summary to file
     offerings_summary = summarise_offerings(offerings)

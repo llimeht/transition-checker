@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import sys
+from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
@@ -147,8 +148,8 @@ def validate_canonical_expression(expr: RuleExpr, path: str = "<clause>") -> Non
         validate_canonical_expression(child, f"{path}.{op}[{idx}]")
 
 
-def evaluate_expression(expr: RuleExpr, completed_courses: set[str]) -> bool:
-    """Evaluate canonical expression against a set of completed course codes."""
+def evaluate_expression(expr: RuleExpr, completed_courses: Counter[str]) -> bool:
+    """Evaluate canonical expression against a multiset of completed course codes."""
     if _is_course_code(expr):
         return expr in completed_courses
 
@@ -160,7 +161,11 @@ def evaluate_expression(expr: RuleExpr, completed_courses: set[str]) -> bool:
     if set(node.keys()) == {"min", "from"}:
         min_count = cast(int, node["min"])
         from_exprs = cast(list[RuleExpr], node["from"])
-        satisfied = sum(evaluate_expression(child, completed_courses) for child in from_exprs)
+        satisfied = sum(
+            completed_courses[child] if _is_course_code(child)
+            else int(evaluate_expression(child, completed_courses))
+            for child in from_exprs
+        )
         return satisfied >= min_count
 
     if len(node) != 1:
@@ -178,14 +183,14 @@ def evaluate_expression(expr: RuleExpr, completed_courses: set[str]) -> bool:
     raise RuleValidationError("<eval>", f"unknown operator '{op}'")
 
 
-def evaluate_level(level_clauses: list[RuleExpr], completed_courses: set[str]) -> bool:
+def evaluate_level(level_clauses: list[RuleExpr], completed_courses: Counter[str]) -> bool:
     """Level semantics: all clauses in the level must evaluate to True."""
     return all(evaluate_expression(clause, completed_courses) for clause in level_clauses)
 
 
 def evaluate_required(
     normalized_config: dict[str, Any],
-    completed_courses: set[str],
+    completed_courses: Counter[str],
 ) -> dict[str, bool]:
     """Return pass/fail per level under required-level AND semantics."""
     required = normalized_config.get("required", {})
@@ -270,7 +275,7 @@ def render_rules_human(config: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def diagnose_expression(expr: RuleExpr, completed_courses: set[str]) -> str:
+def diagnose_expression(expr: RuleExpr, completed_courses: Counter[str]) -> str:
     """Describe what is missing for a failed expression."""
     if _is_course_code(expr):
         return f"missing {expr}"
@@ -280,7 +285,11 @@ def diagnose_expression(expr: RuleExpr, completed_courses: set[str]) -> str:
     if set(node.keys()) == {"min", "from"}:
         min_count = cast(int, node["min"])
         from_exprs = cast(list[RuleExpr], node["from"])
-        satisfied = sum(evaluate_expression(child, completed_courses) for child in from_exprs)
+        satisfied = sum(
+            completed_courses[child] if _is_course_code(child)
+            else int(evaluate_expression(child, completed_courses))
+            for child in from_exprs
+        )
         needed = min_count - satisfied
         options = ", ".join(expression_to_text(e) for e in from_exprs)
         return f"need {needed} more from ({options})"
@@ -305,7 +314,7 @@ def diagnose_expression(expr: RuleExpr, completed_courses: set[str]) -> str:
 
 def report_plan(
     normalized_config: dict[str, Any],
-    completed_courses: set[str],
+    completed_courses: Counter[str],
 ) -> list[str]:
     """Return a list of human-readable failure strings for each unsatisfied clause."""
     failures: list[str] = []
@@ -320,12 +329,12 @@ def report_plan(
     return failures
 
 
-def extract_completed_courses(plan_data: dict[str, Any]) -> set[str]:
+def extract_completed_courses(plan_data: dict[str, Any]) -> Counter[str]:
     courses_value = plan_data.get("courses")
     if not isinstance(courses_value, list):
         raise RuleValidationError("plan.courses", "plan JSON must contain a 'courses' array")
 
-    completed_courses: set[str] = set()
+    completed_courses: Counter[str] = Counter()
     course_items = cast(list[Any], courses_value)
     for idx, course in enumerate(course_items):
         if not isinstance(course, dict):
@@ -334,7 +343,7 @@ def extract_completed_courses(plan_data: dict[str, Any]) -> set[str]:
         course_record = cast(PlanCourseRecord, course)
         code = course_record.get("code")
         if isinstance(code, str) and code.strip():
-            completed_courses.add(code)
+            completed_courses[code] += 1
 
     return completed_courses
 
