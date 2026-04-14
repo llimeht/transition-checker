@@ -36,11 +36,17 @@ if [[ -z "$PLAN_FILES" ]]; then
 fi
 
 # Validate each plan against rules
-RULE_FILE="$SCRIPT_DIR/rules/CEICAH.json"
 FAILED=0
 
 for plan_file in $PLAN_FILES; do
+    PROGRAM_CODE="${plan_file##*/}"     # basename
+    PROGRAM_CODE="${PROGRAM_CODE%%_*}"  # strip from first underscore onward
+    RULE_FILE="$SCRIPT_DIR/rules/${PROGRAM_CODE}.json"
     echo -n "  Validating $(basename "$plan_file")..."
+    if [[ ! -f "$RULE_FILE" ]]; then
+        echo " ⚠️  no rule file for $PROGRAM_CODE, skipping"
+        continue
+    fi
     set +e
     OUTPUT=$($PYTHON "$SCRIPT_DIR/degree_rules.py" "$RULE_FILE" --plan "$plan_file" 2>&1)
     EXIT_CODE=$?
