@@ -1,4 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
+
+"""Validate planned course periods against allowed course offerings.
+
+The tool compares one exported plan JSON file against an offerings mapping and
+reports course/period mismatches suitable for both humans and automation.
+"""
 
 from __future__ import annotations
 
@@ -46,11 +52,26 @@ class OfferingCheckResult(TypedDict):
 
 
 def _as_text(value: object) -> str:
+    """Normalize optional string-like values to trimmed text.
+
+    Args:
+        value: Raw value from a parsed JSON object.
+
+    Returns:
+        Trimmed string when value is a string, otherwise empty string.
+    """
     return value.strip() if isinstance(value, str) else ""
 
 
 def load_offerings(offerings_file: Path) -> dict[str, list[str]]:
-    """Load offerings JSON file mapping course codes to allowed periods."""
+    """Load and sanitize course offerings mapping.
+
+    Args:
+        offerings_file: Path to offerings JSON file.
+
+    Returns:
+        Mapping of course code to allowed periods.
+    """
     if not offerings_file.is_file():
         raise FileNotFoundError(f"Offerings file not found: {offerings_file}")
     
@@ -75,7 +96,14 @@ def load_offerings(offerings_file: Path) -> dict[str, list[str]]:
 
 
 def load_plan(plan_file: Path) -> PlanDocument:
-    """Load plan JSON file."""
+    """Load a plan JSON document.
+
+    Args:
+        plan_file: Path to plan JSON file.
+
+    Returns:
+        Parsed plan document as a typed dictionary.
+    """
     if not plan_file.is_file():
         raise FileNotFoundError(f"Plan file not found: {plan_file}")
     
@@ -171,7 +199,14 @@ def check_plan(plan_file: Path, offerings_file: Path) -> OfferingCheckResult:
 
 
 def format_violations_for_console(result: OfferingCheckResult) -> str:
-    """Format violations for console output."""
+    """Render offering validation result for console output.
+
+    Args:
+        result: Offering check result payload.
+
+    Returns:
+        Multi-line formatted text summary.
+    """
     lines: list[str] = []
     
     plan_name = Path(result["plan_file"]).name
@@ -203,43 +238,70 @@ def format_violations_for_console(result: OfferingCheckResult) -> str:
 
 
 def write_violations_json(result: OfferingCheckResult, output_file: Path) -> None:
-    """Write violations to a JSON file."""
+    """Persist full offering check result to JSON.
+
+    Args:
+        result: Offering check result payload.
+        output_file: Destination JSON file path.
+    """
     with open(output_file, "w", encoding="utf-8") as fh:
         json.dump(result, fh, indent=2)
 
 
 def _build_cli_parser() -> argparse.ArgumentParser:
+    """Construct CLI parser for offerings validation.
+
+    Returns:
+        Configured ArgumentParser instance.
+    """
     parser = argparse.ArgumentParser(
-        description="Validate course offerings against a plan JSON file.",
+        description=(
+            "Validate an exported plan JSON file against allowed offering periods "
+            "for each course."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  offering_checker.py plans/CEIC/CEICAH3707_2026_T1.json\n"
+            "  offering_checker.py plan.json --offerings plans/offerings.json --result-json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "plan_file",
-        help="Path to the plan JSON file",
+        help="Path to the plan JSON file to validate",
     )
     parser.add_argument(
         "--offerings",
         default=None,
-        help="Path to offerings.json (default: plans/offerings.json relative to script)",
+        help=(
+            "Path to offerings JSON (default: offerings.json beside the plan file, "
+            "otherwise plans/offerings.json beside this script)"
+        ),
     )
     parser.add_argument(
         "--output",
         default=None,
-        help="Path to write violations JSON output",
+        help="Optional path to write the check result as JSON",
     )
     parser.add_argument(
         "-v", "--verbose",
         action="store_true",
-        help="Enable verbose output",
+        help="Print additional status messages",
     )
     parser.add_argument(
         "--result-json",
         action="store_true",
-        help="Print machine-readable JSON result to stdout",
+        help="Print machine-readable JSON result to stdout instead of console summary",
     )
     return parser
 
 
 def main() -> int:
+    """Run the offerings validation CLI command.
+
+    Returns:
+        Exit code 0 when valid, 1 when violations exist, 2 on input/parse errors.
+    """
     parser = _build_cli_parser()
     args = parser.parse_args()
     

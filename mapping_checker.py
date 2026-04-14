@@ -1,5 +1,12 @@
 #!/usr/bin/python3
 
+"""Export enrolment plans from course mapping spreadsheets.
+
+This tool reads a sequence-mapping Excel workbook, extracts each intake plan,
+exports per-plan JSON files, and writes a consolidated offerings summary in both
+JSON and CSV formats.
+"""
+
 import argparse
 import json
 import logging
@@ -31,7 +38,12 @@ class PlanExport(TypedDict):
 
 
 def iter_sheets(dfs: dict[str, pd.DataFrame]) -> Generator[tuple[str, pd.DataFrame], None, None]:
-    """locate the sheets with enrolment plans"""
+    """Yield only workbook sheets that contain enrolment plans.
+
+    Internal/template sheets (for example, "Cat" and "Lookup") are skipped.
+    The first eight columns are normalised to the expected canonical names so
+    downstream processing can rely on stable column labels.
+    """
     for sheet_name, df in dfs.items():
         # filter internal and template sheets
         if "{" not in sheet_name and sheet_name not in ("Cat", "Lookup"):
@@ -52,7 +64,15 @@ def iter_sheets(dfs: dict[str, pd.DataFrame]) -> Generator[tuple[str, pd.DataFra
 
 
 def iter_plans(sheet: pd.DataFrame, start_row: int = 4) -> Generator[tuple[str, pd.DataFrame], None, None]:
-    """locate the enrolment plans within each sheet"""
+    """Yield each intake plan block from a normalised sheet.
+
+    Args:
+        sheet: A sheet already normalised by ``iter_sheets``.
+        start_row: Number of header rows to skip before plan blocks begin.
+
+    Yields:
+        Tuples of ``(intake, plan_dataframe)``.
+    """
     # trim leading rows
     sheet = sheet.iloc[start_row:].reset_index(drop=True)
 
@@ -74,6 +94,14 @@ def iter_plans(sheet: pd.DataFrame, start_row: int = 4) -> Generator[tuple[str, 
 
 
 def course_terms(plan: pd.DataFrame) -> dict[str, set[str]]:
+    """Build course-to-period mappings for one plan.
+
+    Args:
+        plan: Plan rows containing at least Code and Period columns.
+
+    Returns:
+        Mapping of course code to the set of planned periods.
+    """
     offering: dict[str, set[str]] = defaultdict(set)
     for _, row in plan.iterrows():
         if pd.isna(row.Code):
@@ -83,6 +111,14 @@ def course_terms(plan: pd.DataFrame) -> dict[str, set[str]]:
 
 
 def summarise_offerings(offerings: list[dict[str, set[str]]]) -> dict[str, set[str]]:
+    """Merge per-plan offerings into one consolidated summary.
+
+    Args:
+        offerings: List of per-plan course-to-period mappings.
+
+    Returns:
+        Mapping of each course to all observed periods across plans.
+    """
     summary: dict[str, set[str]] = defaultdict(set)
     for offering_plan in offerings:
         for course, period in offering_plan.items():
@@ -91,7 +127,14 @@ def summarise_offerings(offerings: list[dict[str, set[str]]]) -> dict[str, set[s
 
 
 def format_offerings_summary(summary: dict[str, set[str]]) -> str:
-    """Format offerings summary as a string."""
+    """Format offerings summary as aligned plain text.
+
+    Args:
+        summary: Mapping of course code to offered periods.
+
+    Returns:
+        Multi-line human-readable summary string.
+    """
     lines: list[str] = []
     for course in sorted(summary.keys()):
         periods = summary[course]
@@ -103,7 +146,16 @@ def format_offerings_summary(summary: dict[str, set[str]]) -> str:
 
 
 def write_offerings_file(summary: dict[str, set[str]], excel_filename: Path, output_dir: Path) -> Path:
-    """Write offerings summary to a JSON file based on the Excel filename."""
+    """Write offerings summary to a JSON file.
+
+    Args:
+        summary: Mapping of course code to offered periods.
+        excel_filename: Source workbook path used to derive output filename.
+        output_dir: Destination directory for output file.
+
+    Returns:
+        Path to the generated JSON file.
+    """
     # Extract base name without extension
     base_name = excel_filename.stem
     filepath = output_dir / f"{base_name}_offerings.json"
@@ -118,7 +170,16 @@ def write_offerings_file(summary: dict[str, set[str]], excel_filename: Path, out
 
 
 def write_offerings_csv(summary: dict[str, set[str]], excel_filename: Path, output_dir: Path) -> Path:
-    """Write offerings summary to a CSV matrix with Y values for offered periods."""
+    """Write offerings summary as a course-by-period CSV matrix.
+
+    Args:
+        summary: Mapping of course code to offered periods.
+        excel_filename: Source workbook path used to derive output filename.
+        output_dir: Destination directory for output file.
+
+    Returns:
+        Path to the generated CSV file.
+    """
     base_name = excel_filename.stem
     filepath = output_dir / f"{base_name}_offerings.csv"
 
@@ -136,12 +197,31 @@ def write_offerings_csv(summary: dict[str, set[str]], excel_filename: Path, outp
 
 
 def _to_string(val: Any) -> str:
+    """Convert a spreadsheet cell value to text.
+
+    Args:
+        val: Raw cell value.
+
+    Returns:
+        Empty string for blank cells, otherwise string form of value.
+    """
     if pd.isna(val):
         return ""
     return str(val)
 
 
 def _to_int(val: Any) -> int:
+    """Convert a spreadsheet cell value to integer.
+
+    Args:
+        val: Raw cell value.
+
+    Returns:
+        Parsed integer value.
+
+    Raises:
+        ValueError: If value is blank or not integer-compatible.
+    """
     if pd.isna(val):
         raise ValueError("expected an integer-compatible value, got blank cell")
     if isinstance(val, bool):
@@ -156,7 +236,16 @@ def _to_int(val: Any) -> int:
 
 
 def plan_to_dict(sheet_name: str, intake: str, plan: pd.DataFrame) -> PlanExport:
-    """Serialize a plan DataFrame to a JSON-serializable dict preserving all 8 columns."""
+    """Serialize one plan DataFrame to JSON-ready structure.
+
+    Args:
+        sheet_name: Name of the source worksheet.
+        intake: Intake identifier extracted from the sheet.
+        plan: Plan rows for one intake.
+
+    Returns:
+        Plan payload matching the PlanExport schema.
+    """
     courses: list[PlanCourse] = []
     for _, row in plan.iterrows():
         if pd.isna(row["Code"]):
@@ -174,7 +263,17 @@ def plan_to_dict(sheet_name: str, intake: str, plan: pd.DataFrame) -> PlanExport
     return {"sheet": sheet_name, "intake": intake, "courses": courses}
 
 def export_plan(sheet_name: str, intake: str, plan: pd.DataFrame, output_dir: Path) -> Path | None:
-    """Write one plan to a JSON file; return the file path, or None if the plan has no courses."""
+    """Write one intake plan JSON file.
+
+    Args:
+        sheet_name: Name of the source worksheet.
+        intake: Intake identifier extracted from the sheet.
+        plan: Plan rows for one intake.
+        output_dir: Destination directory for exported plan files.
+
+    Returns:
+        Generated file path, or None when the plan has no course rows.
+    """
     plan_dict = plan_to_dict(sheet_name, intake, plan)
     if not plan_dict["courses"]:
         return None
@@ -186,14 +285,32 @@ def export_plan(sheet_name: str, intake: str, plan: pd.DataFrame, output_dir: Pa
 
 
 def _build_cli_parser() -> argparse.ArgumentParser:
+    """Construct CLI argument parser for the mapping export command.
+
+    Returns:
+        Configured ArgumentParser instance.
+    """
     parser = argparse.ArgumentParser(
-        description="Read an Excel sequence mapping file and export each plan as JSON.",
+        description=(
+            "Export plan JSON files and offerings summaries from a sequence mapping "
+            "Excel workbook."
+        ),
+        epilog=(
+            "Example: mapping_checker.py 'plans/CEIC/CEIC Program Sequence Mapping.xlsx' "
+            "--output-dir plans/CEIC -v"
+        ),
     )
-    parser.add_argument("excel_file", help="Path to the Excel mapping file")
+    parser.add_argument(
+        "excel_file",
+        help="Path to the source Excel mapping workbook",
+    )
     parser.add_argument(
         "--output-dir",
         default=None,
-        help="Directory to write plan JSON files (default: directory of the Excel file)",
+        help=(
+            "Directory where exported plan/offering files are written "
+            "(default: directory containing the Excel file)"
+        ),
     )
     parser.add_argument(
         "-v", "--verbose",
@@ -205,6 +322,11 @@ def _build_cli_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the CLI export workflow.
+
+    Returns:
+        Process exit code (0 on success).
+    """
     parser = _build_cli_parser()
     args = parser.parse_args(argv)
 

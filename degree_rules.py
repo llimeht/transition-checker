@@ -1,4 +1,16 @@
+#!/usr/bin/python3
+
 from __future__ import annotations
+
+"""Validate degree rule expressions and check plan prerequisite compliance.
+
+This module provides:
+- schema normalization/validation for degree rules,
+- boolean evaluation of canonical rule expressions,
+- plan-course extraction and ordering,
+- prerequisite/corequisite parsing and validation, and
+- a CLI for validating rules and optional plan checks.
+"""
 
 import argparse
 import json
@@ -16,6 +28,7 @@ RuleExpr = CourseCode | dict[str, Any]
 
 
 class PlanCourseRecord(TypedDict, total=False):
+    """Subset of plan JSON course fields needed by rule/prerequisite checks."""
     code: str
     year: int
     period: str
@@ -26,6 +39,7 @@ class PlanCourseRecord(TypedDict, total=False):
 
 @dataclass(frozen=True)
 class ScheduledPlanCourse:
+    """Normalized and sortable in-plan course record used for validation."""
     index: int
     code: str
     year: int
@@ -55,6 +69,18 @@ CO_REQUISITE_RE = re.compile(
 
 
 def _parse_int_like(value: Any, field_path: str) -> int:
+    """Parse integer-like values used in plan and rules payloads.
+
+    Args:
+        value: Raw JSON value to parse.
+        field_path: Field path used in validation errors.
+
+    Returns:
+        Parsed integer value.
+
+    Raises:
+        RuleValidationError: If value cannot be interpreted as an integer.
+    """
     if isinstance(value, bool):
         raise RuleValidationError(field_path, "must be an integer")
     if isinstance(value, int):
@@ -67,6 +93,14 @@ def _parse_int_like(value: Any, field_path: str) -> int:
 
 
 def _period_rank(period: str) -> int | None:
+    """Map teaching-period labels to sortable rank values.
+
+    Args:
+        period: Period label from plan data.
+
+    Returns:
+        Integer rank when period is supported, otherwise None.
+    """
     normalized = period.strip().lower()
     lookup = {
         "summer term": 5,
@@ -86,6 +120,7 @@ def _period_rank(period: str) -> int | None:
 
 
 def _course_rank(course_n: str) -> int:
+    """Extract numeric ordering from ``course_n``; unknown values sort last."""
     match = re.search(r"(\d+)", course_n)
     if not match:
         return 999
@@ -93,6 +128,7 @@ def _course_rank(course_n: str) -> int:
 
 
 def _canonicalize_prereq_text(text: str) -> str:
+    """Normalize prerequisite text for token-based expression parsing."""
     canonical = text.upper()
     canonical = canonical.replace("&", " AND ")
     canonical = canonical.replace(",", " AND ")
@@ -103,6 +139,7 @@ def _canonicalize_prereq_text(text: str) -> str:
 
 
 def _and_expressions(expressions: list[RuleExpr]) -> RuleExpr:
+    """Combine expressions with flattened ``and`` semantics."""
     if len(expressions) == 1:
         return expressions[0]
 
@@ -116,6 +153,14 @@ def _and_expressions(expressions: list[RuleExpr]) -> RuleExpr:
 
 
 def _parse_prerequisite_expression_single(text: str) -> tuple[RuleExpr | None, str | None]:
+    """Parse one prerequisite expression segment.
+
+    Args:
+        text: Prerequisite text segment without PLUS splitting.
+
+    Returns:
+        Tuple of parsed expression and parse error message.
+    """
     canonical = _canonicalize_prereq_text(text)
     if not canonical:
         return None, None
@@ -212,6 +257,14 @@ def _parse_prerequisite_expression_single(text: str) -> tuple[RuleExpr | None, s
 
 
 def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | None]:
+    """Parse prerequisite text with support for PLUS conjunctions.
+
+    Args:
+        text: Raw prerequisite text.
+
+    Returns:
+        Tuple of parsed expression and parse error message.
+    """
     raw = text.strip()
     if not raw:
         return None, None
@@ -234,6 +287,14 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
 
 
 def _split_prerequisite_parts(raw_text: str) -> tuple[str, str | None]:
+    """Split raw prerequisite text into prerequisite and corequisite sections.
+
+    Args:
+        raw_text: Original prerequisite field text.
+
+    Returns:
+        Tuple of (prerequisite_text, corequisite_text_or_none).
+    """
     coreq_match = CO_REQUISITE_RE.search(raw_text)
     if not coreq_match:
         return raw_text, None
@@ -248,6 +309,13 @@ def _split_prerequisite_parts(raw_text: str) -> tuple[str, str | None]:
 
 
 def _parse_prerequisite_field(raw_text: str) -> tuple[RuleExpr | None, RuleExpr | None, str | None]:
+    """Parse a plan prerequisite field into prerequisite/corequisite expressions.
+
+    Returns:
+        Tuple ``(prereq_expr, coreq_expr, error_message)`` where expressions are
+        ``None`` when absent. ``error_message`` is populated for unsupported
+        formats that cannot be parsed safely.
+    """
     trimmed = raw_text.strip()
     if not trimmed or trimmed in {".", "0"}:
         return None, None, None
@@ -272,6 +340,14 @@ def _parse_prerequisite_field(raw_text: str) -> tuple[RuleExpr | None, RuleExpr 
 
 
 def extract_scheduled_courses(plan_data: dict[str, Any]) -> list[ScheduledPlanCourse]:
+    """Extract, normalize, and sort planned courses chronologically.
+
+    Args:
+        plan_data: Parsed plan JSON object.
+
+    Returns:
+        List of normalized scheduled course records.
+    """
     courses_value = plan_data.get("courses")
     if not isinstance(courses_value, list):
         raise RuleValidationError("plan.courses", "plan JSON must contain a 'courses' array")
@@ -338,6 +414,11 @@ def _course_history(
     idx: int,
     include_same_period: bool,
 ) -> list[ScheduledPlanCourse]:
+    """Return historical courses relative to the course at ``idx``.
+
+    ``include_same_period`` controls whether concurrent courses are included,
+    which is required for corequisite validation.
+    """
     current = courses[idx]
     available: list[ScheduledPlanCourse] = []
     for other_idx, other in enumerate(courses):
@@ -352,6 +433,13 @@ def _course_history(
 
 
 def validate_plan_prerequisites(plan_data: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Validate prerequisite and corequisite expressions for all plan courses.
+
+    Returns:
+        A tuple ``(failures, unsupported)`` where:
+        - ``failures`` contains unmet prerequisite/corequisite diagnostics.
+        - ``unsupported`` contains expressions that could not be parsed.
+    """
     courses = extract_scheduled_courses(plan_data)
     failures: list[str] = []
     unsupported: list[str] = []
@@ -386,11 +474,19 @@ def validate_plan_prerequisites(plan_data: dict[str, Any]) -> tuple[list[str], l
 
 
 def _is_course_code(value: Any) -> bool:
+    """Return ``True`` when value is a non-empty course code string."""
     return isinstance(value, str) and bool(value.strip())
 
 
 def normalize_clause(clause: Any) -> RuleExpr:
-    """Normalize one requirement clause from canonical forms only."""
+    """Normalize one rule clause into canonical expression format.
+
+    Args:
+        clause: Raw clause value from rules JSON.
+
+    Returns:
+        Canonical rule expression.
+    """
     if _is_course_code(clause):
         return cast(str, clause).strip()
 
@@ -437,8 +533,13 @@ def normalize_clause(clause: Any) -> RuleExpr:
 
 
 def normalize_rules_config(config: dict[str, Any]) -> dict[str, Any]:
-    """
-    Return a canonicalized copy of the full rules config.
+    """Return canonicalized copy of full rules configuration.
+
+    Args:
+        config: Raw rules configuration JSON object.
+
+    Returns:
+        Canonicalized rules configuration with schemaVersion set.
 
     Canonical clause grammar:
     - leaf: "COURSE1234"
@@ -463,7 +564,12 @@ def normalize_rules_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_canonical_expression(expr: RuleExpr, path: str = "<clause>") -> None:
-    """Validate canonical expression shape (string leaves, and/or nodes, min/from nodes)."""
+    """Validate structural correctness of one canonical expression.
+
+    Args:
+        expr: Canonical expression to validate.
+        path: Field path for validation error messages.
+    """
     if _is_course_code(expr):
         return
 
@@ -511,7 +617,16 @@ def evaluate_expression(
     completed_courses: Counter[str],
     completed_uoc: int = 0,
 ) -> bool:
-    """Evaluate canonical expression against completed courses and UoC."""
+    """Evaluate canonical expression against completed course history.
+
+    Args:
+        expr: Canonical expression to evaluate.
+        completed_courses: Counter of completed course codes.
+        completed_uoc: Total completed units of credit.
+
+    Returns:
+        True when expression is satisfied, otherwise False.
+    """
     if _is_course_code(expr):
         return expr in completed_courses
 
@@ -552,7 +667,15 @@ def evaluate_expression(
 
 
 def evaluate_level(level_clauses: list[RuleExpr], completed_courses: Counter[str]) -> bool:
-    """Level semantics: all clauses in the level must evaluate to True."""
+    """Evaluate one requirement level using all-clauses semantics.
+
+    Args:
+        level_clauses: Canonical clauses for one level.
+        completed_courses: Counter of completed course codes.
+
+    Returns:
+        True when all clauses are satisfied.
+    """
     return all(evaluate_expression(clause, completed_courses) for clause in level_clauses)
 
 
@@ -560,7 +683,15 @@ def evaluate_required(
     normalized_config: dict[str, Any],
     completed_courses: Counter[str],
 ) -> dict[str, bool]:
-    """Return pass/fail per level under required-level AND semantics."""
+    """Evaluate all required levels for a completed-course history.
+
+    Args:
+        normalized_config: Canonical rules configuration.
+        completed_courses: Counter of completed course codes.
+
+    Returns:
+        Mapping of level name to pass/fail status.
+    """
     required = normalized_config.get("required", {})
     if not isinstance(required, dict):
         raise RuleValidationError("required", "required must be an object")
@@ -581,7 +712,14 @@ def evaluate_required(
 
 
 def validate_rules_config(config: dict[str, Any]) -> dict[str, Any]:
-    """Normalize and validate the full rules config; return canonical config."""
+    """Normalize and validate full degree rules configuration.
+
+    Args:
+        config: Raw rules configuration JSON object.
+
+    Returns:
+        Canonical validated rules configuration.
+    """
     normalized = normalize_rules_config(config)
 
     required = normalized.get("required", {})
@@ -602,7 +740,15 @@ def validate_rules_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def expression_to_text(expr: RuleExpr, parent_op: str | None = None) -> str:
-    """Render one canonical expression into a readable infix boolean string."""
+    """Render canonical expression as readable infix text.
+
+    Args:
+        expr: Canonical expression to render.
+        parent_op: Parent boolean operator used for grouping.
+
+    Returns:
+        Human-readable expression string.
+    """
     if _is_course_code(expr):
         return cast(str, expr)
 
@@ -632,7 +778,14 @@ def expression_to_text(expr: RuleExpr, parent_op: str | None = None) -> str:
 
 
 def render_rules_human(config: dict[str, Any]) -> str:
-    """Render the validated rules config into a human-friendly multi-line summary."""
+    """Render validated rules config as human-friendly summary text.
+
+    Args:
+        config: Canonical rules configuration.
+
+    Returns:
+        Multi-line summary string.
+    """
     lines: list[str] = []
     schema_version = config.get("schemaVersion", 2)
     lines.append(f"Degree rules (schemaVersion {schema_version})")
@@ -652,7 +805,16 @@ def diagnose_expression(
     completed_courses: Counter[str],
     completed_uoc: int = 0,
 ) -> str:
-    """Describe what is missing for a failed expression."""
+    """Explain why a failed expression is not currently satisfied.
+
+    Args:
+        expr: Canonical expression to diagnose.
+        completed_courses: Counter of completed course codes.
+        completed_uoc: Total completed units of credit.
+
+    Returns:
+        Human-readable diagnosis string.
+    """
     if _is_course_code(expr):
         return f"missing {expr}"
 
@@ -697,7 +859,15 @@ def report_plan(
     normalized_config: dict[str, Any],
     completed_courses: Counter[str],
 ) -> list[str]:
-    """Return a list of human-readable failure strings for each unsatisfied clause."""
+    """Build clause-level failure report for one plan.
+
+    Args:
+        normalized_config: Canonical rules configuration.
+        completed_courses: Counter of completed course codes.
+
+    Returns:
+        List of human-readable failure strings.
+    """
     failures: list[str] = []
     required = cast(dict[str, Any], normalized_config.get("required", {}))
     for level_name, clauses in required.items():
@@ -711,6 +881,14 @@ def report_plan(
 
 
 def extract_completed_courses(plan_data: dict[str, Any]) -> Counter[str]:
+    """Extract completed course counts from plan JSON data.
+
+    Args:
+        plan_data: Parsed plan JSON object.
+
+    Returns:
+        Counter keyed by course code.
+    """
     courses_value = plan_data.get("courses")
     if not isinstance(courses_value, list):
         raise RuleValidationError("plan.courses", "plan JSON must contain a 'courses' array")
@@ -729,24 +907,44 @@ def extract_completed_courses(plan_data: dict[str, Any]) -> Counter[str]:
 
 
 def _build_cli_parser() -> argparse.ArgumentParser:
+    """Construct CLI parser for degree-rules validation command.
+
+    Returns:
+        Configured ArgumentParser instance.
+    """
     parser = argparse.ArgumentParser(
-        description="Validate and pretty-print degree rules JSON in canonical AND/OR/min-from grammar."
+        description=(
+            "Validate degree rule JSON and optionally check a plan against "
+            "rules and parsed prerequisite/corequisite constraints."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  degree_rules.py rules/CEICAH3707.json -v\n"
+            "  degree_rules.py rules/CEICAH3707.json --plan plans/CEIC/CEICAH3707_2026_T1.json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("rules_file", help="Path to rules JSON file")
+    parser.add_argument(
+        "rules_file",
+        help="Path to degree rules JSON file",
+    )
     parser.add_argument(
         "--json-output",
         action="store_true",
-        help="Print the validated canonical JSON after validation",
+        help="Print the validated canonical rules JSON",
     )
     parser.add_argument(
         "--plan",
         metavar="PLAN_FILE",
-        help="Path to a plan JSON file; report rule and prerequisite/corequisite validation",
+        help=(
+            "Path to a plan JSON file to validate against the supplied rules "
+            "and prerequisite/corequisite checks"
+        ),
     )
     parser.add_argument(
         "--plan-report-json",
         action="store_true",
-        help="When used with --plan, print machine-readable plan validation JSON",
+        help="With --plan, print machine-readable validation JSON",
     )
     parser.add_argument(
         "-v", "--verbose",
@@ -758,6 +956,12 @@ def _build_cli_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the degree-rules CLI workflow.
+
+    Returns:
+        Process exit code, where non-zero indicates validation failure or invalid
+        input.
+    """
     parser = _build_cli_parser()
     args = parser.parse_args(argv)
 
