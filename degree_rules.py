@@ -162,7 +162,7 @@ def evaluate_expression(expr: RuleExpr, completed_courses: Counter[str]) -> bool
         min_count = cast(int, node["min"])
         from_exprs = cast(list[RuleExpr], node["from"])
         satisfied = sum(
-            completed_courses[child] if _is_course_code(child)
+            completed_courses[cast(str, child)] if _is_course_code(child)
             else int(evaluate_expression(child, completed_courses))
             for child in from_exprs
         )
@@ -286,7 +286,7 @@ def diagnose_expression(expr: RuleExpr, completed_courses: Counter[str]) -> str:
         min_count = cast(int, node["min"])
         from_exprs = cast(list[RuleExpr], node["from"])
         satisfied = sum(
-            completed_courses[child] if _is_course_code(child)
+            completed_courses[cast(str, child)] if _is_course_code(child)
             else int(evaluate_expression(child, completed_courses))
             for child in from_exprs
         )
