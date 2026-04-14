@@ -5,11 +5,15 @@ import json
 import sys
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 
 CourseCode = str
 RuleExpr = CourseCode | dict[str, Any]
+
+
+class PlanCourseRecord(TypedDict, total=False):
+    code: str
 
 
 @dataclass
@@ -38,8 +42,24 @@ def normalize_clause(clause: Any) -> RuleExpr:
 
     if isinstance(clause, dict):
         operator_clause = cast(dict[str, Any], clause)
+        keys = set(operator_clause.keys())
+
+        if keys == {"min", "from"}:
+            min_count = operator_clause["min"]
+            from_value = operator_clause["from"]
+            if not isinstance(min_count, int) or min_count < 1:
+                raise RuleValidationError("<clause>.min", "'min' must be a positive integer")
+            if not isinstance(from_value, list):
+                raise RuleValidationError("<clause>.from", "'from' must be an array")
+            from_courses = cast(list[Any], from_value)
+            if len(from_courses) < min_count:
+                raise RuleValidationError(
+                    "<clause>", f"'from' has {len(from_courses)} options but 'min' is {min_count}"
+                )
+            return {"min": min_count, "from": [normalize_clause(child) for child in from_courses]}
+
         if len(operator_clause) != 1:
-            raise RuleValidationError("<clause>", "operator clause must contain exactly one key")
+            raise RuleValidationError("<clause>", "operator clause must contain exactly one key (or 'min' + 'from')")
         op = next(iter(operator_clause.keys()))
         if op not in ("and", "or"):
             raise RuleValidationError("<clause>", f"unsupported operator '{op}'")
@@ -83,16 +103,35 @@ def normalize_rules_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_canonical_expression(expr: RuleExpr, path: str = "<clause>") -> None:
-    """Validate canonical expression shape (string leaves + and/or nodes)."""
+    """Validate canonical expression shape (string leaves, and/or nodes, min/from nodes)."""
     if _is_course_code(expr):
         return
 
     if not isinstance(expr, dict):
         raise RuleValidationError(path, "expression must be a course string or operator object")
-    if len(expr) != 1:
-        raise RuleValidationError(path, "operator object must contain exactly one key")
 
-    op = next(iter(expr.keys()))
+    keys = set(expr.keys())
+
+    if keys == {"min", "from"}:
+        min_count = expr["min"]
+        from_value = expr["from"]
+        if not isinstance(min_count, int) or min_count < 1:
+            raise RuleValidationError(f"{path}.min", "'min' must be a positive integer")
+        if not isinstance(from_value, list):
+            raise RuleValidationError(f"{path}.from", "'from' must be an array")
+        from_courses = cast(list[RuleExpr], from_value)
+        if len(from_courses) < min_count:
+            raise RuleValidationError(
+                path, f"'from' has {len(from_courses)} options but 'min' is {min_count}"
+            )
+        for idx, child in enumerate(from_courses):
+            validate_canonical_expression(child, f"{path}.from[{idx}]")
+        return
+
+    if len(keys) != 1:
+        raise RuleValidationError(path, "operator object must contain exactly one key (or 'min' + 'from')")
+
+    op = next(iter(keys))
     if op not in ("and", "or"):
         raise RuleValidationError(path, f"unknown operator '{op}'")
 
@@ -112,11 +151,22 @@ def evaluate_expression(expr: RuleExpr, completed_courses: set[str]) -> bool:
     if _is_course_code(expr):
         return expr in completed_courses
 
-    if not isinstance(expr, dict) or len(expr) != 1:
+    if not isinstance(expr, dict):
         raise RuleValidationError("<eval>", "invalid expression shape")
 
-    op = next(iter(expr.keys()))
-    children = expr[op]
+    node = expr
+
+    if set(node.keys()) == {"min", "from"}:
+        min_count = cast(int, node["min"])
+        from_exprs = cast(list[RuleExpr], node["from"])
+        satisfied = sum(evaluate_expression(child, completed_courses) for child in from_exprs)
+        return satisfied >= min_count
+
+    if len(node) != 1:
+        raise RuleValidationError("<eval>", "invalid expression shape")
+
+    op = next(iter(node.keys()))
+    children = cast(list[RuleExpr], node[op])
     results = [evaluate_expression(child, completed_courses) for child in children]
 
     if op == "and":
@@ -183,6 +233,16 @@ def expression_to_text(expr: RuleExpr, parent_op: str | None = None) -> str:
         return cast(str, expr)
 
     node = cast(dict[str, Any], expr)
+
+    if set(node.keys()) == {"min", "from"}:
+        min_count = cast(int, node["min"])
+        from_exprs = cast(list[RuleExpr], node["from"])
+        total = len(from_exprs)
+        items = ", ".join(expression_to_text(child) for child in from_exprs)
+        if min_count == total:
+            return f"ALL OF ({items})"
+        return f"AT LEAST {min_count} OF ({items})"
+
     op = next(iter(node.keys()))
     children = cast(list[RuleExpr], node[op])
     joiner = f" {op.upper()} "
@@ -209,15 +269,89 @@ def render_rules_human(config: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def diagnose_expression(expr: RuleExpr, completed_courses: set[str]) -> str:
+    """Describe what is missing for a failed expression."""
+    if _is_course_code(expr):
+        return f"missing {expr}"
+
+    node = cast(dict[str, Any], expr)
+
+    if set(node.keys()) == {"min", "from"}:
+        min_count = cast(int, node["min"])
+        from_exprs = cast(list[RuleExpr], node["from"])
+        satisfied = sum(evaluate_expression(child, completed_courses) for child in from_exprs)
+        needed = min_count - satisfied
+        options = ", ".join(expression_to_text(e) for e in from_exprs)
+        return f"need {needed} more from ({options})"
+
+    op = next(iter(node.keys()))
+    children = cast(list[RuleExpr], node[op])
+
+    if op == "and":
+        failed_diagnoses = [
+            diagnose_expression(child, completed_courses)
+            for child in children
+            if not evaluate_expression(child, completed_courses)
+        ]
+        return "; ".join(failed_diagnoses)
+
+    if op == "or":
+        options = ", ".join(expression_to_text(child) for child in children)
+        return f"none of the alternatives were completed: ({options})"
+
+    return f"unknown operator '{op}'"
+
+
+def report_plan(
+    normalized_config: dict[str, Any],
+    completed_courses: set[str],
+) -> list[str]:
+    """Return a list of human-readable failure strings for each unsatisfied clause."""
+    failures: list[str] = []
+    required = cast(dict[str, Any], normalized_config.get("required", {}))
+    for level_name, clauses in required.items():
+        level_clauses = cast(list[RuleExpr], clauses)
+        for idx, clause in enumerate(level_clauses, start=1):
+            if not evaluate_expression(clause, completed_courses):
+                rule_text = expression_to_text(clause)
+                diagnosis = diagnose_expression(clause, completed_courses)
+                failures.append(f"[{level_name}] clause {idx}: {rule_text} \u2014 {diagnosis}")
+    return failures
+
+
+def extract_completed_courses(plan_data: dict[str, Any]) -> set[str]:
+    courses_value = plan_data.get("courses")
+    if not isinstance(courses_value, list):
+        raise RuleValidationError("plan.courses", "plan JSON must contain a 'courses' array")
+
+    completed_courses: set[str] = set()
+    course_items = cast(list[Any], courses_value)
+    for idx, course in enumerate(course_items):
+        if not isinstance(course, dict):
+            raise RuleValidationError(f"plan.courses[{idx}]", "course entry must be an object")
+
+        course_record = cast(PlanCourseRecord, course)
+        code = course_record.get("code")
+        if isinstance(code, str) and code.strip():
+            completed_courses.add(code)
+
+    return completed_courses
+
+
 def _build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Validate and pretty-print degree rules JSON in canonical AND/OR grammar."
+        description="Validate and pretty-print degree rules JSON in canonical AND/OR/min-from grammar."
     )
     parser.add_argument("rules_file", help="Path to rules JSON file")
     parser.add_argument(
         "--json-output",
         action="store_true",
         help="Print the validated canonical JSON after validation",
+    )
+    parser.add_argument(
+        "--plan",
+        metavar="PLAN_FILE",
+        help="Path to a plan JSON file; report which degree rules the plan does not satisfy",
     )
     return parser
 
@@ -253,6 +387,38 @@ def main(argv: list[str] | None = None) -> int:
         print()
         print("Canonical JSON")
         print(json.dumps(validated, indent=2, sort_keys=False))
+
+    if args.plan:
+        try:
+            with open(args.plan, "r", encoding="utf-8") as fh:
+                plan_data = json.load(fh)
+        except FileNotFoundError:
+            print(f"Error: plan file not found: {args.plan}", file=sys.stderr)
+            return 1
+        except json.JSONDecodeError as exc:
+            print(f"Error: invalid plan JSON: {exc}", file=sys.stderr)
+            return 1
+
+        if not isinstance(plan_data, dict):
+            print("Error: plan JSON must be an object with a 'courses' array", file=sys.stderr)
+            return 1
+
+        try:
+            completed_courses = extract_completed_courses(cast(dict[str, Any], plan_data))
+        except RuleValidationError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+
+        failures = report_plan(validated, completed_courses)
+
+        print()
+        if failures:
+            print(f"Plan does not satisfy {len(failures)} rule(s):")
+            for failure in failures:
+                print(f"  {failure}")
+            return 1
+        else:
+            print("Plan satisfies all rules.")
 
     return 0
 
