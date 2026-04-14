@@ -220,19 +220,22 @@ def _to_string(val: Any) -> str:
     return str(val)
 
 
-def _to_int(val: Any) -> int:
+def _to_int(val: Any, default: int | None = None) -> int:
     """Convert a spreadsheet cell value to integer.
 
     Args:
         val: Raw cell value.
+        default: Value to return if cell is blank. If None, raises ValueError.
 
     Returns:
-        Parsed integer value.
+        Parsed integer value or default if cell is blank and default is provided.
 
     Raises:
-        ValueError: If value is blank or not integer-compatible.
+        ValueError: If value is blank (and no default), or not integer-compatible.
     """
     if pd.isna(val):
+        if default is not None:
+            return default
         raise ValueError("expected an integer-compatible value, got blank cell")
     if isinstance(val, bool):
         return int(val)
@@ -257,21 +260,26 @@ def plan_to_dict(sheet_name: str, intake: str, plan: pd.DataFrame) -> PlanExport
         Plan payload matching the PlanExport schema.
     """
     courses: list[PlanCourse] = []
-    for _, row in plan.iterrows():
+    for idx, row in plan.iterrows():
         if pd.isna(row["Code"]):
             continue
-        courses.append(
-            {
-                "enrol_year": _to_string(row["EnrolYear"]),
-                "year": _to_int(row["Year"]),
-                "period": _to_string(row["Period"]),
-                "course_n": _to_string(row["CourseN"]),
-                "code": str(row["Code"]),
-                "title": _to_string(row["Title"]),
-                "uoc": _to_int(row["UoC"]),
-                "prerequisites": _to_string(row["Prerequisites"]),
-            }
-        )
+        try:
+            courses.append(
+                {
+                    "enrol_year": _to_string(row["EnrolYear"]),
+                    "year": _to_int(row["Year"]),
+                    "period": _to_string(row["Period"]),
+                    "course_n": _to_string(row["CourseN"]),
+                    "code": str(row["Code"]),
+                    "title": _to_string(row["Title"]),
+                    "uoc": _to_int(row["UoC"], default=0),
+                    "prerequisites": _to_string(row["Prerequisites"]),
+                }
+            )
+        except (ValueError, KeyError) as e:
+            raise ValueError(
+                f"{sheet_name} intake {intake}, row {idx}: {e}"
+            ) from e
     return {"sheet": sheet_name, "intake": intake, "courses": courses}
 
 
