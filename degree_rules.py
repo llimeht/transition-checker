@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from copy import deepcopy
 from dataclasses import dataclass
@@ -353,12 +354,32 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         metavar="PLAN_FILE",
         help="Path to a plan JSON file; report which degree rules the plan does not satisfy",
     )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="count",
+        default=0,
+        help="Increase logging verbosity (-v for INFO, -vv for DEBUG)",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_cli_parser()
     args = parser.parse_args(argv)
+
+    # Configure logging based on verbosity
+    if args.verbose >= 2:
+        log_level = logging.DEBUG
+    elif args.verbose >= 1:
+        log_level = logging.INFO
+    else:
+        log_level = logging.WARNING
+
+    logging.basicConfig(
+        level=log_level,
+        format="%(levelname)s: %(message)s",
+    )
+    logger = logging.getLogger(__name__)
 
     try:
         with open(args.rules_file, "r", encoding="utf-8") as handle:
@@ -380,12 +401,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Validation failed: {exc}", file=sys.stderr)
         return 1
 
-    print("Validation: OK")
-    print(render_rules_human(validated))
+    logger.info("Rules validation: OK")
+    logger.debug("Rules:\n" + render_rules_human(validated))
 
     if args.json_output:
-        print()
-        print("Canonical JSON")
+        print("\nCanonical JSON")
         print(json.dumps(validated, indent=2, sort_keys=False))
 
     if args.plan:
@@ -411,7 +431,6 @@ def main(argv: list[str] | None = None) -> int:
 
         failures = report_plan(validated, completed_courses)
 
-        print()
         if failures:
             print(f"Plan does not satisfy {len(failures)} rule(s):")
             for failure in failures:
@@ -419,6 +438,11 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         else:
             print("Plan satisfies all rules.")
+    else:
+        # Only show full rules output if not checking a plan or if verbose
+        if args.verbose > 0:
+            print()
+            print(render_rules_human(validated))
 
     return 0
 
