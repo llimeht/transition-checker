@@ -117,6 +117,24 @@ def write_offerings_file(summary: dict[str, set[str]], excel_filename: Path, out
     return filepath
 
 
+def write_offerings_csv(summary: dict[str, set[str]], excel_filename: Path, output_dir: Path) -> Path:
+    """Write offerings summary to a CSV matrix with Y values for offered periods."""
+    base_name = excel_filename.stem
+    filepath = output_dir / f"{base_name}_offerings.csv"
+
+    all_periods = sorted({period for periods in summary.values() for period in periods})
+    rows: list[dict[str, str]] = []
+    for course in sorted(summary.keys()):
+        row = {"course": course}
+        for period in all_periods:
+            row[period] = "Y" if period in summary[course] else ""
+        rows.append(row)
+
+    columns = ["course", *all_periods]
+    pd.DataFrame(rows, columns=columns).to_csv(filepath, index=False)
+    return filepath
+
+
 def _to_string(val: Any) -> str:
     if pd.isna(val):
         return ""
@@ -228,7 +246,9 @@ def main(argv: list[str] | None = None) -> int:
     # Write offerings summary to file
     offerings_summary = summarise_offerings(offerings)
     offerings_path = write_offerings_file(offerings_summary, excel_file, output_dir_path)
+    offerings_csv_path = write_offerings_csv(offerings_summary, excel_file, output_dir_path)
     logger.info(f"Offerings summary written to: {offerings_path}")
+    logger.info(f"Offerings CSV written to: {offerings_csv_path}")
 
     # Log the offerings summary
     logger.debug("Offerings summary:")
