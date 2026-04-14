@@ -101,7 +101,9 @@ def main() -> int:
     plan_files = sorted(
         p
         for p in output_dir.glob("*.json")
-        if p.is_file() and not p.name.endswith("_offerings.json")
+        if p.is_file()
+        and not p.name.endswith("_offerings.json")
+        and not p.name.endswith("_offering_violations.json")
     )
 
     if not plan_files:
@@ -164,7 +166,40 @@ def main() -> int:
         unsupported_prereqs = plan_report.get("unsupported_prerequisites")
         plan_is_valid = bool(plan_report.get("valid")) if plan_report else result.returncode == 0
 
-        if plan_is_valid:
+        # Check offerings
+        offerings_file = script_dir / "plans" / "offerings.json"
+        offering_violations: list[dict[str, object]] = []
+        offerings_valid = False
+        offering_result_raw = run_cmd(
+            [
+                sys.executable,
+                str(script_dir / "offering_checker.py"),
+                str(plan_file),
+                "--offerings",
+                str(offerings_file),
+                "--result-json",
+            ]
+        )
+        try:
+            offering_report = json.loads(offering_result_raw.stdout) if offering_result_raw.stdout.strip() else {}
+            if isinstance(offering_report, dict):
+                offering_violations_val = offering_report.get("violations", [])
+                if isinstance(offering_violations_val, list):
+                    offering_violations = offering_violations_val
+                offerings_valid = bool(offering_report.get("valid", False))
+            else:
+                raise ValueError("offering checker returned non-object JSON")
+        except (json.JSONDecodeError, ValueError) as exc:
+            message = offering_result_raw.stderr.strip() or str(exc)
+            offering_violations = [{"error_type": "offering_check_error", "message": message}]
+            offerings_valid = False
+
+        if offering_result_raw.returncode > 1 and not offering_violations:
+            message = offering_result_raw.stderr.strip() or "offering checker process failed"
+            offering_violations = [{"error_type": "offering_check_error", "message": message}]
+            offerings_valid = False
+
+        if plan_is_valid and offerings_valid:
             print(f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✓ PASS':>{status_col_width}}")
             valid += 1
             results.append(
@@ -176,24 +211,34 @@ def main() -> int:
                     "rule_failures": rule_failures if isinstance(rule_failures, list) else [],
                     "prerequisite_failures": prereq_failures if isinstance(prereq_failures, list) else [],
                     "unsupported_prerequisites": unsupported_prereqs if isinstance(unsupported_prereqs, list) else [],
+                    "offering_violations": offering_violations,
                 }
             )
             continue
 
         print(f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✗ FAIL':>{status_col_width}}")
-        combined_output = f"{result.stdout}{result.stderr}".strip()
-        results.append(
-            {
-                "plan_file": str(plan_file),
-                "program_code": program_code,
-                "rule_file": rule_name,
-                "status": "failed",
-                "error_output": combined_output,
-                "rule_failures": rule_failures if isinstance(rule_failures, list) else [],
-                "prerequisite_failures": prereq_failures if isinstance(prereq_failures, list) else [],
-                "unsupported_prerequisites": unsupported_prereqs if isinstance(unsupported_prereqs, list) else [],
-            }
-        )
+        has_structured_rule_report = bool(plan_report)
+        rule_process_error_output = ""
+        if result.stderr.strip():
+            rule_process_error_output = result.stderr.strip()
+        elif result.returncode != 0 and not has_structured_rule_report:
+            # Only treat stdout as an error when degree_rules did not return structured JSON.
+            rule_process_error_output = result.stdout.strip()
+
+        failed_entry: dict[str, object] = {
+            "plan_file": str(plan_file),
+            "program_code": program_code,
+            "rule_file": rule_name,
+            "status": "failed",
+            "rule_failures": rule_failures if isinstance(rule_failures, list) else [],
+            "prerequisite_failures": prereq_failures if isinstance(prereq_failures, list) else [],
+            "unsupported_prerequisites": unsupported_prereqs if isinstance(unsupported_prereqs, list) else [],
+            "offering_violations": offering_violations,
+        }
+        if rule_process_error_output:
+            failed_entry["error_output"] = rule_process_error_output
+
+        results.append(failed_entry)
         detail_lines: list[str] = []
 
         if isinstance(rule_failures, list) and rule_failures:
@@ -211,8 +256,36 @@ def main() -> int:
             for failure in unsupported_prereqs:
                 detail_lines.append(f"  - {failure}")
 
-        if combined_output and not detail_lines:
-            detail_lines.append(combined_output)
+        if offering_violations:
+            detail_lines.append(f"offering_violations={len(offering_violations)}")
+            for viol in offering_violations:
+                if not isinstance(viol, dict):
+                    detail_lines.append(f"  - {viol}")
+                    continue
+
+                error_type = str(viol.get("error_type", ""))
+                if error_type == "offering_check_error":
+                    message = str(viol.get("message", "Unknown offering check error"))
+                    detail_lines.append(f"  - {message}")
+                    continue
+
+                code = str(viol.get("course_code", ""))
+                planned_period = str(viol.get("planned_period", ""))
+                allowed_periods_val = viol.get("allowed_periods", [])
+                allowed_periods = allowed_periods_val if isinstance(allowed_periods_val, list) else []
+                allowed_text = ", ".join(str(p) for p in allowed_periods) if allowed_periods else "(none)"
+
+                if error_type == "course_not_found":
+                    detail_lines.append(f"  - {code}: not found in offerings (planned {planned_period})")
+                elif error_type == "period_not_allowed":
+                    detail_lines.append(
+                        f"  - {code}: planned {planned_period}; allowed: {allowed_text}"
+                    )
+                else:
+                    detail_lines.append(f"  - {code}: {error_type} (planned {planned_period})")
+
+        if rule_process_error_output and not detail_lines:
+            detail_lines.append(rule_process_error_output)
 
         if detail_lines:
             failure_details.append((plan_file.name, rule_name, "\n".join(detail_lines)))
