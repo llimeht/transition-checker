@@ -3,3 +3,4 @@ __pycache__/
 .venv/
 plans/
 .mypy_cache/
+.ruff_cache/
