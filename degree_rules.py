@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 from collections import Counter
 from copy import deepcopy
@@ -16,6 +17,23 @@ RuleExpr = CourseCode | dict[str, Any]
 
 class PlanCourseRecord(TypedDict, total=False):
     code: str
+    year: int
+    period: str
+    course_n: str
+    uoc: int
+    prerequisites: str
+
+
+@dataclass(frozen=True)
+class ScheduledPlanCourse:
+    index: int
+    code: str
+    year: int
+    period: str
+    period_rank: int
+    course_rank: int
+    uoc: int
+    prerequisites: str
 
 
 @dataclass
@@ -25,6 +43,347 @@ class RuleValidationError(Exception):
 
     def __str__(self) -> str:
         return f"{self.path}: {self.message}"
+
+
+COURSE_TOKEN_RE = re.compile(r"[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?")
+UOC_TOKEN_RE = re.compile(r"(\d+)\s*UOC", re.IGNORECASE)
+PREREQ_TOKEN_RE = re.compile(r"\s*(\(|\)|AND|OR|\d+\s*UOC|[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?)\s*", re.IGNORECASE)
+CO_REQUISITE_RE = re.compile(
+    r"\b(?:CO-?REQ\w*)\b\s*:?",
+    re.IGNORECASE,
+)
+
+
+def _parse_int_like(value: Any, field_path: str) -> int:
+    if isinstance(value, bool):
+        raise RuleValidationError(field_path, "must be an integer")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    raise RuleValidationError(field_path, "must be an integer")
+
+
+def _period_rank(period: str) -> int | None:
+    normalized = period.strip().lower()
+    lookup = {
+        "summer term": 5,
+        "term 1": 10,
+        "term 2": 20,
+        "winter term": 25,
+        "term 3": 30,
+        "semester 1": 10,
+        "semester 2": 30,
+        "s1": 10,
+        "s2": 30,
+        "t1": 10,
+        "t2": 20,
+        "t3": 30,
+    }
+    return lookup.get(normalized)
+
+
+def _course_rank(course_n: str) -> int:
+    match = re.search(r"(\d+)", course_n)
+    if not match:
+        return 999
+    return int(match.group(1))
+
+
+def _canonicalize_prereq_text(text: str) -> str:
+    canonical = text.upper()
+    canonical = canonical.replace("&", " AND ")
+    canonical = canonical.replace(",", " AND ")
+    canonical = canonical.replace(";", " ")
+    canonical = canonical.replace(".", " ")
+    canonical = re.sub(r"\s+", " ", canonical).strip()
+    return canonical
+
+
+def _and_expressions(expressions: list[RuleExpr]) -> RuleExpr:
+    if len(expressions) == 1:
+        return expressions[0]
+
+    children: list[RuleExpr] = []
+    for expr in expressions:
+        if isinstance(expr, dict) and list(expr.keys()) == ["and"]:
+            children.extend(cast(list[RuleExpr], expr["and"]))
+        else:
+            children.append(expr)
+    return {"and": children}
+
+
+def _parse_prerequisite_expression_single(text: str) -> tuple[RuleExpr | None, str | None]:
+    canonical = _canonicalize_prereq_text(text)
+    if not canonical:
+        return None, None
+
+    tokens: list[str] = []
+    position = 0
+    while position < len(canonical):
+        match = PREREQ_TOKEN_RE.match(canonical, position)
+        if not match:
+            snippet = canonical[position:position + 40].strip()
+            if not snippet:
+                break
+            return None, f"unrecognized token near '{snippet}'"
+        token = match.group(1).upper()
+        tokens.append(token)
+        position = match.end()
+
+    if not tokens:
+        return None, None
+
+    token_idx = 0
+
+    def parse_primary() -> tuple[RuleExpr | None, str | None]:
+        nonlocal token_idx
+        if token_idx >= len(tokens):
+            return None, "unexpected end of expression"
+
+        token = tokens[token_idx]
+        if token == "(":
+            token_idx += 1
+            inner, err = parse_or()
+            if err:
+                return None, err
+            if token_idx >= len(tokens) or tokens[token_idx] != ")":
+                return None, "missing closing ')'"
+            token_idx += 1
+            return inner, None
+
+        if COURSE_TOKEN_RE.fullmatch(token):
+            token_idx += 1
+            return token, None
+
+        uoc_match = UOC_TOKEN_RE.fullmatch(token)
+        if uoc_match:
+            token_idx += 1
+            return {"uoc": int(uoc_match.group(1))}, None
+
+        return None, f"unexpected token '{token}'"
+
+    def fold_operator(op: str, left: RuleExpr, right: RuleExpr) -> RuleExpr:
+        children: list[RuleExpr] = []
+        if isinstance(left, dict) and list(left.keys()) == [op]:
+            children.extend(cast(list[RuleExpr], left[op]))
+        else:
+            children.append(left)
+        if isinstance(right, dict) and list(right.keys()) == [op]:
+            children.extend(cast(list[RuleExpr], right[op]))
+        else:
+            children.append(right)
+        return {op: children}
+
+    def parse_and() -> tuple[RuleExpr | None, str | None]:
+        nonlocal token_idx
+        left, err = parse_primary()
+        if err:
+            return None, err
+        while token_idx < len(tokens) and tokens[token_idx] == "AND":
+            token_idx += 1
+            right, right_err = parse_primary()
+            if right_err:
+                return None, right_err
+            left = fold_operator("and", cast(RuleExpr, left), cast(RuleExpr, right))
+        return left, None
+
+    def parse_or() -> tuple[RuleExpr | None, str | None]:
+        nonlocal token_idx
+        left, err = parse_and()
+        if err:
+            return None, err
+        while token_idx < len(tokens) and tokens[token_idx] == "OR":
+            token_idx += 1
+            right, right_err = parse_and()
+            if right_err:
+                return None, right_err
+            left = fold_operator("or", cast(RuleExpr, left), cast(RuleExpr, right))
+        return left, None
+
+    expr, parse_err = parse_or()
+    if parse_err:
+        return None, parse_err
+    if token_idx != len(tokens):
+        return None, f"unexpected trailing token '{tokens[token_idx]}'"
+    return expr, None
+
+
+def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | None]:
+    raw = text.strip()
+    if not raw:
+        return None, None
+
+    plus_parts = [part.strip() for part in re.split(r"(?i)\bPLUS\b", raw) if part.strip()]
+    parsed_parts: list[RuleExpr] = []
+
+    for part in plus_parts:
+        normalized_part = re.sub(r"(?i)\bCOMPLETION\s+OF\b", "", part).strip()
+        expr, err = _parse_prerequisite_expression_single(normalized_part)
+        if err:
+            return None, err
+        if expr is not None:
+            parsed_parts.append(expr)
+
+    if not parsed_parts:
+        return None, None
+
+    return _and_expressions(parsed_parts), None
+
+
+def _split_prerequisite_parts(raw_text: str) -> tuple[str, str | None]:
+    coreq_match = CO_REQUISITE_RE.search(raw_text)
+    if not coreq_match:
+        return raw_text, None
+
+    prereq_part = raw_text[:coreq_match.start()]
+    prereq_part = re.sub(r"(?i)\bPLUS\s*$", "", prereq_part).strip()
+
+    coreq_part = raw_text[coreq_match.end():]
+    coreq_part = re.sub(r"^[\s:;,.+-]+", "", coreq_part).strip()
+
+    return prereq_part, coreq_part if coreq_part else None
+
+
+def _parse_prerequisite_field(raw_text: str) -> tuple[RuleExpr | None, RuleExpr | None, str | None]:
+    trimmed = raw_text.strip()
+    if not trimmed or trimmed in {".", "0"}:
+        return None, None, None
+
+    prereq_text, coreq_text = _split_prerequisite_parts(trimmed)
+
+    prereq_expr: RuleExpr | None = None
+    coreq_expr: RuleExpr | None = None
+
+    prereq_expr, prereq_error = _parse_prerequisite_expression(prereq_text)
+    if prereq_error:
+        return None, None, f"prerequisite parse error: {prereq_error}"
+
+    if coreq_text:
+        coreq_expr, coreq_error = _parse_prerequisite_expression(coreq_text)
+        if coreq_error:
+            return None, None, f"corequisite parse error: {coreq_error}"
+        if coreq_expr is None:
+            return None, None, "corequisite text exists but no course code expression was parsed"
+
+    return prereq_expr, coreq_expr, None
+
+
+def extract_scheduled_courses(plan_data: dict[str, Any]) -> list[ScheduledPlanCourse]:
+    courses_value = plan_data.get("courses")
+    if not isinstance(courses_value, list):
+        raise RuleValidationError("plan.courses", "plan JSON must contain a 'courses' array")
+
+    scheduled_courses: list[ScheduledPlanCourse] = []
+    course_items = cast(list[Any], courses_value)
+    for idx, course in enumerate(course_items):
+        if not isinstance(course, dict):
+            raise RuleValidationError(f"plan.courses[{idx}]", "course entry must be an object")
+
+        course_record = cast(PlanCourseRecord, course)
+
+        code = course_record.get("code")
+        if not isinstance(code, str) or not code.strip():
+            continue
+
+        year = _parse_int_like(course_record.get("year"), f"plan.courses[{idx}].year")
+
+        period = course_record.get("period")
+        if not isinstance(period, str) or not period.strip():
+            raise RuleValidationError(f"plan.courses[{idx}].period", "must be a non-empty string")
+        period_rank = _period_rank(period)
+        if period_rank is None:
+            raise RuleValidationError(
+                f"plan.courses[{idx}].period",
+                f"unsupported teaching period '{period}'",
+            )
+
+        course_n = course_record.get("course_n")
+        if not isinstance(course_n, str):
+            course_n = ""
+
+        uoc = _parse_int_like(course_record.get("uoc"), f"plan.courses[{idx}].uoc")
+
+        prerequisites = course_record.get("prerequisites")
+        if not isinstance(prerequisites, str):
+            prerequisites = ""
+
+        scheduled_courses.append(
+            ScheduledPlanCourse(
+                index=idx,
+                code=code.strip().upper(),
+                year=year,
+                period=period.strip(),
+                period_rank=period_rank,
+                course_rank=_course_rank(course_n),
+                uoc=uoc,
+                prerequisites=prerequisites,
+            )
+        )
+
+    scheduled_courses.sort(
+        key=lambda c: (
+            c.year,
+            c.period_rank,
+            c.course_rank,
+            c.index,
+        )
+    )
+    return scheduled_courses
+
+
+def _course_history(
+    courses: list[ScheduledPlanCourse],
+    idx: int,
+    include_same_period: bool,
+) -> list[ScheduledPlanCourse]:
+    current = courses[idx]
+    available: list[ScheduledPlanCourse] = []
+    for other_idx, other in enumerate(courses):
+        if other_idx == idx:
+            continue
+        if (other.year, other.period_rank) < (current.year, current.period_rank):
+            available.append(other)
+            continue
+        if include_same_period and other.year == current.year and other.period_rank == current.period_rank:
+            available.append(other)
+    return available
+
+
+def validate_plan_prerequisites(plan_data: dict[str, Any]) -> tuple[list[str], list[str]]:
+    courses = extract_scheduled_courses(plan_data)
+    failures: list[str] = []
+    unsupported: list[str] = []
+
+    for idx, course in enumerate(courses):
+        prereq_expr, coreq_expr, unsupported_reason = _parse_prerequisite_field(course.prerequisites)
+        course_label = f"{course.code} ({course.year} {course.period})"
+
+        if unsupported_reason:
+            unsupported.append(
+                f"{course_label}: {unsupported_reason}; raw='{course.prerequisites.strip()}'"
+            )
+            continue
+
+        prior_history = _course_history(courses, idx, include_same_period=False)
+        prior_courses = Counter(item.code for item in prior_history)
+        prior_uoc = sum(item.uoc for item in prior_history)
+
+        if prereq_expr is not None and not evaluate_expression(prereq_expr, prior_courses, prior_uoc):
+            diagnosis = diagnose_expression(prereq_expr, prior_courses, prior_uoc)
+            failures.append(f"[Prerequisite] {course_label}: {expression_to_text(prereq_expr)} - {diagnosis}")
+
+        if coreq_expr is not None:
+            coreq_history = _course_history(courses, idx, include_same_period=True)
+            prior_and_same_period = Counter(item.code for item in coreq_history)
+            prior_and_same_uoc = sum(item.uoc for item in coreq_history)
+            if not evaluate_expression(coreq_expr, prior_and_same_period, prior_and_same_uoc):
+                diagnosis = diagnose_expression(coreq_expr, prior_and_same_period, prior_and_same_uoc)
+                failures.append(f"[Corequisite] {course_label}: {expression_to_text(coreq_expr)} - {diagnosis}")
+
+    return failures, unsupported
 
 
 def _is_course_code(value: Any) -> bool:
@@ -148,8 +507,12 @@ def validate_canonical_expression(expr: RuleExpr, path: str = "<clause>") -> Non
         validate_canonical_expression(child, f"{path}.{op}[{idx}]")
 
 
-def evaluate_expression(expr: RuleExpr, completed_courses: Counter[str]) -> bool:
-    """Evaluate canonical expression against a multiset of completed course codes."""
+def evaluate_expression(
+    expr: RuleExpr,
+    completed_courses: Counter[str],
+    completed_uoc: int = 0,
+) -> bool:
+    """Evaluate canonical expression against completed courses and UoC."""
     if _is_course_code(expr):
         return expr in completed_courses
 
@@ -158,12 +521,18 @@ def evaluate_expression(expr: RuleExpr, completed_courses: Counter[str]) -> bool
 
     node = expr
 
+    if set(node.keys()) == {"uoc"}:
+        threshold = node["uoc"]
+        if not isinstance(threshold, int) or threshold < 0:
+            raise RuleValidationError("<eval>.uoc", "'uoc' must be a non-negative integer")
+        return completed_uoc >= threshold
+
     if set(node.keys()) == {"min", "from"}:
         min_count = cast(int, node["min"])
         from_exprs = cast(list[RuleExpr], node["from"])
         satisfied = sum(
             completed_courses[cast(str, child)] if _is_course_code(child)
-            else int(evaluate_expression(child, completed_courses))
+            else int(evaluate_expression(child, completed_courses, completed_uoc))
             for child in from_exprs
         )
         return satisfied >= min_count
@@ -173,7 +542,7 @@ def evaluate_expression(expr: RuleExpr, completed_courses: Counter[str]) -> bool
 
     op = next(iter(node.keys()))
     children = cast(list[RuleExpr], node[op])
-    results = [evaluate_expression(child, completed_courses) for child in children]
+    results = [evaluate_expression(child, completed_courses, completed_uoc) for child in children]
 
     if op == "and":
         return all(results)
@@ -240,6 +609,10 @@ def expression_to_text(expr: RuleExpr, parent_op: str | None = None) -> str:
 
     node = cast(dict[str, Any], expr)
 
+    if set(node.keys()) == {"uoc"}:
+        threshold = cast(int, node["uoc"])
+        return f"{threshold} UOC"
+
     if set(node.keys()) == {"min", "from"}:
         min_count = cast(int, node["min"])
         from_exprs = cast(list[RuleExpr], node["from"])
@@ -275,19 +648,28 @@ def render_rules_human(config: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def diagnose_expression(expr: RuleExpr, completed_courses: Counter[str]) -> str:
+def diagnose_expression(
+    expr: RuleExpr,
+    completed_courses: Counter[str],
+    completed_uoc: int = 0,
+) -> str:
     """Describe what is missing for a failed expression."""
     if _is_course_code(expr):
         return f"missing {expr}"
 
     node = cast(dict[str, Any], expr)
 
+    if set(node.keys()) == {"uoc"}:
+        threshold = cast(int, node["uoc"])
+        needed = max(0, threshold - completed_uoc)
+        return f"need {needed} more UoC (have {completed_uoc}, need {threshold})"
+
     if set(node.keys()) == {"min", "from"}:
         min_count = cast(int, node["min"])
         from_exprs = cast(list[RuleExpr], node["from"])
         satisfied = sum(
             completed_courses[cast(str, child)] if _is_course_code(child)
-            else int(evaluate_expression(child, completed_courses))
+            else int(evaluate_expression(child, completed_courses, completed_uoc))
             for child in from_exprs
         )
         needed = min_count - satisfied
@@ -299,9 +681,9 @@ def diagnose_expression(expr: RuleExpr, completed_courses: Counter[str]) -> str:
 
     if op == "and":
         failed_diagnoses = [
-            diagnose_expression(child, completed_courses)
+            diagnose_expression(child, completed_courses, completed_uoc)
             for child in children
-            if not evaluate_expression(child, completed_courses)
+            if not evaluate_expression(child, completed_courses, completed_uoc)
         ]
         return "; ".join(failed_diagnoses)
 
@@ -361,7 +743,12 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--plan",
         metavar="PLAN_FILE",
-        help="Path to a plan JSON file; report which degree rules the plan does not satisfy",
+        help="Path to a plan JSON file; report rule and prerequisite/corequisite validation",
+    )
+    parser.add_argument(
+        "--plan-report-json",
+        action="store_true",
+        help="When used with --plan, print machine-readable plan validation JSON",
     )
     parser.add_argument(
         "-v", "--verbose",
@@ -434,19 +821,43 @@ def main(argv: list[str] | None = None) -> int:
 
         try:
             completed_courses = extract_completed_courses(cast(dict[str, Any], plan_data))
+            prereq_failures, prereq_unsupported = validate_plan_prerequisites(cast(dict[str, Any], plan_data))
         except RuleValidationError as exc:
             print(f"Error: {exc}", file=sys.stderr)
             return 1
 
-        failures = report_plan(validated, completed_courses)
+        rule_failures = report_plan(validated, completed_courses)
+        is_valid = not rule_failures and not prereq_failures and not prereq_unsupported
 
-        if failures:
-            print(f"Plan does not satisfy {len(failures)} rule(s):")
-            for failure in failures:
+        if args.plan_report_json:
+            report_payload: dict[str, Any] = {
+                "valid": is_valid,
+                "rule_failures": rule_failures,
+                "prerequisite_failures": prereq_failures,
+                "unsupported_prerequisites": prereq_unsupported,
+            }
+            print(json.dumps(report_payload, indent=2))
+            return 0 if is_valid else 1
+
+        if rule_failures:
+            print(f"Plan does not satisfy {len(rule_failures)} degree rule(s):")
+            for failure in rule_failures:
                 print(f"  {failure}")
-            return 1
+
+        if prereq_failures:
+            print(f"Plan has {len(prereq_failures)} prerequisite/corequisite violation(s):")
+            for failure in prereq_failures:
+                print(f"  {failure}")
+
+        if prereq_unsupported:
+            print(f"Plan has {len(prereq_unsupported)} unsupported prerequisite expression(s):")
+            for unsupported in prereq_unsupported:
+                print(f"  {unsupported}")
+
+        if is_valid:
+            print("Plan satisfies degree rules and prerequisite/corequisite checks.")
         else:
-            print("Plan satisfies all rules.")
+            return 1
     else:
         # Only show full rules output if not checking a plan or if verbose
         if args.verbose > 0:
