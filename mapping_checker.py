@@ -2,8 +2,9 @@
 
 import argparse
 import json
-import os
+import logging
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Generator, TypedDict
 import warnings
 
@@ -89,13 +90,31 @@ def summarise_offerings(offerings: list[dict[str, set[str]]]) -> dict[str, set[s
     return summary
 
 
-def print_offerings_summary(summary: dict[str, set[str]]):
+def format_offerings_summary(summary: dict[str, set[str]]) -> str:
+    """Format offerings summary as a string."""
+    lines: list[str] = []
     for course in sorted(summary.keys()):
         periods = summary[course]
         pdtxt = sorted([p for p in periods if not p.startswith("Term ")])
         if not pdtxt:
             continue
-        print(f"{course:14} {" ".join(pdtxt)}")
+        lines.append(f"{course:14} {" ".join(pdtxt)}")
+    return "\n".join(lines)
+
+
+def write_offerings_file(summary: dict[str, set[str]], excel_filename: Path, output_dir: Path) -> Path:
+    """Write offerings summary to a JSON file based on the Excel filename."""
+    # Extract base name without extension
+    base_name = excel_filename.stem
+    filepath = output_dir / f"{base_name}_offerings.json"
+
+    # Convert sets to sorted lists for JSON serialization
+    offerings_dict = {course: sorted(list(periods)) for course, periods in summary.items()}
+
+    with open(filepath, "w", encoding="utf-8") as fh:
+        json.dump(offerings_dict, fh, indent=2)
+
+    return filepath
 
 
 def _to_string(val: Any) -> str:
@@ -137,11 +156,11 @@ def plan_to_dict(sheet_name: str, intake: str, plan: pd.DataFrame) -> PlanExport
     return {"sheet": sheet_name, "intake": intake, "courses": courses}
 
 
-def export_plan(sheet_name: str, intake: str, plan: pd.DataFrame, output_dir: str) -> str:
+def export_plan(sheet_name: str, intake: str, plan: pd.DataFrame, output_dir: Path) -> Path:
     """Write one plan to a JSON file; return the file path."""
     plan_dict = plan_to_dict(sheet_name, intake, plan)
     safe_name = f"{sheet_name}_{intake}".replace(" ", "_")
-    filepath = os.path.join(output_dir, f"{safe_name}.json")
+    filepath = output_dir / f"{safe_name}.json"
     with open(filepath, "w", encoding="utf-8") as fh:
         json.dump(plan_dict, fh, indent=2)
     return filepath
@@ -157,6 +176,12 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         default=None,
         help="Directory to write plan JSON files (default: directory of the Excel file)",
     )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="count",
+        default=0,
+        help="Increase logging verbosity (-v for INFO, -vv for DEBUG)",
+    )
     return parser
 
 
@@ -164,24 +189,45 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_cli_parser()
     args = parser.parse_args(argv)
 
-    output_dir = args.output_dir or os.path.dirname(os.path.abspath(args.excel_file))
-    os.makedirs(output_dir, exist_ok=True)
+    # Configure logging based on verbosity
+    if args.verbose >= 2:
+        log_level = logging.DEBUG
+    elif args.verbose >= 1:
+        log_level = logging.INFO
+    else:
+        log_level = logging.WARNING
 
-    dfs: dict[str, pd.DataFrame] = pd.read_excel(args.excel_file, sheet_name=None)  # type: ignore
+    logging.basicConfig(
+        level=log_level,
+        format="%(levelname)s: %(message)s",
+    )
+    logger = logging.getLogger(__name__)
+
+    excel_file = Path(args.excel_file)
+    output_dir_path = Path(args.output_dir) if args.output_dir else excel_file.resolve().parent
+    output_dir_path.mkdir(parents=True, exist_ok=True)
+
+    dfs: dict[str, pd.DataFrame] = pd.read_excel(excel_file, sheet_name=None)  # type: ignore
 
     offerings: list[dict[str, set[str]]] = []
 
     for sheet_name, df in iter_sheets(dfs):
-        print(sheet_name)
+        logger.info(f"Processing sheet: {sheet_name}")
         for intake, plan in iter_plans(df):
-            print(f"  Intake {intake}")
+            logger.info(f"  Intake {intake}")
             offering = course_terms(plan)
             offerings.append(offering)
-            path = export_plan(sheet_name, intake, plan, output_dir)
-            print(f"  -> {path}")
+            path = export_plan(sheet_name, intake, plan, output_dir_path)
+            logger.debug(f"  -> {path}")
 
-    print()
-    print_offerings_summary(summarise_offerings(offerings))
+    # Write offerings summary to file
+    offerings_summary = summarise_offerings(offerings)
+    offerings_path = write_offerings_file(offerings_summary, excel_file, output_dir_path)
+    logger.info(f"Offerings summary written to: {offerings_path}")
+
+    # Log the offerings summary
+    logger.debug("Offerings summary:")
+    logger.debug(format_offerings_summary(offerings_summary))
 
     return 0
 
