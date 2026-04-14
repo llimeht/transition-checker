@@ -2,8 +2,12 @@
     "schemaVersion": 2,
     "required": {
         "Level 1": [
-            "CHEM1811",
-            "CHEM1821",
+            {
+                "or": [
+                    { "and": ["CHEM1811", "CHEM1821"] },
+                    { "and": ["CHEM1011", "CHEM1021", "CEIC1000"] }
+                ]
+            },
             {
                 "or": ["PHYS1121", "PHYS1131"]
             },
@@ -40,10 +44,10 @@
             "CEIC4000",
             "CEIC4001",
             {
-                "or": ["CEIC4002", "CEIC9002", "CEIC4005"]
-            },
-            {
-                "or": ["CEIC4003", "CEIC9003", "CEIC4005"]
+                "or": [
+                    { "and": ["CEIC4002", "CEIC4003"] },
+                    { "and": ["CEIC4951", "CEIC4952", "CEIC4953"] }
+                ]
             }
         ]
     }
