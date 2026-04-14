@@ -49,6 +49,22 @@
                     { "and": ["CEIC4951", "CEIC4952", "CEIC4953"] }
                 ]
             }
+        ],
+        "Breadth electives": [
+            {
+                "min": 1,
+                "from": [
+                    "CEICbbbb"
+                ]
+            }
+        ],
+        "Depth electives": [
+            {
+                "min": 1,
+                "from": [
+                    "CEICdddd"
+                ]
+            }
         ]
     }
 }
