@@ -1,21 +1,103 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
+
+"""Run end-to-end plan export and validation for a mapping workbook.
+
+This wrapper script:
+1) exports plan JSON files from an Excel mapping workbook,
+2) validates each plan against degree rules and prerequisites,
+3) validates plan periods against offerings, and
+4) writes a consolidated validation report.
+"""
 
 from __future__ import annotations
 
 import json
+import argparse
 import re
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 
-def print_usage(script_name: str) -> None:
-    print(f"Usage: {script_name} <excel_file>")
-    print(f"Example: {script_name} plans/CEIC/my_plans.xlsx")
+def _as_json_object(value: object) -> dict[str, object] | None:
+    """Return a JSON object with string keys, otherwise None."""
+    if not isinstance(value, dict):
+        return None
+
+    value_dict = cast(dict[object, object], value)
+    if not all(isinstance(key, str) for key in value_dict):
+        return None
+    return cast(dict[str, object], value_dict)
+
+
+def _as_object_list(value: object) -> list[object]:
+    """Return list values as a typed object list, otherwise an empty list."""
+    return cast(list[object], value) if isinstance(value, list) else []
+
+
+def _as_object_dict_list(value: object) -> list[dict[str, object]]:
+    """Return list entries that are JSON objects with string keys."""
+    if not isinstance(value, list):
+        return []
+
+    value_list = cast(list[object], value)
+    dict_items: list[dict[str, object]] = []
+    for item in value_list:
+        item_obj = _as_json_object(item)
+        if item_obj is not None:
+            dict_items.append(item_obj)
+    return dict_items
+
+
+def _build_cli_parser() -> argparse.ArgumentParser:
+    """Create the command-line parser for validation workflow.
+
+    Returns:
+        Configured ArgumentParser instance.
+    """
+    parser = argparse.ArgumentParser(
+        description=(
+            "Export plans from an Excel sequence mapping file and validate them "
+            "against rules, prerequisites, and offerings."
+        ),
+        epilog=(
+            "Example: validate plans/CEIC/'CEIC Program Sequence Mapping.xlsx'\n"
+            "By default, outputs are written beside the Excel file."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "excel_file",
+        help="Path to the source Excel mapping workbook",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help=(
+            "Directory for exported plan JSON and validation report "
+            "(default: directory containing the Excel file)"
+        ),
+    )
+    return parser
 
 
 def resolve_rule_file(program_code: str, plan_stem: str, script_dir: Path) -> Path:
+    """Return the best matching rule file for a plan/program.
+
+    Args:
+        program_code: Program code prefix extracted from plan filename.
+        plan_stem: Plan filename stem.
+        script_dir: Directory containing the rules folder.
+
+    If the plan stem includes an intake year and a ranged rule file exists (for
+    example ``PROGRAM-2020-2025.json``), the matching ranged file is preferred.
+    Otherwise the fallback is ``rules/PROGRAM.json``.
+
+    Returns:
+        Path to the selected rule file.
+    """
     intake_year: int | None = None
     prefix = f"{program_code}_"
 
@@ -45,21 +127,40 @@ def resolve_rule_file(program_code: str, plan_stem: str, script_dir: Path) -> Pa
 
 
 def run_cmd(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run subprocess command and capture text output.
+
+    Args:
+        cmd: Command vector to execute.
+
+    Returns:
+        Completed process with captured stdout/stderr.
+    """
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
 def write_validation_report(report_path: Path, report: dict[str, object]) -> None:
+    """Write consolidated validation report to JSON file.
+
+    Args:
+        report_path: Destination file path.
+        report: Report payload to serialize.
+    """
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
-def main() -> int:
-    if len(sys.argv) < 2:
-        print_usage(sys.argv[0])
-        return 1
+def main(argv: list[str] | None = None) -> int:
+    """Execute the full validation workflow.
 
-    excel_file = Path(sys.argv[1])
+    Returns:
+        Exit code 0 when all plans pass validation, otherwise non-zero.
+    """
+    parser = _build_cli_parser()
+    args = parser.parse_args(argv)
+
+    excel_file = Path(args.excel_file)
     script_dir = Path(__file__).resolve().parent
-    output_dir = excel_file.parent
+    output_dir = Path(args.output_dir) if args.output_dir else excel_file.parent
+    output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / f"{excel_file.stem}_validation_results.json"
 
     if not excel_file.is_file():
@@ -155,15 +256,16 @@ def main() -> int:
         plan_report: dict[str, object] = {}
         if result.stdout.strip():
             try:
-                parsed = json.loads(result.stdout)
-                if isinstance(parsed, dict):
-                    plan_report = parsed
+                parsed = cast(object, json.loads(result.stdout))
+                parsed_obj = _as_json_object(parsed)
+                if parsed_obj is not None:
+                    plan_report = parsed_obj
             except json.JSONDecodeError:
                 plan_report = {}
 
-        rule_failures = plan_report.get("rule_failures")
-        prereq_failures = plan_report.get("prerequisite_failures")
-        unsupported_prereqs = plan_report.get("unsupported_prerequisites")
+        rule_failures = _as_object_list(plan_report.get("rule_failures", []))
+        prereq_failures = _as_object_list(plan_report.get("prerequisite_failures", []))
+        unsupported_prereqs = _as_object_list(plan_report.get("unsupported_prerequisites", []))
         plan_is_valid = bool(plan_report.get("valid")) if plan_report else result.returncode == 0
 
         # Check offerings
@@ -181,14 +283,16 @@ def main() -> int:
             ]
         )
         try:
-            offering_report = json.loads(offering_result_raw.stdout) if offering_result_raw.stdout.strip() else {}
-            if isinstance(offering_report, dict):
-                offering_violations_val = offering_report.get("violations", [])
-                if isinstance(offering_violations_val, list):
-                    offering_violations = offering_violations_val
-                offerings_valid = bool(offering_report.get("valid", False))
-            else:
+            offering_parsed = cast(
+                object,
+                json.loads(offering_result_raw.stdout) if offering_result_raw.stdout.strip() else {},
+            )
+            offering_report = _as_json_object(offering_parsed)
+            if offering_report is None:
                 raise ValueError("offering checker returned non-object JSON")
+
+            offering_violations = _as_object_dict_list(offering_report.get("violations", []))
+            offerings_valid = bool(offering_report.get("valid", False))
         except (json.JSONDecodeError, ValueError) as exc:
             message = offering_result_raw.stderr.strip() or str(exc)
             offering_violations = [{"error_type": "offering_check_error", "message": message}]
@@ -208,9 +312,9 @@ def main() -> int:
                     "program_code": program_code,
                     "rule_file": rule_name,
                     "status": "valid",
-                    "rule_failures": rule_failures if isinstance(rule_failures, list) else [],
-                    "prerequisite_failures": prereq_failures if isinstance(prereq_failures, list) else [],
-                    "unsupported_prerequisites": unsupported_prereqs if isinstance(unsupported_prereqs, list) else [],
+                    "rule_failures": rule_failures,
+                    "prerequisite_failures": prereq_failures,
+                    "unsupported_prerequisites": unsupported_prereqs,
                     "offering_violations": offering_violations,
                 }
             )
@@ -230,9 +334,9 @@ def main() -> int:
             "program_code": program_code,
             "rule_file": rule_name,
             "status": "failed",
-            "rule_failures": rule_failures if isinstance(rule_failures, list) else [],
-            "prerequisite_failures": prereq_failures if isinstance(prereq_failures, list) else [],
-            "unsupported_prerequisites": unsupported_prereqs if isinstance(unsupported_prereqs, list) else [],
+            "rule_failures": rule_failures,
+            "prerequisite_failures": prereq_failures,
+            "unsupported_prerequisites": unsupported_prereqs,
             "offering_violations": offering_violations,
         }
         if rule_process_error_output:
@@ -241,17 +345,17 @@ def main() -> int:
         results.append(failed_entry)
         detail_lines: list[str] = []
 
-        if isinstance(rule_failures, list) and rule_failures:
+        if rule_failures:
             detail_lines.append(f"rule_failures={len(rule_failures)}")
             for failure in rule_failures:
                 detail_lines.append(f"  - {failure}")
 
-        if isinstance(prereq_failures, list) and prereq_failures:
+        if prereq_failures:
             detail_lines.append(f"prerequisite_failures={len(prereq_failures)}")
             for failure in prereq_failures:
                 detail_lines.append(f"  - {failure}")
 
-        if isinstance(unsupported_prereqs, list) and unsupported_prereqs:
+        if unsupported_prereqs:
             detail_lines.append(f"unsupported_prerequisites={len(unsupported_prereqs)}")
             for failure in unsupported_prereqs:
                 detail_lines.append(f"  - {failure}")
@@ -259,10 +363,6 @@ def main() -> int:
         if offering_violations:
             detail_lines.append(f"offering_violations={len(offering_violations)}")
             for viol in offering_violations:
-                if not isinstance(viol, dict):
-                    detail_lines.append(f"  - {viol}")
-                    continue
-
                 error_type = str(viol.get("error_type", ""))
                 if error_type == "offering_check_error":
                     message = str(viol.get("message", "Unknown offering check error"))
@@ -271,8 +371,7 @@ def main() -> int:
 
                 code = str(viol.get("course_code", ""))
                 planned_period = str(viol.get("planned_period", ""))
-                allowed_periods_val = viol.get("allowed_periods", [])
-                allowed_periods = allowed_periods_val if isinstance(allowed_periods_val, list) else []
+                allowed_periods = _as_object_list(viol.get("allowed_periods", []))
                 allowed_text = ", ".join(str(p) for p in allowed_periods) if allowed_periods else "(none)"
 
                 if error_type == "course_not_found":
