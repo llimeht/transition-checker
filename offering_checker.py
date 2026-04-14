@@ -17,6 +17,7 @@ from typing import TypedDict, cast
 
 class OfferingViolation(TypedDict):
     """Represents a single offering validation violation."""
+
     course_code: str
     planned_period: str
     allowed_periods: list[str]
@@ -25,18 +26,21 @@ class OfferingViolation(TypedDict):
 
 class PlanCourse(TypedDict, total=False):
     """Course record from plan JSON."""
+
     code: str
     period: str
 
 
 class PlanSummary(TypedDict):
     """Plan metadata shown in offering results."""
+
     sheet: str
     intake: str
 
 
 class PlanDocument(TypedDict, total=False):
     """Top-level plan JSON document."""
+
     sheet: str
     intake: str
     courses: list[PlanCourse]
@@ -44,6 +48,7 @@ class PlanDocument(TypedDict, total=False):
 
 class OfferingCheckResult(TypedDict):
     """Result of checking a plan against offerings."""
+
     plan_file: str
     plan_summary: PlanSummary
     valid: bool
@@ -74,7 +79,7 @@ def load_offerings(offerings_file: Path) -> dict[str, list[str]]:
     """
     if not offerings_file.is_file():
         raise FileNotFoundError(f"Offerings file not found: {offerings_file}")
-    
+
     with open(offerings_file, "r", encoding="utf-8") as fh:
         raw_offerings: object = json.load(fh)
 
@@ -89,7 +94,11 @@ def load_offerings(offerings_file: Path) -> dict[str, list[str]]:
             continue
         if not isinstance(raw_periods, list):
             continue
-        periods = [period for period in cast(list[object], raw_periods) if isinstance(period, str)]
+        periods = [
+            period
+            for period in cast(list[object], raw_periods)
+            if isinstance(period, str)
+        ]
         offerings[raw_code] = periods
 
     return offerings
@@ -106,12 +115,14 @@ def load_plan(plan_file: Path) -> PlanDocument:
     """
     if not plan_file.is_file():
         raise FileNotFoundError(f"Plan file not found: {plan_file}")
-    
+
     with open(plan_file, "r", encoding="utf-8") as fh:
         raw_plan: object = json.load(fh)
 
     if not isinstance(raw_plan, dict):
-        raise ValueError(f"Plan file must contain a JSON object, got {type(raw_plan).__name__}")
+        raise ValueError(
+            f"Plan file must contain a JSON object, got {type(raw_plan).__name__}"
+        )
 
     return cast(PlanDocument, raw_plan)
 
@@ -122,73 +133,77 @@ def validate_plan_offerings(
 ) -> list[OfferingViolation]:
     """
     Validate that all courses in a plan exist in offerings and their periods are allowed.
-    
+
     Args:
         plan: Plan JSON object with courses list
         offerings: Dictionary mapping course codes to allowed periods
-    
+
     Returns:
         List of violations found (empty if plan is valid)
     """
     violations: list[OfferingViolation] = []
-    
+
     courses = plan.get("courses")
     if not isinstance(courses, list):
         return violations
-    
+
     for course in courses:
         course_code = _as_text(course.get("code", ""))
         if not course_code:
             continue
-        
+
         planned_period = _as_text(course.get("period", ""))
         if not planned_period:
             continue
-        
+
         # Check if course exists in offerings
         if course_code not in offerings:
-            violations.append({
-                "course_code": course_code,
-                "planned_period": planned_period,
-                "allowed_periods": [],
-                "error_type": "course_not_found",
-            })
+            violations.append(
+                {
+                    "course_code": course_code,
+                    "planned_period": planned_period,
+                    "allowed_periods": [],
+                    "error_type": "course_not_found",
+                }
+            )
             continue
-        
+
         # Check if period is allowed for this course
         allowed_periods = offerings[course_code]
         if planned_period not in allowed_periods:
-            violations.append({
-                "course_code": course_code,
-                "planned_period": planned_period,
-                "allowed_periods": allowed_periods,
-                "error_type": "period_not_allowed",
-            })
-    
+            violations.append(
+                {
+                    "course_code": course_code,
+                    "planned_period": planned_period,
+                    "allowed_periods": allowed_periods,
+                    "error_type": "period_not_allowed",
+                }
+            )
+
     return violations
 
 
 def check_plan(plan_file: Path, offerings_file: Path) -> OfferingCheckResult:
     """
     Check a single plan against offerings.
-    
+
     Args:
         plan_file: Path to plan JSON file
         offerings_file: Path to offerings JSON file
-    
+
     Returns:
         OfferingCheckResult with violations found
     """
     offerings = load_offerings(offerings_file)
     plan = load_plan(plan_file)
-    
+
     violations = validate_plan_offerings(plan, offerings)
-    
+
     plan_summary: PlanSummary = {
         "sheet": _as_text(plan.get("sheet", "")),
         "intake": _as_text(plan.get("intake", "")),
     }
-    
+
     return {
         "plan_file": str(plan_file),
         "plan_summary": plan_summary,
@@ -208,32 +223,36 @@ def format_violations_for_console(result: OfferingCheckResult) -> str:
         Multi-line formatted text summary.
     """
     lines: list[str] = []
-    
+
     plan_name = Path(result["plan_file"]).name
     summary = result["plan_summary"]
     sheet = summary["sheet"]
     intake = summary["intake"]
-    
+
     violations = result["violations"]
-    
+
     if not violations:
         lines.append(f"  ✓ {plan_name}: No offering violations")
         return "\n".join(lines)
-    
-    lines.append(f"  ✗ {plan_name} ({sheet} / {intake}): {len(violations)} violation(s)")
-    
+
+    lines.append(
+        f"  ✗ {plan_name} ({sheet} / {intake}): {len(violations)} violation(s)"
+    )
+
     for i, v in enumerate(violations, 1):
         code = v["course_code"]
         planned = v["planned_period"]
         error_type = v["error_type"]
         allowed = v["allowed_periods"]
-        
+
         if error_type == "course_not_found":
             lines.append(f"    [{i}] {code} not found in offerings")
         else:  # period_not_allowed
             allowed_str = ", ".join(allowed) if allowed else "(none defined)"
-            lines.append(f"    [{i}] {code} planned for '{planned}' but allowed in: {allowed_str}")
-    
+            lines.append(
+                f"    [{i}] {code} planned for '{planned}' but allowed in: {allowed_str}"
+            )
+
     return "\n".join(lines)
 
 
@@ -284,7 +303,8 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         help="Optional path to write the check result as JSON",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Print additional status messages",
     )
@@ -304,9 +324,9 @@ def main() -> int:
     """
     parser = _build_cli_parser()
     args = parser.parse_args()
-    
+
     plan_file = Path(args.plan_file).resolve()
-    
+
     # Resolve offerings file
     if args.offerings:
         offerings_file = Path(args.offerings).resolve()
@@ -319,7 +339,7 @@ def main() -> int:
             # Fall back to plans/offerings.json relative to script
             script_dir = Path(__file__).resolve().parent
             offerings_file = script_dir / "plans" / "offerings.json"
-    
+
     try:
         result = check_plan(plan_file, offerings_file)
 
@@ -328,17 +348,17 @@ def main() -> int:
         else:
             console_output = format_violations_for_console(result)
             print(console_output)
-        
+
         if args.output:
             output_file = Path(args.output).resolve()
             output_file.parent.mkdir(parents=True, exist_ok=True)
             write_violations_json(result, output_file)
             if args.verbose:
                 print(f"✓ Violations written to: {output_file}")
-        
+
         # Exit with 0 if valid, 1 if violations found (for integration with validate script)
         return 0 if result["valid"] else 1
-        
+
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 2

@@ -17,7 +17,7 @@ import warnings
 
 import pandas as pd  # type: ignore[import-untyped]
 
-warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
+warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 
 class PlanCourse(TypedDict):
@@ -37,7 +37,9 @@ class PlanExport(TypedDict):
     courses: list[PlanCourse]
 
 
-def iter_sheets(dfs: dict[str, pd.DataFrame]) -> Generator[tuple[str, pd.DataFrame], None, None]:
+def iter_sheets(
+    dfs: dict[str, pd.DataFrame],
+) -> Generator[tuple[str, pd.DataFrame], None, None]:
     """Yield only workbook sheets that contain enrolment plans.
 
     Internal/template sheets (for example, "Cat" and "Lookup") are skipped.
@@ -63,7 +65,9 @@ def iter_sheets(dfs: dict[str, pd.DataFrame]) -> Generator[tuple[str, pd.DataFra
             yield sheet_name, df
 
 
-def iter_plans(sheet: pd.DataFrame, start_row: int = 4) -> Generator[tuple[str, pd.DataFrame], None, None]:
+def iter_plans(
+    sheet: pd.DataFrame, start_row: int = 4
+) -> Generator[tuple[str, pd.DataFrame], None, None]:
     """Yield each intake plan block from a normalised sheet.
 
     Args:
@@ -87,7 +91,7 @@ def iter_plans(sheet: pd.DataFrame, start_row: int = 4) -> Generator[tuple[str, 
 
     # iterate through the identified plans within each sheet
     for _, sub in sheet[mask].groupby(groups[mask]):
-        intake = str(sub.iloc[0, 3]) # intake comment is in column D (index 3)
+        intake = str(sub.iloc[0, 3])  # intake comment is in column D (index 3)
         sub = sub.iloc[1:].reset_index(drop=True)
 
         yield intake, sub
@@ -141,11 +145,13 @@ def format_offerings_summary(summary: dict[str, set[str]]) -> str:
         pdtxt = sorted([p for p in periods if not p.startswith("Term ")])
         if not pdtxt:
             continue
-        lines.append(f"{course:14} {" ".join(pdtxt)}")
+        lines.append(f"{course:14} {' '.join(pdtxt)}")
     return "\n".join(lines)
 
 
-def write_offerings_file(summary: dict[str, set[str]], excel_filename: Path, output_dir: Path) -> Path:
+def write_offerings_file(
+    summary: dict[str, set[str]], excel_filename: Path, output_dir: Path
+) -> Path:
     """Write offerings summary to a JSON file.
 
     Args:
@@ -161,7 +167,9 @@ def write_offerings_file(summary: dict[str, set[str]], excel_filename: Path, out
     filepath = output_dir / f"{base_name}_offerings.json"
 
     # Convert sets to sorted lists for JSON serialization
-    offerings_dict = {course: sorted(list(periods)) for course, periods in summary.items()}
+    offerings_dict = {
+        course: sorted(list(periods)) for course, periods in summary.items()
+    }
 
     with open(filepath, "w", encoding="utf-8") as fh:
         json.dump(offerings_dict, fh, indent=2)
@@ -169,7 +177,9 @@ def write_offerings_file(summary: dict[str, set[str]], excel_filename: Path, out
     return filepath
 
 
-def write_offerings_csv(summary: dict[str, set[str]], excel_filename: Path, output_dir: Path) -> Path:
+def write_offerings_csv(
+    summary: dict[str, set[str]], excel_filename: Path, output_dir: Path
+) -> Path:
     """Write offerings summary as a course-by-period CSV matrix.
 
     Args:
@@ -250,19 +260,24 @@ def plan_to_dict(sheet_name: str, intake: str, plan: pd.DataFrame) -> PlanExport
     for _, row in plan.iterrows():
         if pd.isna(row["Code"]):
             continue
-        courses.append({
-            "enrol_year": _to_string(row["EnrolYear"]),
-            "year": _to_int(row["Year"]),
-            "period": _to_string(row["Period"]),
-            "course_n": _to_string(row["CourseN"]),
-            "code": str(row["Code"]),
-            "title": _to_string(row["Title"]),
-            "uoc": _to_int(row["UoC"]),
-            "prerequisites": _to_string(row["Prerequisites"]),
-        })
+        courses.append(
+            {
+                "enrol_year": _to_string(row["EnrolYear"]),
+                "year": _to_int(row["Year"]),
+                "period": _to_string(row["Period"]),
+                "course_n": _to_string(row["CourseN"]),
+                "code": str(row["Code"]),
+                "title": _to_string(row["Title"]),
+                "uoc": _to_int(row["UoC"]),
+                "prerequisites": _to_string(row["Prerequisites"]),
+            }
+        )
     return {"sheet": sheet_name, "intake": intake, "courses": courses}
 
-def export_plan(sheet_name: str, intake: str, plan: pd.DataFrame, output_dir: Path) -> Path | None:
+
+def export_plan(
+    sheet_name: str, intake: str, plan: pd.DataFrame, output_dir: Path
+) -> Path | None:
     """Write one intake plan JSON file.
 
     Args:
@@ -313,7 +328,8 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="count",
         default=0,
         help="Increase logging verbosity (-v for INFO, -vv for DEBUG)",
@@ -345,7 +361,9 @@ def main(argv: list[str] | None = None) -> int:
     logger = logging.getLogger(__name__)
 
     excel_file = Path(args.excel_file)
-    output_dir_path = Path(args.output_dir) if args.output_dir else excel_file.resolve().parent
+    output_dir_path = (
+        Path(args.output_dir) if args.output_dir else excel_file.resolve().parent
+    )
     output_dir_path.mkdir(parents=True, exist_ok=True)
 
     dfs: dict[str, pd.DataFrame] = pd.read_excel(  # pyright: ignore
@@ -369,8 +387,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # Write offerings summary to file
     offerings_summary = summarise_offerings(offerings)
-    offerings_path = write_offerings_file(offerings_summary, excel_file, output_dir_path)
-    offerings_csv_path = write_offerings_csv(offerings_summary, excel_file, output_dir_path)
+    offerings_path = write_offerings_file(
+        offerings_summary, excel_file, output_dir_path
+    )
+    offerings_csv_path = write_offerings_csv(
+        offerings_summary, excel_file, output_dir_path
+    )
     logger.info(f"Offerings summary written to: {offerings_path}")
     logger.info(f"Offerings CSV written to: {offerings_csv_path}")
 
@@ -383,7 +405,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
-

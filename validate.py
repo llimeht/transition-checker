@@ -229,7 +229,9 @@ def main(argv: list[str] | None = None) -> int:
     rule_col_width = 30
     status_col_width = 10
 
-    print(f"  {'Plan':<{plan_col_width}}  {'Rule':<{rule_col_width}}  {'Status':>{status_col_width}}")
+    print(
+        f"  {'Plan':<{plan_col_width}}  {'Rule':<{rule_col_width}}  {'Status':>{status_col_width}}"
+    )
     print(f"  {'-' * plan_col_width}  {'-' * rule_col_width}  {'-' * status_col_width}")
 
     for plan_file in plan_files:
@@ -265,8 +267,12 @@ def main(argv: list[str] | None = None) -> int:
 
         rule_failures = _as_object_list(plan_report.get("rule_failures", []))
         prereq_failures = _as_object_list(plan_report.get("prerequisite_failures", []))
-        unsupported_prereqs = _as_object_list(plan_report.get("unsupported_prerequisites", []))
-        plan_is_valid = bool(plan_report.get("valid")) if plan_report else result.returncode == 0
+        unsupported_prereqs = _as_object_list(
+            plan_report.get("unsupported_prerequisites", [])
+        )
+        plan_is_valid = (
+            bool(plan_report.get("valid")) if plan_report else result.returncode == 0
+        )
 
         # Check offerings
         offerings_file = script_dir / "plans" / "offerings.json"
@@ -285,26 +291,38 @@ def main(argv: list[str] | None = None) -> int:
         try:
             offering_parsed = cast(
                 object,
-                json.loads(offering_result_raw.stdout) if offering_result_raw.stdout.strip() else {},
+                json.loads(offering_result_raw.stdout)
+                if offering_result_raw.stdout.strip()
+                else {},
             )
             offering_report = _as_json_object(offering_parsed)
             if offering_report is None:
                 raise ValueError("offering checker returned non-object JSON")
 
-            offering_violations = _as_object_dict_list(offering_report.get("violations", []))
+            offering_violations = _as_object_dict_list(
+                offering_report.get("violations", [])
+            )
             offerings_valid = bool(offering_report.get("valid", False))
         except (json.JSONDecodeError, ValueError) as exc:
             message = offering_result_raw.stderr.strip() or str(exc)
-            offering_violations = [{"error_type": "offering_check_error", "message": message}]
+            offering_violations = [
+                {"error_type": "offering_check_error", "message": message}
+            ]
             offerings_valid = False
 
         if offering_result_raw.returncode > 1 and not offering_violations:
-            message = offering_result_raw.stderr.strip() or "offering checker process failed"
-            offering_violations = [{"error_type": "offering_check_error", "message": message}]
+            message = (
+                offering_result_raw.stderr.strip() or "offering checker process failed"
+            )
+            offering_violations = [
+                {"error_type": "offering_check_error", "message": message}
+            ]
             offerings_valid = False
 
         if plan_is_valid and offerings_valid:
-            print(f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✓ PASS':>{status_col_width}}")
+            print(
+                f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✓ PASS':>{status_col_width}}"
+            )
             valid += 1
             results.append(
                 {
@@ -320,7 +338,9 @@ def main(argv: list[str] | None = None) -> int:
             )
             continue
 
-        print(f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✗ FAIL':>{status_col_width}}")
+        print(
+            f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✗ FAIL':>{status_col_width}}"
+        )
         has_structured_rule_report = bool(plan_report)
         rule_process_error_output = ""
         if result.stderr.strip():
@@ -372,16 +392,24 @@ def main(argv: list[str] | None = None) -> int:
                 code = str(viol.get("course_code", ""))
                 planned_period = str(viol.get("planned_period", ""))
                 allowed_periods = _as_object_list(viol.get("allowed_periods", []))
-                allowed_text = ", ".join(str(p) for p in allowed_periods) if allowed_periods else "(none)"
+                allowed_text = (
+                    ", ".join(str(p) for p in allowed_periods)
+                    if allowed_periods
+                    else "(none)"
+                )
 
                 if error_type == "course_not_found":
-                    detail_lines.append(f"  - {code}: not found in offerings (planned {planned_period})")
+                    detail_lines.append(
+                        f"  - {code}: not found in offerings (planned {planned_period})"
+                    )
                 elif error_type == "period_not_allowed":
                     detail_lines.append(
                         f"  - {code}: planned {planned_period}; allowed: {allowed_text}"
                     )
                 else:
-                    detail_lines.append(f"  - {code}: {error_type} (planned {planned_period})")
+                    detail_lines.append(
+                        f"  - {code}: {error_type} (planned {planned_period})"
+                    )
 
         if rule_process_error_output and not detail_lines:
             detail_lines.append(rule_process_error_output)

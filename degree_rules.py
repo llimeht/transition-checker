@@ -29,6 +29,7 @@ RuleExpr = CourseCode | dict[str, Any]
 
 class PlanCourseRecord(TypedDict, total=False):
     """Subset of plan JSON course fields needed by rule/prerequisite checks."""
+
     code: str
     year: int
     period: str
@@ -40,6 +41,7 @@ class PlanCourseRecord(TypedDict, total=False):
 @dataclass(frozen=True)
 class ScheduledPlanCourse:
     """Normalized and sortable in-plan course record used for validation."""
+
     index: int
     code: str
     year: int
@@ -61,7 +63,9 @@ class RuleValidationError(Exception):
 
 COURSE_TOKEN_RE = re.compile(r"[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?")
 UOC_TOKEN_RE = re.compile(r"(\d+)\s*UOC", re.IGNORECASE)
-PREREQ_TOKEN_RE = re.compile(r"\s*(\(|\)|AND|OR|\d+\s*UOC|[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?)\s*", re.IGNORECASE)
+PREREQ_TOKEN_RE = re.compile(
+    r"\s*(\(|\)|AND|OR|\d+\s*UOC|[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?)\s*", re.IGNORECASE
+)
 CO_REQUISITE_RE = re.compile(
     r"\b(?:CO-?REQ\w*)\b\s*:?",
     re.IGNORECASE,
@@ -152,7 +156,9 @@ def _and_expressions(expressions: list[RuleExpr]) -> RuleExpr:
     return {"and": children}
 
 
-def _parse_prerequisite_expression_single(text: str) -> tuple[RuleExpr | None, str | None]:
+def _parse_prerequisite_expression_single(
+    text: str,
+) -> tuple[RuleExpr | None, str | None]:
     """Parse one prerequisite expression segment.
 
     Args:
@@ -170,7 +176,7 @@ def _parse_prerequisite_expression_single(text: str) -> tuple[RuleExpr | None, s
     while position < len(canonical):
         match = PREREQ_TOKEN_RE.match(canonical, position)
         if not match:
-            snippet = canonical[position:position + 40].strip()
+            snippet = canonical[position : position + 40].strip()
             if not snippet:
                 break
             return None, f"unrecognized token near '{snippet}'"
@@ -269,7 +275,9 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
     if not raw:
         return None, None
 
-    plus_parts = [part.strip() for part in re.split(r"(?i)\bPLUS\b", raw) if part.strip()]
+    plus_parts = [
+        part.strip() for part in re.split(r"(?i)\bPLUS\b", raw) if part.strip()
+    ]
     parsed_parts: list[RuleExpr] = []
 
     for part in plus_parts:
@@ -299,16 +307,18 @@ def _split_prerequisite_parts(raw_text: str) -> tuple[str, str | None]:
     if not coreq_match:
         return raw_text, None
 
-    prereq_part = raw_text[:coreq_match.start()]
+    prereq_part = raw_text[: coreq_match.start()]
     prereq_part = re.sub(r"(?i)\bPLUS\s*$", "", prereq_part).strip()
 
-    coreq_part = raw_text[coreq_match.end():]
+    coreq_part = raw_text[coreq_match.end() :]
     coreq_part = re.sub(r"^[\s:;,.+-]+", "", coreq_part).strip()
 
     return prereq_part, coreq_part if coreq_part else None
 
 
-def _parse_prerequisite_field(raw_text: str) -> tuple[RuleExpr | None, RuleExpr | None, str | None]:
+def _parse_prerequisite_field(
+    raw_text: str,
+) -> tuple[RuleExpr | None, RuleExpr | None, str | None]:
     """Parse a plan prerequisite field into prerequisite/corequisite expressions.
 
     Returns:
@@ -334,7 +344,11 @@ def _parse_prerequisite_field(raw_text: str) -> tuple[RuleExpr | None, RuleExpr 
         if coreq_error:
             return None, None, f"corequisite parse error: {coreq_error}"
         if coreq_expr is None:
-            return None, None, "corequisite text exists but no course code expression was parsed"
+            return (
+                None,
+                None,
+                "corequisite text exists but no course code expression was parsed",
+            )
 
     return prereq_expr, coreq_expr, None
 
@@ -350,12 +364,16 @@ def extract_scheduled_courses(plan_data: dict[str, Any]) -> list[ScheduledPlanCo
     """
     courses_value = plan_data.get("courses")
     if not isinstance(courses_value, list):
-        raise RuleValidationError("plan.courses", "plan JSON must contain a 'courses' array")
+        raise RuleValidationError(
+            "plan.courses", "plan JSON must contain a 'courses' array"
+        )
 
     scheduled_courses: list[ScheduledPlanCourse] = []
     for idx, course in enumerate(cast(list[object], courses_value)):
         if not isinstance(course, dict):
-            raise RuleValidationError(f"plan.courses[{idx}]", "course entry must be an object")
+            raise RuleValidationError(
+                f"plan.courses[{idx}]", "course entry must be an object"
+            )
 
         course_record = cast(PlanCourseRecord, course)
 
@@ -367,7 +385,9 @@ def extract_scheduled_courses(plan_data: dict[str, Any]) -> list[ScheduledPlanCo
 
         period = course_record.get("period")
         if not isinstance(period, str) or not period.strip():
-            raise RuleValidationError(f"plan.courses[{idx}].period", "must be a non-empty string")
+            raise RuleValidationError(
+                f"plan.courses[{idx}].period", "must be a non-empty string"
+            )
         period_rank = _period_rank(period)
         if period_rank is None:
             raise RuleValidationError(
@@ -427,12 +447,18 @@ def _course_history(
         if (other.year, other.period_rank) < (current.year, current.period_rank):
             available.append(other)
             continue
-        if include_same_period and other.year == current.year and other.period_rank == current.period_rank:
+        if (
+            include_same_period
+            and other.year == current.year
+            and other.period_rank == current.period_rank
+        ):
             available.append(other)
     return available
 
 
-def validate_plan_prerequisites(plan_data: dict[str, Any]) -> tuple[list[str], list[str]]:
+def validate_plan_prerequisites(
+    plan_data: dict[str, Any],
+) -> tuple[list[str], list[str]]:
     """Validate prerequisite and corequisite expressions for all plan courses.
 
     Returns:
@@ -445,7 +471,9 @@ def validate_plan_prerequisites(plan_data: dict[str, Any]) -> tuple[list[str], l
     unsupported: list[str] = []
 
     for idx, course in enumerate(courses):
-        prereq_expr, coreq_expr, unsupported_reason = _parse_prerequisite_field(course.prerequisites)
+        prereq_expr, coreq_expr, unsupported_reason = _parse_prerequisite_field(
+            course.prerequisites
+        )
         course_label = f"{course.code} ({course.year} {course.period})"
 
         if unsupported_reason:
@@ -458,17 +486,27 @@ def validate_plan_prerequisites(plan_data: dict[str, Any]) -> tuple[list[str], l
         prior_courses = Counter(item.code for item in prior_history)
         prior_uoc = sum(item.uoc for item in prior_history)
 
-        if prereq_expr is not None and not evaluate_expression(prereq_expr, prior_courses, prior_uoc):
+        if prereq_expr is not None and not evaluate_expression(
+            prereq_expr, prior_courses, prior_uoc
+        ):
             diagnosis = diagnose_expression(prereq_expr, prior_courses, prior_uoc)
-            failures.append(f"[Prerequisite] {course_label}: {expression_to_text(prereq_expr)} - {diagnosis}")
+            failures.append(
+                f"[Prerequisite] {course_label}: {expression_to_text(prereq_expr)} - {diagnosis}"
+            )
 
         if coreq_expr is not None:
             coreq_history = _course_history(courses, idx, include_same_period=True)
             prior_and_same_period = Counter(item.code for item in coreq_history)
             prior_and_same_uoc = sum(item.uoc for item in coreq_history)
-            if not evaluate_expression(coreq_expr, prior_and_same_period, prior_and_same_uoc):
-                diagnosis = diagnose_expression(coreq_expr, prior_and_same_period, prior_and_same_uoc)
-                failures.append(f"[Corequisite] {course_label}: {expression_to_text(coreq_expr)} - {diagnosis}")
+            if not evaluate_expression(
+                coreq_expr, prior_and_same_period, prior_and_same_uoc
+            ):
+                diagnosis = diagnose_expression(
+                    coreq_expr, prior_and_same_period, prior_and_same_uoc
+                )
+                failures.append(
+                    f"[Corequisite] {course_label}: {expression_to_text(coreq_expr)} - {diagnosis}"
+                )
 
     return failures, unsupported
 
@@ -504,18 +542,27 @@ def normalize_clause(clause: Any) -> RuleExpr:
             min_count = operator_clause["min"]
             from_value = operator_clause["from"]
             if not isinstance(min_count, int) or min_count < 1:
-                raise RuleValidationError("<clause>.min", "'min' must be a positive integer")
+                raise RuleValidationError(
+                    "<clause>.min", "'min' must be a positive integer"
+                )
             if not isinstance(from_value, list):
                 raise RuleValidationError("<clause>.from", "'from' must be an array")
             from_courses = cast(list[object], from_value)
             if len(from_courses) < min_count:
                 raise RuleValidationError(
-                    "<clause>", f"'from' has {len(from_courses)} options but 'min' is {min_count}"
+                    "<clause>",
+                    f"'from' has {len(from_courses)} options but 'min' is {min_count}",
                 )
-            return {"min": min_count, "from": [normalize_clause(child) for child in from_courses]}
+            return {
+                "min": min_count,
+                "from": [normalize_clause(child) for child in from_courses],
+            }
 
         if len(operator_clause) != 1:
-            raise RuleValidationError("<clause>", "operator clause must contain exactly one key (or 'min' + 'from')")
+            raise RuleValidationError(
+                "<clause>",
+                "operator clause must contain exactly one key (or 'min' + 'from')",
+            )
         op = next(iter(operator_clause.keys()))
         if op not in ("and", "or"):
             raise RuleValidationError("<clause>", f"unsupported operator '{op}'")
@@ -525,7 +572,9 @@ def normalize_clause(clause: Any) -> RuleExpr:
             raise RuleValidationError("<clause>", f"'{op}' value must be an array")
         children = cast(list[object], children_value)
         if len(children) < 2:
-            raise RuleValidationError("<clause>", f"'{op}' must contain at least 2 child expressions")
+            raise RuleValidationError(
+                "<clause>", f"'{op}' must contain at least 2 child expressions"
+            )
 
         return {op: [normalize_clause(child) for child in children]}
 
@@ -547,16 +596,21 @@ def normalize_rules_config(config: dict[str, Any]) -> dict[str, Any]:
     """
     data = deepcopy(config)
     if "required" not in data or not isinstance(data["required"], dict):
-        raise RuleValidationError("required", "config must contain an object field named 'required'")
+        raise RuleValidationError(
+            "required", "config must contain an object field named 'required'"
+        )
 
     normalized_required: dict[str, list[RuleExpr]] = {}
     required_levels = cast(dict[str, Any], data["required"])
     for level_name, clauses in required_levels.items():
         if not isinstance(clauses, list):
             raise RuleValidationError(
-                f"required.{level_name}", "level requirements must be an array of clauses"
+                f"required.{level_name}",
+                "level requirements must be an array of clauses",
             )
-        normalized_required[level_name] = [normalize_clause(clause) for clause in cast(list[object], clauses)]
+        normalized_required[level_name] = [
+            normalize_clause(clause) for clause in cast(list[object], clauses)
+        ]
 
     data["required"] = normalized_required
     data["schemaVersion"] = 2
@@ -574,7 +628,9 @@ def validate_canonical_expression(expr: RuleExpr, path: str = "<clause>") -> Non
         return
 
     if not isinstance(expr, dict):
-        raise RuleValidationError(path, "expression must be a course string or operator object")
+        raise RuleValidationError(
+            path, "expression must be a course string or operator object"
+        )
 
     keys = set(expr.keys())
 
@@ -595,7 +651,9 @@ def validate_canonical_expression(expr: RuleExpr, path: str = "<clause>") -> Non
         return
 
     if len(keys) != 1:
-        raise RuleValidationError(path, "operator object must contain exactly one key (or 'min' + 'from')")
+        raise RuleValidationError(
+            path, "operator object must contain exactly one key (or 'min' + 'from')"
+        )
 
     op = next(iter(keys))
     if op not in ("and", "or"):
@@ -606,7 +664,9 @@ def validate_canonical_expression(expr: RuleExpr, path: str = "<clause>") -> Non
         raise RuleValidationError(path, f"'{op}' must be an array")
     children = cast(list[RuleExpr], children_value)
     if len(children) < 2:
-        raise RuleValidationError(path, f"'{op}' must contain at least 2 child expressions")
+        raise RuleValidationError(
+            path, f"'{op}' must contain at least 2 child expressions"
+        )
 
     for idx, child in enumerate(children):
         validate_canonical_expression(child, f"{path}.{op}[{idx}]")
@@ -638,14 +698,17 @@ def evaluate_expression(
     if set(node.keys()) == {"uoc"}:
         threshold = node["uoc"]
         if not isinstance(threshold, int) or threshold < 0:
-            raise RuleValidationError("<eval>.uoc", "'uoc' must be a non-negative integer")
+            raise RuleValidationError(
+                "<eval>.uoc", "'uoc' must be a non-negative integer"
+            )
         return completed_uoc >= threshold
 
     if set(node.keys()) == {"min", "from"}:
         min_count = cast(int, node["min"])
         from_exprs = cast(list[RuleExpr], node["from"])
         satisfied = sum(
-            completed_courses[cast(str, child)] if _is_course_code(child)
+            completed_courses[cast(str, child)]
+            if _is_course_code(child)
             else int(evaluate_expression(child, completed_courses, completed_uoc))
             for child in from_exprs
         )
@@ -656,7 +719,10 @@ def evaluate_expression(
 
     op = next(iter(node.keys()))
     children = cast(list[RuleExpr], node[op])
-    results = [evaluate_expression(child, completed_courses, completed_uoc) for child in children]
+    results = [
+        evaluate_expression(child, completed_courses, completed_uoc)
+        for child in children
+    ]
 
     if op == "and":
         return all(results)
@@ -666,7 +732,9 @@ def evaluate_expression(
     raise RuleValidationError("<eval>", f"unknown operator '{op}'")
 
 
-def evaluate_level(level_clauses: list[RuleExpr], completed_courses: Counter[str]) -> bool:
+def evaluate_level(
+    level_clauses: list[RuleExpr], completed_courses: Counter[str]
+) -> bool:
     """Evaluate one requirement level using all-clauses semantics.
 
     Args:
@@ -676,7 +744,9 @@ def evaluate_level(level_clauses: list[RuleExpr], completed_courses: Counter[str
     Returns:
         True when all clauses are satisfied.
     """
-    return all(evaluate_expression(clause, completed_courses) for clause in level_clauses)
+    return all(
+        evaluate_expression(clause, completed_courses) for clause in level_clauses
+    )
 
 
 def evaluate_required(
@@ -728,10 +798,14 @@ def validate_rules_config(config: dict[str, Any]) -> dict[str, Any]:
 
     for level_name, clauses in cast(dict[str, Any], required).items():
         if not isinstance(clauses, list):
-            raise RuleValidationError(f"required.{level_name}", "level requirements must be an array")
+            raise RuleValidationError(
+                f"required.{level_name}", "level requirements must be an array"
+            )
         level_clauses = cast(list[RuleExpr], clauses)
         if len(level_clauses) == 0:
-            raise RuleValidationError(f"required.{level_name}", "level must contain at least one clause")
+            raise RuleValidationError(
+                f"required.{level_name}", "level must contain at least one clause"
+            )
 
         for idx, clause in enumerate(level_clauses):
             validate_canonical_expression(clause, f"required.{level_name}[{idx}]")
@@ -829,7 +903,8 @@ def diagnose_expression(
         min_count = cast(int, node["min"])
         from_exprs = cast(list[RuleExpr], node["from"])
         satisfied = sum(
-            completed_courses[cast(str, child)] if _is_course_code(child)
+            completed_courses[cast(str, child)]
+            if _is_course_code(child)
             else int(evaluate_expression(child, completed_courses, completed_uoc))
             for child in from_exprs
         )
@@ -876,7 +951,9 @@ def report_plan(
             if not evaluate_expression(clause, completed_courses):
                 rule_text = expression_to_text(clause)
                 diagnosis = diagnose_expression(clause, completed_courses)
-                failures.append(f"[{level_name}] clause {idx}: {rule_text} \u2014 {diagnosis}")
+                failures.append(
+                    f"[{level_name}] clause {idx}: {rule_text} \u2014 {diagnosis}"
+                )
     return failures
 
 
@@ -891,12 +968,16 @@ def extract_completed_courses(plan_data: dict[str, Any]) -> Counter[str]:
     """
     courses_value = plan_data.get("courses")
     if not isinstance(courses_value, list):
-        raise RuleValidationError("plan.courses", "plan JSON must contain a 'courses' array")
+        raise RuleValidationError(
+            "plan.courses", "plan JSON must contain a 'courses' array"
+        )
 
     completed_courses: Counter[str] = Counter()
     for idx, course in enumerate(cast(list[object], courses_value)):
         if not isinstance(course, dict):
-            raise RuleValidationError(f"plan.courses[{idx}]", "course entry must be an object")
+            raise RuleValidationError(
+                f"plan.courses[{idx}]", "course entry must be an object"
+            )
 
         course_record = cast(PlanCourseRecord, course)
         code = course_record.get("code")
@@ -947,7 +1028,8 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         help="With --plan, print machine-readable validation JSON",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="count",
         default=0,
         help="Increase logging verbosity (-v for INFO, -vv for DEBUG)",
@@ -1018,12 +1100,19 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         if not isinstance(plan_data, dict):
-            print("Error: plan JSON must be an object with a 'courses' array", file=sys.stderr)
+            print(
+                "Error: plan JSON must be an object with a 'courses' array",
+                file=sys.stderr,
+            )
             return 1
 
         try:
-            completed_courses = extract_completed_courses(cast(dict[str, Any], plan_data))
-            prereq_failures, prereq_unsupported = validate_plan_prerequisites(cast(dict[str, Any], plan_data))
+            completed_courses = extract_completed_courses(
+                cast(dict[str, Any], plan_data)
+            )
+            prereq_failures, prereq_unsupported = validate_plan_prerequisites(
+                cast(dict[str, Any], plan_data)
+            )
         except RuleValidationError as exc:
             print(f"Error: {exc}", file=sys.stderr)
             return 1
@@ -1047,12 +1136,16 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {failure}")
 
         if prereq_failures:
-            print(f"Plan has {len(prereq_failures)} prerequisite/corequisite violation(s):")
+            print(
+                f"Plan has {len(prereq_failures)} prerequisite/corequisite violation(s):"
+            )
             for failure in prereq_failures:
                 print(f"  {failure}")
 
         if prereq_unsupported:
-            print(f"Plan has {len(prereq_unsupported)} unsupported prerequisite expression(s):")
+            print(
+                f"Plan has {len(prereq_unsupported)} unsupported prerequisite expression(s):"
+            )
             for unsupported in prereq_unsupported:
                 print(f"  {unsupported}")
 
