@@ -13,14 +13,14 @@ warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
 
 class PlanCourse(TypedDict):
-    enrol_year: int | None
-    year: int | None
-    period: str | None
-    course_n: int | None
+    enrol_year: str
+    year: int
+    period: str
+    course_n: str
     code: str
-    title: str | None
-    uoc: int | None
-    prerequisites: str | None
+    title: str
+    uoc: int
+    prerequisites: str
 
 
 class PlanExport(TypedDict):
@@ -98,16 +98,24 @@ def print_offerings_summary(summary: dict[str, set[str]]):
         print(f"{course:14} {" ".join(pdtxt)}")
 
 
-def _to_int_or_none(val: Any) -> int | None:
+def _to_string(val: Any) -> str:
     if pd.isna(val):
-        return None
-    return int(val)
-
-
-def _to_str_or_none(val: Any) -> str | None:
-    if pd.isna(val):
-        return None
+        return ""
     return str(val)
+
+
+def _to_int(val: Any) -> int:
+    if pd.isna(val):
+        raise ValueError("expected an integer-compatible value, got blank cell")
+    if isinstance(val, bool):
+        return int(val)
+    if isinstance(val, int):
+        return val
+    if isinstance(val, float):
+        if val.is_integer():
+            return int(val)
+        raise ValueError(f"expected an integer-compatible value, got {val!r}")
+    return int(str(val).strip())
 
 
 def plan_to_dict(sheet_name: str, intake: str, plan: pd.DataFrame) -> PlanExport:
@@ -117,14 +125,14 @@ def plan_to_dict(sheet_name: str, intake: str, plan: pd.DataFrame) -> PlanExport
         if pd.isna(row["Code"]):
             continue
         courses.append({
-            "enrol_year": _to_int_or_none(row["EnrolYear"]),
-            "year": _to_int_or_none(row["Year"]),
-            "period": _to_str_or_none(row["Period"]),
-            "course_n": _to_int_or_none(row["CourseN"]),
+            "enrol_year": _to_string(row["EnrolYear"]),
+            "year": _to_int(row["Year"]),
+            "period": _to_string(row["Period"]),
+            "course_n": _to_string(row["CourseN"]),
             "code": str(row["Code"]),
-            "title": _to_str_or_none(row["Title"]),
-            "uoc": _to_int_or_none(row["UoC"]),
-            "prerequisites": _to_str_or_none(row["Prerequisites"]),
+            "title": _to_string(row["Title"]),
+            "uoc": _to_int(row["UoC"]),
+            "prerequisites": _to_string(row["Prerequisites"]),
         })
     return {"sheet": sheet_name, "intake": intake, "courses": courses}
 
