@@ -168,7 +168,7 @@ def write_offerings_file(
 
     # Convert sets to sorted lists for JSON serialization
     offerings_dict = {
-        course: sorted(list(periods)) for course, periods in summary.items()
+        course: sorted(summary[course]) for course in sorted(summary.keys())
     }
 
     with open(filepath, "w", encoding="utf-8") as fh:
@@ -194,8 +194,9 @@ def write_offerings_csv(
     filepath = output_dir / f"{base_name}_offerings.csv"
 
     all_periods = sorted({period for periods in summary.values() for period in periods})
+    courses = sorted(summary.keys())
     rows: list[dict[str, str]] = []
-    for course in sorted(summary.keys()):
+    for course in courses:
         row = {"course": course}
         for period in all_periods:
             row[period] = "Y" if period in summary[course] else ""
