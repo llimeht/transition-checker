@@ -1,0 +1,51 @@
+{
+    "schemaVersion": 2,
+    "required": {
+        "Level 1": [
+            "CHEM1811",
+            "CHEM1821",
+            {
+                "or": ["PHYS1121", "PHYS1131"]
+            },
+            "ENGG1811",
+            "DESN1000",
+            {
+                "or": ["MATH1131", "MATH1141"]
+            },
+            {
+                "or": ["MATH1231", "MATH1241"]
+            }
+        ],
+        "Level 2": [
+            "CEIC2000",
+            "CEIC2001",
+            "CEIC2002",
+            "CEIC2005",
+            "CEIC2007",
+            "DESN2000",
+            {
+                "or": ["MATH2019", "MATH2018"]
+            },
+            "MATH2089"
+        ],
+        "Level 3": [
+            "CEIC3000",
+            "CEIC3001",
+            "CEIC3004",
+            "CEIC3005",
+            "CEIC3006",
+            "CEIC3007"
+        ],
+        "Level 4": [
+            "CEIC4000",
+            "CEIC4001",
+            {
+                "or": ["CEIC4002", "CEIC9002", "CEIC4005"]
+            },
+            {
+                "or": ["CEIC4003", "CEIC9003", "CEIC4005"]
+            }
+        ]
+    }
+}
+
