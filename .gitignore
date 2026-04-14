@@ -2,3 +2,4 @@ __pycache__/
 *.bak
 .venv/
 plans/
+.mypy_cache/

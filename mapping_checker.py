@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Generator, TypedDict
 import warnings
 
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
@@ -173,7 +173,6 @@ def plan_to_dict(sheet_name: str, intake: str, plan: pd.DataFrame) -> PlanExport
         })
     return {"sheet": sheet_name, "intake": intake, "courses": courses}
 
-
 def export_plan(sheet_name: str, intake: str, plan: pd.DataFrame, output_dir: Path) -> Path | None:
     """Write one plan to a JSON file; return the file path, or None if the plan has no courses."""
     plan_dict = plan_to_dict(sheet_name, intake, plan)
@@ -227,7 +226,10 @@ def main(argv: list[str] | None = None) -> int:
     output_dir_path = Path(args.output_dir) if args.output_dir else excel_file.resolve().parent
     output_dir_path.mkdir(parents=True, exist_ok=True)
 
-    dfs: dict[str, pd.DataFrame] = pd.read_excel(excel_file, sheet_name=None)  # type: ignore
+    dfs: dict[str, pd.DataFrame] = pd.read_excel(  # pyright: ignore
+        excel_file,
+        sheet_name=None,
+    )
 
     offerings: list[dict[str, set[str]]] = []
 

@@ -277,8 +277,7 @@ def extract_scheduled_courses(plan_data: dict[str, Any]) -> list[ScheduledPlanCo
         raise RuleValidationError("plan.courses", "plan JSON must contain a 'courses' array")
 
     scheduled_courses: list[ScheduledPlanCourse] = []
-    course_items = cast(list[Any], courses_value)
-    for idx, course in enumerate(course_items):
+    for idx, course in enumerate(cast(list[object], courses_value)):
         if not isinstance(course, dict):
             raise RuleValidationError(f"plan.courses[{idx}]", "course entry must be an object")
 
@@ -393,7 +392,7 @@ def _is_course_code(value: Any) -> bool:
 def normalize_clause(clause: Any) -> RuleExpr:
     """Normalize one requirement clause from canonical forms only."""
     if _is_course_code(clause):
-        return clause.strip()
+        return cast(str, clause).strip()
 
     if isinstance(clause, list):
         raise RuleValidationError(
@@ -412,7 +411,7 @@ def normalize_clause(clause: Any) -> RuleExpr:
                 raise RuleValidationError("<clause>.min", "'min' must be a positive integer")
             if not isinstance(from_value, list):
                 raise RuleValidationError("<clause>.from", "'from' must be an array")
-            from_courses = cast(list[Any], from_value)
+            from_courses = cast(list[object], from_value)
             if len(from_courses) < min_count:
                 raise RuleValidationError(
                     "<clause>", f"'from' has {len(from_courses)} options but 'min' is {min_count}"
@@ -428,7 +427,7 @@ def normalize_clause(clause: Any) -> RuleExpr:
         children_value = operator_clause[op]
         if not isinstance(children_value, list):
             raise RuleValidationError("<clause>", f"'{op}' value must be an array")
-        children = cast(list[Any], children_value)
+        children = cast(list[object], children_value)
         if len(children) < 2:
             raise RuleValidationError("<clause>", f"'{op}' must contain at least 2 child expressions")
 
@@ -456,7 +455,7 @@ def normalize_rules_config(config: dict[str, Any]) -> dict[str, Any]:
             raise RuleValidationError(
                 f"required.{level_name}", "level requirements must be an array of clauses"
             )
-        normalized_required[level_name] = [normalize_clause(clause) for clause in cast(list[Any], clauses)]
+        normalized_required[level_name] = [normalize_clause(clause) for clause in cast(list[object], clauses)]
 
     data["required"] = normalized_required
     data["schemaVersion"] = 2
@@ -717,8 +716,7 @@ def extract_completed_courses(plan_data: dict[str, Any]) -> Counter[str]:
         raise RuleValidationError("plan.courses", "plan JSON must contain a 'courses' array")
 
     completed_courses: Counter[str] = Counter()
-    course_items = cast(list[Any], courses_value)
-    for idx, course in enumerate(course_items):
+    for idx, course in enumerate(cast(list[object], courses_value)):
         if not isinstance(course, dict):
             raise RuleValidationError(f"plan.courses[{idx}]", "course entry must be an object")
 
