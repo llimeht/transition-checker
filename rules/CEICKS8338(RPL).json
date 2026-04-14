@@ -1,0 +1,49 @@
+{
+    "schemaVersion": 2,
+    "required": {
+        "ETM Electives": [
+            "CEIC4000"
+        ],
+        "ADK Core": [
+            {
+                "or": ["CEIC6711", "CEIC8105"]
+            },
+            {
+                "or": ["CEIC8102", "CEIC8341", "CHEN6701", "CHEN6706", "FOOD8801"]
+            }
+        ],
+        "ADK Electives": [
+            {
+                "min": 2,
+                "from": [
+                    "CEIC4954",
+                    "CEIC6711",
+                    "CEIC6789",
+                    "CEIC8102",
+                    "CEIC8105",
+                    "CEIC8341",
+                    "CHEN6701",
+                    "CHEN6706",
+                    "FOOD8450",
+                    "FOOD8801"
+                ]
+            }
+        ],
+        "Capstone": [
+            {
+                "or": ["GSOE9010", "GSOE9011"]
+            },
+            {
+                "or": [
+                    {
+                        "and": ["CEIC9007", "CEIC90008"]
+                    },
+                    {
+                        "and": ["CEIC9451", "CEIC9452"]
+                    }
+                ]
+            }
+        ]
+    }
+}
+

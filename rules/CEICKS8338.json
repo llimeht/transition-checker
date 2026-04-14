@@ -1,0 +1,72 @@
+{
+    "schemaVersion": 2,
+    "required": {
+        "FDK Core": [
+            "CEIC3004",
+            "CEIC3005",
+            "CEIC3006"
+        ],
+        "DK Electives": [
+            {
+                "min": 4,
+                "from": [
+                    "CEIC6712",
+                    "CEIC6713",
+                    "CEIC6714",
+                    "CEIC8104",
+                    "CHEN6703",
+                    "FOOD8010",
+                    "GSOE9111",
+                    "CEICKSdke"
+                ]
+            }
+        ],
+        "ETM Core": [
+            "CEIC8204"
+        ],
+        "ETM Electives": [
+            "CEIC4000"
+        ],
+        "ADK Core": [
+            {
+                "or": ["CEIC6711", "CEIC8105"]
+            },
+            {
+                "or": ["CEIC8102", "CEIC8341", "CHEN6701", "CHEN6706", "FOOD8801"]
+            }
+        ],
+        "ADK Electives": [
+            {
+                "min": 2,
+                "from": [
+                    "CEIC4954",
+                    "CEIC6711",
+                    "CEIC6789",
+                    "CEIC8102",
+                    "CEIC8105",
+                    "CEIC8341",
+                    "CHEN6701",
+                    "CHEN6706",
+                    "FOOD8450",
+                    "FOOD8801"
+                ]
+            }
+        ],
+        "Capstone": [
+            {
+                "or": ["GSOE9010", "GSOE9011"]
+            },
+            {
+                "or": [
+                    {
+                        "and": ["CEIC9007", "CEIC90008"]
+                    },
+                    {
+                        "and": ["CEIC9451", "CEIC9452"]
+                    }
+                ]
+            }
+        ]
+    }
+}
+
