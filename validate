@@ -137,14 +137,6 @@ def main() -> int:
 
         if not rule_file.is_file():
             skipped_no_rule += 1
-            results.append(
-                {
-                    "plan_file": str(plan_file),
-                    "program_code": program_code,
-                    "rule_file": rule_name,
-                    "status": "skipped_no_rule",
-                }
-            )
             continue
 
         result = run_cmd(
@@ -154,10 +146,25 @@ def main() -> int:
                 str(rule_file),
                 "--plan",
                 str(plan_file),
+                "--plan-report-json",
             ]
         )
 
-        if result.returncode == 0:
+        plan_report: dict[str, object] = {}
+        if result.stdout.strip():
+            try:
+                parsed = json.loads(result.stdout)
+                if isinstance(parsed, dict):
+                    plan_report = parsed
+            except json.JSONDecodeError:
+                plan_report = {}
+
+        rule_failures = plan_report.get("rule_failures")
+        prereq_failures = plan_report.get("prerequisite_failures")
+        unsupported_prereqs = plan_report.get("unsupported_prerequisites")
+        plan_is_valid = bool(plan_report.get("valid")) if plan_report else result.returncode == 0
+
+        if plan_is_valid:
             print(f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✓ PASS':>{status_col_width}}")
             valid += 1
             results.append(
@@ -166,6 +173,9 @@ def main() -> int:
                     "program_code": program_code,
                     "rule_file": rule_name,
                     "status": "valid",
+                    "rule_failures": rule_failures if isinstance(rule_failures, list) else [],
+                    "prerequisite_failures": prereq_failures if isinstance(prereq_failures, list) else [],
+                    "unsupported_prerequisites": unsupported_prereqs if isinstance(unsupported_prereqs, list) else [],
                 }
             )
             continue
@@ -179,10 +189,33 @@ def main() -> int:
                 "rule_file": rule_name,
                 "status": "failed",
                 "error_output": combined_output,
+                "rule_failures": rule_failures if isinstance(rule_failures, list) else [],
+                "prerequisite_failures": prereq_failures if isinstance(prereq_failures, list) else [],
+                "unsupported_prerequisites": unsupported_prereqs if isinstance(unsupported_prereqs, list) else [],
             }
         )
-        if combined_output:
-            failure_details.append((plan_file.name, rule_name, combined_output))
+        detail_lines: list[str] = []
+
+        if isinstance(rule_failures, list) and rule_failures:
+            detail_lines.append(f"rule_failures={len(rule_failures)}")
+            for failure in rule_failures:
+                detail_lines.append(f"  - {failure}")
+
+        if isinstance(prereq_failures, list) and prereq_failures:
+            detail_lines.append(f"prerequisite_failures={len(prereq_failures)}")
+            for failure in prereq_failures:
+                detail_lines.append(f"  - {failure}")
+
+        if isinstance(unsupported_prereqs, list) and unsupported_prereqs:
+            detail_lines.append(f"unsupported_prerequisites={len(unsupported_prereqs)}")
+            for failure in unsupported_prereqs:
+                detail_lines.append(f"  - {failure}")
+
+        if combined_output and not detail_lines:
+            detail_lines.append(combined_output)
+
+        if detail_lines:
+            failure_details.append((plan_file.name, rule_name, "\n".join(detail_lines)))
         failed += 1
 
     if failure_details:
