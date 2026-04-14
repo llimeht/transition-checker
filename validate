@@ -1,0 +1,65 @@
+#!/bin/bash
+
+set -e
+set -u
+
+if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 <excel_file>"
+    echo "Example: $0 plans/CEIC/my_plans.xlsx"
+    exit 1
+fi
+
+EXCEL_FILE="$1"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OUTPUT_DIR="$(dirname "$EXCEL_FILE")"
+PYTHON=python3
+
+# Check if Excel file exists
+if [[ ! -f "$EXCEL_FILE" ]]; then
+    echo "Error: File not found: $EXCEL_FILE"
+    exit 1
+fi
+
+echo "📊 Exporting plans from: $EXCEL_FILE"
+$PYTHON "$SCRIPT_DIR/mapping_checker.py" "$EXCEL_FILE" --output-dir "$OUTPUT_DIR" -v
+
+echo "✅ Export complete!"
+echo ""
+echo "🔍 Validating exported plans..."
+
+# Find all exported plan JSON files (excluding offerings summary)
+PLAN_FILES=$(find "$OUTPUT_DIR" -maxdepth 1 -name "*.json" ! -name "*_offerings.json" -type f | sort)
+
+if [[ -z "$PLAN_FILES" ]]; then
+    echo "⚠️  No plan files found to validate"
+    exit 0
+fi
+
+# Validate each plan against rules
+RULE_FILE="$SCRIPT_DIR/rules/CEICAH.json"
+FAILED=0
+
+for plan_file in $PLAN_FILES; do
+    echo -n "  Validating $(basename "$plan_file")..."
+    set +e
+    OUTPUT=$($PYTHON "$SCRIPT_DIR/degree_rules.py" "$RULE_FILE" --plan "$plan_file" 2>&1)
+    EXIT_CODE=$?
+    set -e
+    
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        echo "    ✓ Valid"
+    else
+        echo "    ❌ Validation failed"
+        echo "$OUTPUT"
+        ((++FAILED))
+    fi
+done
+
+echo ""
+if [[ $FAILED -eq 0 ]]; then
+    echo "🎉 All plans validated successfully!"
+    exit 0
+else
+    echo "❌ $FAILED plan(s) failed validation"
+    exit 1
+fi
