@@ -1,119 +1,215 @@
-#!/bin/bash
+#!/usr/bin/env python3
 
-set -e
-set -u
+from __future__ import annotations
 
-if [[ $# -lt 1 ]]; then
-    echo "Usage: $0 <excel_file>"
-    echo "Example: $0 plans/CEIC/my_plans.xlsx"
-    exit 1
-fi
+import json
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
-EXCEL_FILE="$1"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUTPUT_DIR="$(dirname "$EXCEL_FILE")"
-PYTHON=python3
 
-# Check if Excel file exists
-if [[ ! -f "$EXCEL_FILE" ]]; then
-    echo "Error: File not found: $EXCEL_FILE"
-    exit 1
-fi
+def print_usage(script_name: str) -> None:
+    print(f"Usage: {script_name} <excel_file>")
+    print(f"Example: {script_name} plans/CEIC/my_plans.xlsx")
 
-echo "📊 Exporting plans from: $EXCEL_FILE"
-$PYTHON "$SCRIPT_DIR/mapping_checker.py" "$EXCEL_FILE" --output-dir "$OUTPUT_DIR" -v
 
-echo "✅ Export complete!"
-echo ""
-echo "🔍 Validating exported plans..."
+def resolve_rule_file(program_code: str, plan_stem: str, script_dir: Path) -> Path:
+    intake_year: int | None = None
+    prefix = f"{program_code}_"
 
-# Find all exported plan JSON files (excluding offerings summary)
-PLAN_FILES=$(find "$OUTPUT_DIR" -maxdepth 1 -name "*.json" ! -name "*_offerings.json" -type f | sort)
+    if plan_stem.startswith(prefix):
+        intake_segment = plan_stem[len(prefix) :]
+        intake_year_candidate = intake_segment.split("_", 1)[0]
+        if re.fullmatch(r"\d{4}", intake_year_candidate):
+            intake_year = int(intake_year_candidate)
 
-if [[ -z "$PLAN_FILES" ]]; then
-    echo "⚠️  No plan files found to validate"
-    exit 0
-fi
+    if intake_year is not None:
+        for candidate in sorted((script_dir / "rules").glob("*.json")):
+            candidate_stem = candidate.stem
+            if not candidate_stem.startswith(f"{program_code}-"):
+                continue
 
-resolve_rule_file() {
-    local program_code="$1"
-    local plan_stem="$2"
-    local script_dir="$3"
-    local intake_segment
-    local intake_year
-    local rule_file=""
-    local candidate
-    local candidate_basename
-    local candidate_stem
-    local range_part
-    local range_start
-    local range_end
+            range_part = candidate_stem[len(program_code) + 1 :]
+            match = re.fullmatch(r"(\d{4})-(\d{4})", range_part)
+            if not match:
+                continue
 
-    intake_segment="${plan_stem#${program_code}_}"
-    if [[ "$intake_segment" != "$plan_stem" ]]; then
-        intake_year="${intake_segment%%_*}"
-    else
-        intake_year=""
-    fi
+            range_start = int(match.group(1))
+            range_end = int(match.group(2))
+            if range_start <= intake_year <= range_end:
+                return candidate
 
-    if [[ "$intake_year" =~ ^[0-9]{4}$ ]]; then
-        for candidate in "$script_dir"/rules/*.json; do
-            candidate_basename="${candidate##*/}"
-            candidate_stem="${candidate_basename%.json}"
+    return script_dir / "rules" / f"{program_code}.json"
 
-            if [[ "$candidate_stem" == "$program_code"-* ]]; then
-                range_part="${candidate_stem#${program_code}-}"
-                range_start="${range_part%%-*}"
-                range_end="${range_part##*-}"
 
-                if [[ "$range_start" =~ ^[0-9]{4}$ ]] && [[ "$range_end" =~ ^[0-9]{4}$ ]] && (( intake_year >= range_start && intake_year <= range_end )); then
-                    rule_file="$candidate"
-                    break
-                fi
-            fi
-        done
-    fi
+def run_cmd(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, capture_output=True, text=True)
 
-    if [[ -z "$rule_file" ]]; then
-        rule_file="$script_dir/rules/${program_code}.json"
-    fi
 
-    printf '%s\n' "$rule_file"
-}
+def write_validation_report(report_path: Path, report: dict[str, object]) -> None:
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
-# Validate each plan against rules
-FAILED=0
 
-for plan_file in $PLAN_FILES; do
-    PLAN_BASENAME="${plan_file##*/}"
-    PLAN_STEM="${PLAN_BASENAME%.json}"
-    PROGRAM_CODE="${PLAN_STEM%%_*}"  # strip from first underscore onward
-    RULE_FILE="$(resolve_rule_file "$PROGRAM_CODE" "$PLAN_STEM" "$SCRIPT_DIR")"
+def main() -> int:
+    if len(sys.argv) < 2:
+        print_usage(sys.argv[0])
+        return 1
 
-    echo -n "  Validating $(basename "$plan_file") against $(basename "$RULE_FILE")..."
-    if [[ ! -f "$RULE_FILE" ]]; then
-        echo " ⚠️  no rule file for $PROGRAM_CODE, skipping"
-        continue
-    fi
-    set +e
-    OUTPUT=$($PYTHON "$SCRIPT_DIR/degree_rules.py" "$RULE_FILE" --plan "$plan_file" 2>&1)
-    EXIT_CODE=$?
-    set -e
-    
-    if [[ $EXIT_CODE -eq 0 ]]; then
-        echo "    ✓ Valid"
-    else
-        echo "    ❌ Validation failed"
-        echo "$OUTPUT"
-        ((++FAILED))
-    fi
-done
+    excel_file = Path(sys.argv[1])
+    script_dir = Path(__file__).resolve().parent
+    output_dir = excel_file.parent
+    report_path = output_dir / f"{excel_file.stem}_validation_results.json"
 
-echo ""
-if [[ $FAILED -eq 0 ]]; then
-    echo "🎉 All plans validated successfully!"
-    exit 0
-else
-    echo "❌ $FAILED plan(s) failed validation"
-    exit 1
-fi
+    if not excel_file.is_file():
+        print(f"Error: File not found: {excel_file}")
+        return 1
+
+    print(f"📊 Exporting plans from: {excel_file}")
+    export_result = run_cmd(
+        [
+            sys.executable,
+            str(script_dir / "mapping_checker.py"),
+            str(excel_file),
+            "--output-dir",
+            str(output_dir),
+            "-v",
+        ]
+    )
+    if export_result.returncode != 0:
+        if export_result.stdout:
+            print(export_result.stdout, end="")
+        if export_result.stderr:
+            print(export_result.stderr, end="", file=sys.stderr)
+        return export_result.returncode
+
+    if export_result.stdout:
+        print(export_result.stdout, end="")
+
+    print("✅ Export complete!")
+    print()
+    print("🔍 Validating exported plans...")
+
+    report: dict[str, object] = {
+        "excel_file": str(excel_file),
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "report_file": str(report_path),
+        "results": [],
+    }
+
+    plan_files = sorted(
+        p
+        for p in output_dir.glob("*.json")
+        if p.is_file() and not p.name.endswith("_offerings.json")
+    )
+
+    if not plan_files:
+        print("⚠️  No plan files found to validate")
+        report["summary"] = {
+            "total_plan_files": 0,
+            "valid": 0,
+            "failed": 0,
+            "skipped_no_rule": 0,
+        }
+        write_validation_report(report_path, report)
+        print(f"☑️ Validation report written to: {report_path}")
+        return 0
+
+    failed = 0
+    valid = 0
+    skipped_no_rule = 0
+    results: list[dict[str, object]] = []
+    failure_details: list[tuple[str, str, str]] = []
+
+    plan_col_width = max(4, max(len(p.name) for p in plan_files))
+    rule_col_width = 30
+    status_col_width = 10
+
+    print(f"  {'Plan':<{plan_col_width}}  {'Rule':<{rule_col_width}}  {'Status':>{status_col_width}}")
+    print(f"  {'-' * plan_col_width}  {'-' * rule_col_width}  {'-' * status_col_width}")
+
+    for plan_file in plan_files:
+        plan_stem = plan_file.stem
+        program_code = plan_stem.split("_", 1)[0]
+        rule_file = resolve_rule_file(program_code, plan_stem, script_dir)
+        rule_name = rule_file.name
+
+        if not rule_file.is_file():
+            skipped_no_rule += 1
+            results.append(
+                {
+                    "plan_file": str(plan_file),
+                    "program_code": program_code,
+                    "rule_file": rule_name,
+                    "status": "skipped_no_rule",
+                }
+            )
+            continue
+
+        result = run_cmd(
+            [
+                sys.executable,
+                str(script_dir / "degree_rules.py"),
+                str(rule_file),
+                "--plan",
+                str(plan_file),
+            ]
+        )
+
+        if result.returncode == 0:
+            print(f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✓ PASS':>{status_col_width}}")
+            valid += 1
+            results.append(
+                {
+                    "plan_file": str(plan_file),
+                    "program_code": program_code,
+                    "rule_file": rule_name,
+                    "status": "valid",
+                }
+            )
+            continue
+
+        print(f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✗ FAIL':>{status_col_width}}")
+        combined_output = f"{result.stdout}{result.stderr}".strip()
+        results.append(
+            {
+                "plan_file": str(plan_file),
+                "program_code": program_code,
+                "rule_file": rule_name,
+                "status": "failed",
+                "error_output": combined_output,
+            }
+        )
+        if combined_output:
+            failure_details.append((plan_file.name, rule_name, combined_output))
+        failed += 1
+
+    if failure_details:
+        print("\nFailure details:")
+        for plan_name, rule_name, output in failure_details:
+            print(f"  - {plan_name} | {rule_name}")
+            for line in output.splitlines():
+                print(f"    {line}")
+
+    report["results"] = results
+    report["summary"] = {
+        "total_plan_files": len(plan_files),
+        "valid": valid,
+        "failed": failed,
+        "skipped_no_rule": skipped_no_rule,
+    }
+    write_validation_report(report_path, report)
+    print(f"\n☑️ Validation report written to: {report_path}")
+
+    print()
+    if failed == 0:
+        print("🎉 All plans validated successfully!")
+        return 0
+
+    print(f"❌ {failed} plan(s) failed validation")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
