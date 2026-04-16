@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "degreeplanner"
 version = "0.1.0"
 requires-python = ">=3.11"
+license = { text = "BSD-3-Clause" }
 dependencies = [
     "pandas",
     "openpyxl",
@@ -19,6 +20,7 @@ py-modules = [
     "map_maker",
     "validate",
     "extract_template",
+    "cfcc_summary",
 ]
 
 [project.scripts]
