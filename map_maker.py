@@ -4,15 +4,28 @@ from __future__ import annotations
 
 """Generate multiple candidate degree plans and export them to CSV.
 
-This tool consumes extracted JSON artifacts (rules, offerings, catalogue, templates)
-and explores a diverse set of candidate plans using a greedy baseline, repair moves,
-and a mixed neighborhood search with ruin-and-recreate plus simulated annealing.
+The planner combines four inputs:
+- degree rules: canonical requirement structure from ``degree_rules.py``
+- offerings: which teaching periods each course can run in
+- catalogue: course metadata such as UoC, level, and prerequisites
+- intake template: the period layout and capacity model for an intake
+
+Planning proceeds in four stages:
+1. Choose the concrete set of required courses from the rules, resolving ``or``
+    and ``min/from`` branches using feasibility plus optional steering hints.
+2. Seed an initial assignment with a greedy placer.
+3. Improve obvious defects with a local repair loop.
+4. Explore alternatives with ruin-and-recreate, shift, and swap moves under a
+    simulated annealing acceptance schedule.
+
+The output is a CSV laid out by year/period, with one column block per solution.
+Higher verbosity levels print restart summaries and search progress to stderr.
 
 Examples:
   python3 map_maker.py --rule rules/CEICDH3707-2026-2029.json --intake "2026 T1"
   python3 map_maker.py --rule rules/CEICDH3707-2026-2029.json --intake "2026 T1" \
-      --num-solutions 8 --restarts 20 --iterations 3000 \
-      --output plans/CEIC/CEICDH3707_2026_T1_options.csv --verbose
+        --num-solutions 8 --restarts 20 --iterations 3000 \
+        --output plans/CEIC/CEICDH3707_2026_T1_options.csv --verbose
 """
 
 import argparse
@@ -43,37 +56,51 @@ CourseCode = str
 
 
 class TemplatePeriod(TypedDict):
+    """One schedulable teaching period inside a template year."""
+
     period: str
     max_slots: int
 
 
 class TemplateYear(TypedDict):
+    """Template definition for one year of an intake plan."""
+
     enrol_year: str
     year: int
     periods: list[TemplatePeriod]
 
 
 class IntakeTemplate(TypedDict):
+    """Top-level schedule template for one intake key."""
+
     years: list[TemplateYear]
 
 
 class TemplateConfig(TypedDict):
+    """Full template configuration file keyed by intake string."""
+
     intakes: dict[str, IntakeTemplate]
 
 
 class CourseHint(TypedDict, total=False):
+    """Optional soft steering hints for placing one course."""
+
     preferred_period: str
     preferred_year_number: int
     hint_weight: float
 
 
 class BranchPreference(TypedDict, total=False):
+    """Soft preference for choosing one branch of a requirement expression."""
+
     courses: list[str]
     weight: float
 
 
 @dataclass(frozen=True)
 class SoftPrecedenceRule:
+    """Soft ordering preference between two courses in the final plan."""
+
     before: str
     after: str
     weight: float
@@ -81,6 +108,8 @@ class SoftPrecedenceRule:
 
 @dataclass(frozen=True)
 class Slot:
+    """Concrete schedulable slot derived from the intake template."""
+
     slot_idx: int
     enrol_year: str
     year_number: int
@@ -98,6 +127,8 @@ class PlanEntry:
 
 @dataclass(frozen=True)
 class CourseMeta:
+    """Catalogue fields required by the planner and validators."""
+
     title: str
     uoc: int
     prerequisites: str
@@ -106,6 +137,12 @@ class CourseMeta:
 
 @dataclass
 class CostConfig:
+    """Penalty weights used by the planner objective function.
+
+    Higher values make the corresponding condition more expensive and therefore
+    less likely to appear in accepted plans.
+    """
+
     offering_violation: float = 1000.0
     prerequisite_violation: float = 1000.0
     required_clause_violation: float = 1000.0
@@ -122,6 +159,8 @@ class CostConfig:
 
 @dataclass
 class CostDetails:
+    """Expanded objective breakdown for one candidate plan."""
+
     total_cost: float
     offering_violations: int
     prereq_violations: int
@@ -141,6 +180,8 @@ class CostDetails:
 
 @dataclass
 class SearchConfig:
+    """Search controls for annealing restarts and move exploration."""
+
     restarts: int = 10
     iterations: int = 2000
     ruin_fraction: float = 0.30
@@ -151,6 +192,8 @@ class SearchConfig:
 
 @dataclass(frozen=True)
 class BaselineConfig:
+    """Greedy seeding profile used to diversify restart baselines."""
+
     name: str = "balanced"
     hint_factor: float = 1.0
     placeholder_factor: float = 1.0
@@ -163,6 +206,8 @@ class BaselineConfig:
 
 @dataclass
 class SteeringConfig:
+    """User-provided planning preferences loaded from steering JSON."""
+
     cost: CostConfig = field(default_factory=CostConfig)
     course_hints: dict[str, CourseHint] = field(default_factory=lambda: {})
     soft_precedence_rules: list[SoftPrecedenceRule] = field(default_factory=lambda: [])
@@ -173,10 +218,14 @@ LOGGER = logging.getLogger("map_maker")
 
 
 def normalize_course_code(value: str) -> str:
+    """Normalize a course code for internal comparisons."""
+
     return value.strip().upper()
 
 
 def canonical_period(period: str) -> str:
+    """Canonicalize period aliases so offerings/templates compare consistently."""
+
     normalized = period.strip().lower()
     aliases = {
         "t1": "term 1",
@@ -250,6 +299,8 @@ def is_placeholder_course(code: str) -> bool:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments for the planner entry point."""
+
     parser = argparse.ArgumentParser(
         description="Generate multiple candidate plans and export a period x option CSV.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -257,7 +308,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Examples:\n"
             "  python3 map_maker.py --rule rules/CEICDH3707-2026-2029.json --intake \"2026 T1\"\n"
             "  python3 map_maker.py --rule rules/CEICDH3707-2026-2029.json --intake \"2026 T1\" \\\n"
-            "      --num-solutions 5 --output plans/CEIC/CEICDH3707_2026_T1_options.csv --verbose"
+            "      --num-solutions 5 --output plans/CEIC/CEICDH3707_2026_T1_options.csv --verbose\n\n"
+            "Notes:\n"
+            "  --restarts controls how many independent baselines are explored.\n"
+            "  --iterations controls the move budget per restart.\n"
+            "  --patience can stop a restart early when no better plan is found.\n"
+            "  --steering points to optional soft preferences such as course hints,\n"
+            "      branch preferences, and soft precedence rules."
         ),
     )
     parser.add_argument("--rule", required=True, help="Path to degree rules JSON")
@@ -313,6 +370,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def configure_logging(verbosity: int) -> None:
+    """Map CLI verbosity flags onto the standard logging levels."""
+
     level = logging.WARNING
     if verbosity >= 2:
         level = logging.DEBUG
@@ -323,11 +382,15 @@ def configure_logging(verbosity: int) -> None:
 
 
 def read_json(path: Path) -> Any:
+    """Read and decode one JSON file."""
+
     with open(path, "r", encoding="utf-8") as fh:
         return json.load(fh)
 
 
 def load_rules(path: Path) -> dict[str, Any]:
+    """Load and validate canonical degree rules from disk."""
+
     raw = read_json(path)
     if not isinstance(raw, dict):
         raise ValueError(f"Rules file must contain an object: {path}")
@@ -335,6 +398,8 @@ def load_rules(path: Path) -> dict[str, Any]:
 
 
 def load_catalogue(path: Path) -> dict[CourseCode, CourseMeta]:
+    """Load the course catalogue used for UoC, level, and prerequisite data."""
+
     raw = read_json(path)
     if not isinstance(raw, dict):
         raise ValueError(f"Catalogue file must contain an object: {path}")
@@ -367,6 +432,8 @@ def load_catalogue(path: Path) -> dict[CourseCode, CourseMeta]:
 
 
 def load_offerings(path: Path) -> dict[CourseCode, list[str]]:
+    """Load period offerings as a normalized course-to-periods mapping."""
+
     raw = read_json(path)
     if not isinstance(raw, dict):
         raise ValueError(f"Offerings file must contain an object: {path}")
@@ -381,6 +448,8 @@ def load_offerings(path: Path) -> dict[CourseCode, list[str]]:
 
 
 def load_templates(path: Path) -> TemplateConfig:
+    """Load the intake template configuration."""
+
     raw = read_json(path)
     if not isinstance(raw, dict):
         raise ValueError(f"Template config must contain an object: {path}")
@@ -388,6 +457,12 @@ def load_templates(path: Path) -> TemplateConfig:
 
 
 def load_steering(path: Path, stderr: Any) -> SteeringConfig:
+    """Load optional steering configuration.
+
+    Missing or malformed steering files degrade to defaults rather than blocking
+    plan generation.
+    """
+
     if not path.exists():
         return SteeringConfig()
 
@@ -491,6 +566,8 @@ def load_steering(path: Path, stderr: Any) -> SteeringConfig:
 
 
 def build_slots(templates: TemplateConfig, intake: str) -> list[Slot]:
+    """Expand one intake template into an ordered list of concrete slots."""
+
     intakes = templates["intakes"]
     if intake not in intakes:
         available = ", ".join(sorted(intakes.keys()))
@@ -528,6 +605,8 @@ def build_slots(templates: TemplateConfig, intake: str) -> list[Slot]:
 
 
 def extract_expr_courses(expr: RuleExpr) -> set[str]:
+    """Extract concrete course codes referenced anywhere inside an expression."""
+
     if isinstance(expr, str):
         code = normalize_course_code(expr)
         return {code} if looks_like_course(code) else set()
@@ -555,6 +634,13 @@ def estimate_expr_cost(
     catalogue: dict[str, CourseMeta],
     branch_preferences: list[BranchPreference] | None = None,
 ) -> tuple[float, set[str]]:
+    """Estimate the cheapest concrete course set satisfying one rule expression.
+
+    This is used only during required-course selection, before the actual search
+    starts. It is intentionally heuristic: it favors feasible and lightly
+    constrained branches rather than guaranteeing a globally optimal rule choice.
+    """
+
     if branch_preferences is None:
         branch_preferences = []
 
@@ -574,6 +660,7 @@ def estimate_expr_cost(
         options = cast(list[RuleExpr], expr["from"])
         evaluated = [estimate_expr_cost(option, feasible_counts, catalogue, branch_preferences) for option in options]
         evaluated.sort(key=lambda item: item[0])
+        # For min/from clauses, greedily keep the cheapest satisfiable options.
         selected = evaluated[:min_count]
         total_cost = sum(item[0] for item in selected)
         picked: set[str] = set()
@@ -605,6 +692,8 @@ def estimate_expr_cost(
                         adjusted_cost += weight
                         break
                 options_with_courses.append((adjusted_cost, cost, courses))
+            # Use the adjusted score only for branch choice; keep the underlying
+            # branch cost unchanged so the rest of the planner sees consistent costs.
             best = min(options_with_courses, key=lambda item: item[0])
             return best[1], best[2]
 
@@ -617,6 +706,8 @@ def select_required_courses(
     catalogue: dict[str, CourseMeta],
     branch_preferences: list[BranchPreference] | None = None,
 ) -> list[str]:
+    """Resolve the rules file into the concrete set of courses to schedule."""
+
     if branch_preferences is None:
         branch_preferences = []
 
@@ -640,6 +731,8 @@ def feasible_slots_for_course(
     slots: list[Slot],
     offerings: dict[str, list[str]],
 ) -> list[int]:
+    """Return slot indices where the course is offered, ordered by preference."""
+
     offered_periods = offerings.get(code)
     if not offered_periods:
         LOGGER.debug("course %s not found in offerings", code)
@@ -652,6 +745,8 @@ def feasible_slots_for_course(
 
 
 def dependency_map(catalogue: dict[str, CourseMeta]) -> dict[str, RuleExpr | None]:
+    """Pre-parse prerequisite expressions for all catalogue courses."""
+
     expr_map: dict[str, RuleExpr | None] = {}
     for code, meta in catalogue.items():
         prereq_expr, _, _ = parse_prerequisite_field(meta.prerequisites)
@@ -663,6 +758,8 @@ def prerequisite_depths(
     required_courses: list[str],
     dependency_exprs: dict[str, RuleExpr | None],
 ) -> dict[str, int]:
+    """Estimate prerequisite depth within the selected required-course set."""
+
     required_set = set(required_courses)
     cache: dict[str, int] = {}
     visiting: set[str] = set()
@@ -693,6 +790,13 @@ def build_plan_document(
     catalogue: dict[str, CourseMeta],
     intake: str,
 ) -> dict[str, Any]:
+    """Render assignments into the legacy JSON-like plan document shape.
+
+    The inner search now evaluates scheduled rows directly, but this helper is
+    still useful for debugging and for code paths that need the historical plan
+    document format.
+    """
+
     by_slot: dict[int, list[str]] = {}
     for code, slot_idx in assignments.items():
         by_slot.setdefault(slot_idx, []).append(code)
@@ -727,6 +831,8 @@ def scheduled_courses_from_assignments(
     slots: list[Slot],
     catalogue: dict[str, CourseMeta],
 ) -> list[ScheduledPlanCourse]:
+    """Convert assignments into chronologically ordered scheduled course rows."""
+
     by_slot: dict[int, list[str]] = {}
     for code, slot_idx in assignments.items():
         by_slot.setdefault(slot_idx, []).append(code)
@@ -751,6 +857,8 @@ def scheduled_courses_from_assignments(
             )
             idx += 1
 
+    # Slots are already in chronological order, so the emitted rows are directly
+    # usable by degree_rules prerequisite validation.
     return scheduled
 
 
@@ -777,6 +885,8 @@ def slot_satisfies_prerequisites(
     dependency_exprs: dict[str, RuleExpr | None],
     catalogue: dict[str, CourseMeta],
 ) -> bool:
+    """Check whether placing a course into one slot is prereq-safe."""
+
     expr = dependency_exprs.get(code)
     if expr is None:
         return True
@@ -785,6 +895,8 @@ def slot_satisfies_prerequisites(
 
 
 def slot_hint_penalty_for_course(code: str, slot: Slot, steering: SteeringConfig) -> float:
+    """Return soft placement penalty for scheduling one course in one slot."""
+
     hint = steering.course_hints.get(code)
     if hint is None:
         # Explicit hint is absent, but implicit year hint still applies.
@@ -826,6 +938,8 @@ def placeholder_overlap_for_slot(code: str, slot_idx: int, assignments: dict[str
 
 
 def baseline_config_for_restart(restart: int) -> BaselineConfig:
+    """Cycle through baseline profiles to diversify restart starting points."""
+
     profiles = [
         BaselineConfig(name="balanced", hint_factor=1.0, placeholder_factor=1.0, nonstandard_factor=1.0, slot_delay_factor=0.05, score_jitter=0.00, course_rank_jitter=0.00, top_slot_pool=1),
         BaselineConfig(name="hint-heavy", hint_factor=1.35, placeholder_factor=1.0, nonstandard_factor=1.1, slot_delay_factor=0.04, score_jitter=0.10, course_rank_jitter=0.10, top_slot_pool=2),
@@ -845,6 +959,13 @@ def evaluate_plan_cost(
     steering: SteeringConfig,
     intake: str,
 ) -> CostDetails:
+    """Evaluate the full planner objective for one assignment mapping.
+
+    This function is intentionally the single place where the objective is
+    assembled. Search, repair, and greedy seeding all depend on the same scoring
+    semantics so that improvements are comparable across phases.
+    """
+
     offering_violations = 0
     for code, slot_idx in assignments.items():
         offered_periods = offerings.get(code)
@@ -965,6 +1086,12 @@ def greedy_place(
     existing: dict[str, int] | None,
     rng: random.Random,
 ) -> dict[str, int]:
+    """Create one baseline plan by greedily assigning courses to slots.
+
+    The greedy pass is not meant to be perfect. Its job is to produce a decent,
+    diverse starting point that the repair and annealing phases can improve.
+    """
+
     assignments: dict[str, int] = dict(existing or {})
     free_capacity = {slot.slot_idx: slot.max_slots for slot in slots}
     for slot_idx in assignments.values():
@@ -1028,6 +1155,8 @@ def greedy_place(
 
 
 def find_dependents(required_courses: Iterable[str], dependency_exprs: dict[str, RuleExpr | None]) -> dict[str, set[str]]:
+    """Build reverse prerequisite links within the selected required course set."""
+
     required_set = set(required_courses)
     rev: dict[str, set[str]] = {}
     for dep in required_set:
@@ -1065,6 +1194,8 @@ def cascade_ruin_set(
     dependency_exprs: dict[str, RuleExpr | None],
     reverse_dependents: dict[str, set[str]],
 ) -> set[str]:
+    """Expand a ruin seed set to include downstream courses that become invalid."""
+
     ruined = set(seed_courses)
     changed = True
     while changed:
@@ -1103,6 +1234,12 @@ def repair_assignments(
     intake: str,
     max_iters: int = 100,
 ) -> tuple[dict[str, int], CostDetails]:
+    """Apply deterministic local improvements before or during annealing.
+
+    Repair prefers moves that reduce prerequisite violations first, then failed
+    requirement groups, then total objective cost.
+    """
+
     current = dict(assignments)
     current_cost = evaluate_plan_cost(current, required_courses, slots, offerings, catalogue, rules, steering, intake)
 
@@ -1123,6 +1260,8 @@ def repair_assignments(
             candidate_order = prereq_safe_slots + [
                 candidate_slot for candidate_slot in feasible if candidate_slot not in prereq_safe_slots
             ]
+            # Try prereq-safe slots first so local repair spends more effort on
+            # structurally plausible placements before considering weaker fallbacks.
             for candidate_slot in candidate_order:
                 if candidate_slot == original_slot:
                     continue
@@ -1160,6 +1299,8 @@ def propose_shift(
     offerings: dict[str, list[str]],
     rng: random.Random,
 ) -> dict[str, int]:
+    """Propose moving one course to another feasible offered slot."""
+
     if not assignments:
         return dict(assignments)
     code = rng.choice(list(assignments.keys()))
@@ -1173,6 +1314,8 @@ def propose_shift(
 
 
 def propose_swap(assignments: dict[str, int], rng: random.Random) -> dict[str, int]:
+    """Propose swapping the slots of two already-placed courses."""
+
     if len(assignments) < 2:
         return dict(assignments)
     a, b = rng.sample(list(assignments.keys()), 2)
@@ -1195,11 +1338,15 @@ def propose_ruin_recreate(
     ruin_fraction: float,
     rng: random.Random,
 ) -> dict[str, int]:
+    """Propose a larger neighborhood move by removing and rebuilding a subset."""
+
     if not assignments:
         return dict(assignments)
 
     count = max(1, int(len(assignments) * ruin_fraction))
     seeds = set(rng.sample(list(assignments.keys()), min(count, len(assignments))))
+    # Cascading the ruin set avoids rebuilding an assignment that would leave
+    # obvious downstream prerequisite relationships broken.
     ruined = cascade_ruin_set(seeds, assignments, dependency_exprs, reverse_dependents)
 
     kept = {code: slot_idx for code, slot_idx in assignments.items() if code not in ruined}
@@ -1234,6 +1381,8 @@ def anneal(
     intake: str,
     rng: random.Random,
 ) -> tuple[dict[str, int], CostDetails]:
+    """Run one simulated annealing search from an initial repaired baseline."""
+
     current = dict(initial)
     current_cost = evaluate_plan_cost(current, required_courses, slots, offerings, catalogue, rules, steering, intake)
     best = dict(current)
@@ -1293,6 +1442,8 @@ def anneal(
             accept_prob = math.exp(-delta / temp)
             accept = rng.random() < accept_prob
 
+        # Annealing accepts some worse moves early on so the search can escape
+        # local minima instead of behaving like pure hill climbing.
         if accept:
             current = proposal
             current_cost = proposal_cost
@@ -1343,6 +1494,8 @@ def anneal(
 
 
 def assignments_signature(assignments: dict[str, int]) -> str:
+    """Create a stable signature so duplicate solutions can be deduplicated."""
+
     parts = [f"{code}:{slot_idx}" for code, slot_idx in sorted(assignments.items())]
     return "|".join(parts)
 
@@ -1351,6 +1504,8 @@ def render_csv_rows(
     slots: list[Slot],
     options: list[dict[str, int]],
 ) -> list[list[str]]:
+    """Render solution assignments into the exported CSV row layout."""
+
     by_option_slot: list[dict[int, list[str]]] = []
     for assignments in options:
         mapping: dict[int, list[str]] = {}
@@ -1385,6 +1540,8 @@ def render_csv_rows(
 
 
 def write_csv(rows: list[list[str]], output_path: Path | None) -> None:
+    """Write CSV rows either to stdout or to the requested file path."""
+
     if output_path is None:
         writer = csv.writer(sys.stdout)
         writer.writerows(rows)
@@ -1397,6 +1554,8 @@ def write_csv(rows: list[list[str]], output_path: Path | None) -> None:
 
 
 def path_or_exit(path: Path, label: str) -> Path:
+    """Return a required file path or raise a helpful missing-artifact error."""
+
     if path.is_file():
         return path
     raise FileNotFoundError(
@@ -1405,6 +1564,13 @@ def path_or_exit(path: Path, label: str) -> Path:
 
 
 def run(argv: list[str] | None = None) -> int:
+    """Execute the full planning workflow from CLI arguments.
+
+    This is the main orchestration layer: load artifacts, build slots, choose the
+    required course set, run restart profiles, deduplicate solutions, and emit
+    the final CSV plus optional stderr summaries.
+    """
+
     args = parse_args(argv)
     configure_logging(args.verbose)
 
@@ -1551,6 +1717,8 @@ def run(argv: list[str] | None = None) -> int:
 
 
 def main() -> int:
+    """CLI wrapper that converts unexpected exceptions into exit code 1."""
+
     try:
         return run()
     except Exception as exc:  # noqa: BLE001

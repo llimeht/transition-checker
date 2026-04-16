@@ -410,6 +410,8 @@ def validate_scheduled_prerequisites(
                 break
             group_end += 1
 
+        # Process one teaching period at a time so prerequisite checks see only
+        # prior periods, while corequisite checks can see peers in the same period.
         group_courses = courses[group_start:group_end]
         group_counter: Counter[str] = Counter(item.code for item in group_courses)
         group_uoc = sum(item.uoc for item in group_courses)
@@ -438,6 +440,8 @@ def validate_scheduled_prerequisites(
 
             if coreq_expr is not None:
                 coreq_courses = Counter(coreq_base)
+                # A course cannot satisfy its own corequisite expression unless it
+                # is also duplicated elsewhere in the same period.
                 if coreq_courses[current.code] > 0:
                     coreq_courses[current.code] -= 1
                     if coreq_courses[current.code] <= 0:
@@ -810,6 +814,8 @@ def evaluate_required(
     required_levels = cast(dict[str, Any], required)
 
     if cfg_id not in _REQUIRED_VALIDATION_CACHE:
+        # Structural rule validation is expensive but the rules object is stable
+        # for a whole planner run, so validate it once and reuse thereafter.
         for level_name, clauses in required_levels.items():
             if not isinstance(clauses, list):
                 raise RuleValidationError(
