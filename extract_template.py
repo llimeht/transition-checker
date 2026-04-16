@@ -24,9 +24,13 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Generator
+import warnings
 
 import openpyxl
 import pandas as pd  # type: ignore[import-untyped]
+
+
+warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 
 def _period_rank(period: str) -> int:
@@ -160,15 +164,19 @@ def build_year_structure(plan: pd.DataFrame, intake: str) -> list[dict[str, Any]
     )
 
     for _, row in plan.iterrows():
-        code = row.get("Code")
-        if pd.isna(code):
-            continue
         enrol_year = str(row.get("EnrolYear", "")).strip()
         year_value = _to_int(row.get("Year"))
         period = str(row.get("Period", "")).strip()
-        if not enrol_year or not period:
+        course_n_raw = row.get("CourseN")
+        if not enrol_year or not period or course_n_raw is None:
             continue
-        grouping[(enrol_year, year_value)][period] += 1
+        # CourseN is "Course 1", "Course 2", etc. — extract the integer
+        m = re.search(r"\d+", str(course_n_raw))
+        if m is None:
+            continue
+        course_n = int(m.group())
+        current = grouping[(enrol_year, year_value)][period]
+        grouping[(enrol_year, year_value)][period] = max(current, course_n)
 
     year_entries: list[dict[str, Any]] = []
     for (enrol_year, sheet_year), period_counts in sorted(
@@ -205,9 +213,21 @@ def extract_template_configs_from_workbook(excel_path: Path) -> dict[str, Any]:
     print("\n=== EXTRACTING TEMPLATE CONFIGS ===")
     dfs = pd.read_excel(excel_path, sheet_name=None)  # pyright: ignore[reportUnknownMemberType]
 
+    # Read slot structure from the template sheet(s) — those with { in the name.
+    # These define every (year, period, CourseN) row with blank codes, giving the
+    # authoritative max_slots per period without depending on filled-in plan data.
+    template_dfs = {name: df for name, df in dfs.items() if "{" in name}
+    if not template_dfs:
+        raise ValueError("No template sheet (e.g. {ABCD1234}) found in workbook")
+
     intake_year_period_slots: dict[str, dict[tuple[str, int | None, str], int]] = defaultdict(dict)
 
-    for _, df in iter_program_sheets(dfs):
+    for _, df in template_dfs.items():
+        columns = list(df.columns)
+        if len(columns) >= 8:
+            columns[0:8] = ["EnrolYear", "Year", "Period", "CourseN", "Code", "Title", "UoC", "Prerequisites"]
+            df = df.copy()
+            df.columns = columns  # type: ignore[assignment]
         for intake, plan in iter_intakes(df):
             if not intake:
                 continue

@@ -516,6 +516,10 @@ def _is_course_code(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _normalize_course_code(value: str) -> str:
+    return value.strip().upper()
+
+
 def normalize_clause(clause: Any) -> RuleExpr:
     """Normalize one rule clause into canonical expression format.
 
@@ -526,7 +530,7 @@ def normalize_clause(clause: Any) -> RuleExpr:
         Canonical rule expression.
     """
     if _is_course_code(clause):
-        return cast(str, clause).strip()
+        return _normalize_course_code(cast(str, clause))
 
     if isinstance(clause, list):
         raise RuleValidationError(
@@ -982,7 +986,7 @@ def extract_completed_courses(plan_data: dict[str, Any]) -> Counter[str]:
         course_record = cast(PlanCourseRecord, course)
         code = course_record.get("code")
         if isinstance(code, str) and code.strip():
-            completed_courses[code] += 1
+            completed_courses[_normalize_course_code(code)] += 1
 
     return completed_courses
 
