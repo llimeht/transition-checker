@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "degreeplanner"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas",
+    "openpyxl",
+]
+
+[tool.setuptools]
+py-modules = [
+    "degree_rules",
+    "offering_checker",
+    "mapping_checker",
+    "map_maker",
+    "validate",
+    "extract_template",
+]
+
+[project.scripts]
+degree-rules      = "degree_rules:main"
+offering-checker  = "offering_checker:main"
+mapping-checker   = "mapping_checker:main"
+map-maker         = "map_maker:main"
+plan-validate     = "validate:main"
+extract-template  = "extract_template:main"
