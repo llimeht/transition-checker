@@ -1,0 +1,177 @@
+# UNSW 3+ to Flex-Semester transition-checker
+
+Utilities for validating degree rules, extracting planning templates, and generating candidate degree plans.
+
+The repository currently has three main workflows:
+
+1. Extract and validate enrolment transition plans:
+    - Extract enrolment and transition plans from standardised Excel sheets (`mapping_checker.py`), noting the required semester offerings of courses.
+    - Validate that plans will satisfy the degree rules and prerequisite rules with `degree_rules.py`
+    - Validate that plans will satisfy actual intended semester offerings with `offering_checker.py`
+
+2. Generate candidate enrolment transition plans based on degree rules and intended offerings.
+    - Extract teaching period template and catalogue of offerings from standardised Excel sheets (`extract_template.py`) 
+    - Generate candidate enrolment plans with `map_maker.py`
+
+3. Analyse enrolment sequences to plan clash free course combinations (CFCCs) to provide timetabling information (`cfcc_summary.py`)
+
+## Requirements
+
+- Python 3.11+
+- Project dependencies installed either system-wide or in a venv; dependencies are documented in `pyproject.toml`
+- Input files:
+    - standardised transition planning spreadsheet (e.g. `CEIC Program Sequence Mapping.xlsx`, fetched from canonical location on SharePoint); stored in `plans/<SCHOOL>/`
+    - degree rules for each specialisation of interest (e.g. `CEICAH3707.json`); stored in `rules/`; where rules have changed over time, they can be `<stream><program>-<YYYY>-<YYYY>.json` like `CEICDH3707-2020-2025.json` to indicate the start and stop handbook years.
+    - offerings list in `plans/offerings.json`; this can be copied from the output of `mapping_checker.py` with some manual checking that the courses are indeed in the intended teaching periods.
+)
+
+Example setup:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+## Common Commands
+
+### Perform validation of all plans in a spreadsheet
+
+This will extract all plans from the spreadsheet and validate them against degree rules, prereq rules, and intended teaching period offerings.
+
+```bash
+python validate.py 'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
+```
+
+
+### Validate rules only
+
+Validate the degree rules to make sure they appear to be syntactically correct.
+
+```bash
+python degree_rules.py rules/CEICDH3707-2026-2029.json -v
+```
+
+### Validate a plan against rules and prerequisites
+
+Validate an enrolment plan 
+
+```bash
+python degree_rules.py \
+  rules/CEICDH3707-2026-2029.json \
+  --plan plans/CEIC/CEICDH3707_2026_T1.json
+```
+
+### Generate one or more plan options
+
+```bash
+python map_maker.py \
+  --rule rules/CEICDH3707-2026-2029.json \
+  --intake "2026 T1" \
+  --num-solutions 4 \
+  --restarts 12 \
+  --iterations 200 \
+  --output plans/CEIC/options.csv \
+  -v
+```
+
+### Use steering hints
+
+```bash
+python map_maker.py \
+  --rule rules/CEICDH3707-2026-2029.json \
+  --intake "2026 T1" \
+  --steering templates/map_steering.json \
+  --output /tmp/plan.csv \
+  -v
+```
+
+## How `map_maker.py` Works
+
+Planning is split into four stages:
+
+1. Resolve the rules file into the concrete course set to schedule.
+   - `or` and `min/from` clauses are resolved heuristically.
+   - Steering can bias branch selection.
+2. Build a baseline assignment with `greedy_place()`.
+3. Improve obvious defects with `repair_assignments()`.
+4. Explore alternatives with simulated annealing using:
+   - ruin-and-recreate moves
+   - shift moves
+   - swap moves
+
+The objective combines hard-leaning penalties and softer steering penalties, including:
+
+- offering violations
+- prerequisite violations
+- failed required clauses
+- unplaced courses
+- overload and seasonal penalties
+- slot delay / compactness
+- course hints
+- soft precedence rules
+
+## Steering Configuration
+
+The optional steering file can influence plan shape without changing the rule set.
+
+Typical uses:
+
+- prefer a year or period for a course
+- prefer one branch of an `or` clause
+- encourage one course to appear before another
+
+Example branch preference:
+
+```json
+{
+  "branch_preferences": [
+    {
+      "courses": ["CHEM1811", "CHEM1821"],
+      "weight": -50.0
+    }
+  ]
+}
+```
+
+Interpretation:
+
+- negative weight: prefer that branch
+- positive weight: avoid that branch
+
+## Search Tuning Notes
+
+The most important planner controls are:
+
+- `--restarts`: number of independent baseline attempts
+- `--iterations`: move budget per restart
+- `--patience`: early-stop threshold when a restart stops improving
+- `--ruin-fraction`: how large ruin-and-recreate moves are
+
+Practical guidance:
+
+- increase `--restarts` when you want more diversity
+- increase `--iterations` when each restart should search more deeply
+- reduce `--patience` when long runs stall too often
+
+## Contributing
+
+Please do! The code is type annotated and is clean with `mypy --strict` and `ruff format`.
+
+The project is configured for strict mypy in `pyproject.toml`.
+
+## Licence and credits
+
+This work was developed by Stuart Prescott as part of the UNSW 3+ to Flex-semester transition project.
+
+Copyright 2026 UNSW Sydney
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS” AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
