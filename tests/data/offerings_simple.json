@@ -1,0 +1,8 @@
+{
+  "TEST1001": ["Term 1", "Term 2"],
+  "TEST1002": ["Term 1", "Term 3"],
+  "TEST2001": ["Term 2"],
+  "TEST2002": ["Term 2", "Term 3"],
+  "TEST2003": ["Term 3"],
+  "TEST2004": ["Term 1", "Term 2", "Term 3"]
+}

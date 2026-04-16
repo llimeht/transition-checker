@@ -36,6 +36,14 @@ plan-validate     = "validate:main"
 extract-template  = "extract_template:main"
 cfcc-summary      = "cfcc_summary:main"
 
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra"
+
 [tool.mypy]
 python_version = "3.11"
 strict = true

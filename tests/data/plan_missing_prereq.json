@@ -1,0 +1,26 @@
+{
+  "sheet": "TEST",
+  "intake": "2024 T1",
+  "courses": [
+    {
+      "enrol_year": "Year 1",
+      "year": 2024,
+      "period": "Term 1",
+      "course_n": "Course 1",
+      "code": "TEST1001",
+      "title": "Intro to Testing",
+      "uoc": 6,
+      "prerequisites": "."
+    },
+    {
+      "enrol_year": "Year 1",
+      "year": 2024,
+      "period": "Term 1",
+      "course_n": "Course 2",
+      "code": "TEST2001",
+      "title": "Advanced Testing A (scheduled too early)",
+      "uoc": 6,
+      "prerequisites": "TEST1001"
+    }
+  ]
+}

@@ -6,3 +6,8 @@ plans/
 .ruff_cache/
 .vscode/
 templates/
+.pytest_cache/
+.envrc
+*.egg-info
+dist/
+.coverage
