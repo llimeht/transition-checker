@@ -80,6 +80,12 @@
                     "MECH4770"
                 ]
             }
+        ],
+        "Free Electives": [
+            "FREE1",
+            "FREE2",
+            "GenEd1",
+            "GenEd2"
         ]
     }
 }

@@ -67,6 +67,12 @@
                     "CEICdddd"
                 ]
             }
+        ],
+        "Free Electives": [
+            "FREE1",
+            "FREE2",
+            "GenEd1",
+            "GenEd2"
         ]
     }
 }
