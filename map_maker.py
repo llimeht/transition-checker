@@ -30,14 +30,13 @@ from typing import Any, Iterable, TypedDict, cast
 
 from degree_rules import (
     RuleExpr,
+    ScheduledPlanCourse,
     _parse_prerequisite_field,
     evaluate_expression,
     evaluate_required,
-    extract_completed_courses,
-    validate_plan_prerequisites,
+    validate_scheduled_prerequisites,
     validate_rules_config,
 )
-from offering_checker import validate_plan_offerings
 
 
 CourseCode = str
@@ -733,6 +732,38 @@ def build_plan_document(
     }
 
 
+def scheduled_courses_from_assignments(
+    assignments: dict[str, int],
+    slots: list[Slot],
+    catalogue: dict[str, CourseMeta],
+) -> list[ScheduledPlanCourse]:
+    by_slot: dict[int, list[str]] = {}
+    for code, slot_idx in assignments.items():
+        by_slot.setdefault(slot_idx, []).append(code)
+
+    scheduled: list[ScheduledPlanCourse] = []
+    idx = 0
+    for slot in slots:
+        course_codes = sorted(by_slot.get(slot.slot_idx, []))
+        for course_pos, code in enumerate(course_codes, start=1):
+            meta = catalogue.get(code, CourseMeta(title=code, uoc=6, prerequisites="", level=None))
+            scheduled.append(
+                ScheduledPlanCourse(
+                    index=idx,
+                    code=code,
+                    year=slot.calendar_year,
+                    period=slot.period,
+                    period_rank=slot.slot_idx,
+                    course_rank=course_pos,
+                    uoc=meta.uoc,
+                    prerequisites=meta.prerequisites,
+                )
+            )
+            idx += 1
+
+    return scheduled
+
+
 def prior_history_for_slot(
     assignments: dict[str, int],
     candidate_slot: int,
@@ -822,13 +853,20 @@ def evaluate_plan_cost(
     steering: SteeringConfig,
     intake: str,
 ) -> CostDetails:
-    doc = build_plan_document(assignments, slots, catalogue, intake)
+    offering_violations = 0
+    for code, slot_idx in assignments.items():
+        offered_periods = offerings.get(code)
+        if not offered_periods:
+            offering_violations += 1
+            continue
+        if slots[slot_idx].period not in offered_periods:
+            offering_violations += 1
 
-    offering_violations = len(validate_plan_offerings(cast(dict[str, Any], doc), offerings))
-    prereq_failures, _unsupported = validate_plan_prerequisites(cast(dict[str, Any], doc))
+    scheduled_courses = scheduled_courses_from_assignments(assignments, slots, catalogue)
+    prereq_failures, _unsupported = validate_scheduled_prerequisites(scheduled_courses)
     prereq_violations = len(prereq_failures)
 
-    completed = extract_completed_courses(cast(dict[str, Any], doc))
+    completed = Counter(course.code for course in scheduled_courses)
     required_results = evaluate_required(rules, completed)
     required_failures = sum(1 for ok in required_results.values() if not ok)
 

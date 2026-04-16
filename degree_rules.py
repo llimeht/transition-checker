@@ -27,6 +27,9 @@ CourseCode = str
 RuleExpr = CourseCode | dict[str, Any]
 
 
+_PREREQ_PARSE_CACHE: dict[str, tuple[RuleExpr | None, RuleExpr | None, str | None]] = {}
+
+
 class PlanCourseRecord(TypedDict, total=False):
     """Subset of plan JSON course fields needed by rule/prerequisite checks."""
 
@@ -327,8 +330,14 @@ def _parse_prerequisite_field(
         formats that cannot be parsed safely.
     """
     trimmed = raw_text.strip()
+    cached = _PREREQ_PARSE_CACHE.get(trimmed)
+    if cached is not None:
+        return cached
+
     if not trimmed or trimmed in {".", "0"}:
-        return None, None, None
+        result = (None, None, None)
+        _PREREQ_PARSE_CACHE[trimmed] = result
+        return result
 
     prereq_text, coreq_text = _split_prerequisite_parts(trimmed)
 
@@ -337,20 +346,85 @@ def _parse_prerequisite_field(
 
     prereq_expr, prereq_error = _parse_prerequisite_expression(prereq_text)
     if prereq_error:
-        return None, None, f"prerequisite parse error: {prereq_error}"
+        result = (None, None, f"prerequisite parse error: {prereq_error}")
+        _PREREQ_PARSE_CACHE[trimmed] = result
+        return result
 
     if coreq_text:
         coreq_expr, coreq_error = _parse_prerequisite_expression(coreq_text)
         if coreq_error:
-            return None, None, f"corequisite parse error: {coreq_error}"
+            result = (None, None, f"corequisite parse error: {coreq_error}")
+            _PREREQ_PARSE_CACHE[trimmed] = result
+            return result
         if coreq_expr is None:
-            return (
+            result = (
                 None,
                 None,
                 "corequisite text exists but no course code expression was parsed",
             )
+            _PREREQ_PARSE_CACHE[trimmed] = result
+            return result
 
-    return prereq_expr, coreq_expr, None
+    result = (prereq_expr, coreq_expr, None)
+    _PREREQ_PARSE_CACHE[trimmed] = result
+    return result
+
+
+def validate_scheduled_prerequisites(
+    courses: list[ScheduledPlanCourse],
+) -> tuple[list[str], list[str]]:
+    """Validate prerequisite and corequisite expressions for scheduled courses.
+
+    This is the reusable core used by ``validate_plan_prerequisites`` and can be
+    called by generators/search code that already has normalized scheduled rows.
+
+    Returns:
+        A tuple ``(failures, unsupported)`` where:
+        - ``failures`` contains unmet prerequisite/corequisite diagnostics.
+        - ``unsupported`` contains expressions that could not be parsed.
+    """
+    failures: list[str] = []
+    unsupported: list[str] = []
+
+    for idx, course in enumerate(courses):
+        prereq_expr, coreq_expr, unsupported_reason = _parse_prerequisite_field(
+            course.prerequisites
+        )
+        course_label = f"{course.code} ({course.year} {course.period})"
+
+        if unsupported_reason:
+            unsupported.append(
+                f"{course_label}: {unsupported_reason}; raw='{course.prerequisites.strip()}'"
+            )
+            continue
+
+        prior_history = _course_history(courses, idx, include_same_period=False)
+        prior_courses = Counter(item.code for item in prior_history)
+        prior_uoc = sum(item.uoc for item in prior_history)
+
+        if prereq_expr is not None and not evaluate_expression(
+            prereq_expr, prior_courses, prior_uoc
+        ):
+            diagnosis = diagnose_expression(prereq_expr, prior_courses, prior_uoc)
+            failures.append(
+                f"[Prerequisite] {course_label}: {expression_to_text(prereq_expr)} - {diagnosis}"
+            )
+
+        if coreq_expr is not None:
+            coreq_history = _course_history(courses, idx, include_same_period=True)
+            prior_and_same_period = Counter(item.code for item in coreq_history)
+            prior_and_same_uoc = sum(item.uoc for item in coreq_history)
+            if not evaluate_expression(
+                coreq_expr, prior_and_same_period, prior_and_same_uoc
+            ):
+                diagnosis = diagnose_expression(
+                    coreq_expr, prior_and_same_period, prior_and_same_uoc
+                )
+                failures.append(
+                    f"[Corequisite] {course_label}: {expression_to_text(coreq_expr)} - {diagnosis}"
+                )
+
+    return failures, unsupported
 
 
 def extract_scheduled_courses(plan_data: dict[str, Any]) -> list[ScheduledPlanCourse]:
@@ -467,48 +541,7 @@ def validate_plan_prerequisites(
         - ``unsupported`` contains expressions that could not be parsed.
     """
     courses = extract_scheduled_courses(plan_data)
-    failures: list[str] = []
-    unsupported: list[str] = []
-
-    for idx, course in enumerate(courses):
-        prereq_expr, coreq_expr, unsupported_reason = _parse_prerequisite_field(
-            course.prerequisites
-        )
-        course_label = f"{course.code} ({course.year} {course.period})"
-
-        if unsupported_reason:
-            unsupported.append(
-                f"{course_label}: {unsupported_reason}; raw='{course.prerequisites.strip()}'"
-            )
-            continue
-
-        prior_history = _course_history(courses, idx, include_same_period=False)
-        prior_courses = Counter(item.code for item in prior_history)
-        prior_uoc = sum(item.uoc for item in prior_history)
-
-        if prereq_expr is not None and not evaluate_expression(
-            prereq_expr, prior_courses, prior_uoc
-        ):
-            diagnosis = diagnose_expression(prereq_expr, prior_courses, prior_uoc)
-            failures.append(
-                f"[Prerequisite] {course_label}: {expression_to_text(prereq_expr)} - {diagnosis}"
-            )
-
-        if coreq_expr is not None:
-            coreq_history = _course_history(courses, idx, include_same_period=True)
-            prior_and_same_period = Counter(item.code for item in coreq_history)
-            prior_and_same_uoc = sum(item.uoc for item in coreq_history)
-            if not evaluate_expression(
-                coreq_expr, prior_and_same_period, prior_and_same_uoc
-            ):
-                diagnosis = diagnose_expression(
-                    coreq_expr, prior_and_same_period, prior_and_same_uoc
-                )
-                failures.append(
-                    f"[Corequisite] {course_label}: {expression_to_text(coreq_expr)} - {diagnosis}"
-                )
-
-    return failures, unsupported
+    return validate_scheduled_prerequisites(courses)
 
 
 def _is_course_code(value: Any) -> bool:
