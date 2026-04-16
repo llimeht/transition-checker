@@ -31,9 +31,9 @@ from typing import Any, Iterable, TypedDict, cast
 from degree_rules import (
     RuleExpr,
     ScheduledPlanCourse,
-    _parse_prerequisite_field,
     evaluate_expression,
     evaluate_required,
+    parse_prerequisite_field,
     validate_scheduled_prerequisites,
     validate_rules_config,
 )
@@ -164,9 +164,9 @@ class BaselineConfig:
 @dataclass
 class SteeringConfig:
     cost: CostConfig = field(default_factory=CostConfig)
-    course_hints: dict[str, CourseHint] = field(default_factory=dict)
-    soft_precedence_rules: list[SoftPrecedenceRule] = field(default_factory=list)
-    branch_preferences: list[BranchPreference] = field(default_factory=list)
+    course_hints: dict[str, CourseHint] = field(default_factory=lambda: {})
+    soft_precedence_rules: list[SoftPrecedenceRule] = field(default_factory=lambda: [])
+    branch_preferences: list[BranchPreference] = field(default_factory=lambda: [])
 
 
 LOGGER = logging.getLogger("map_maker")
@@ -375,7 +375,7 @@ def load_offerings(path: Path) -> dict[CourseCode, list[str]]:
     for code, periods_raw in cast(dict[object, object], raw).items():
         if not isinstance(code, str) or not isinstance(periods_raw, list):
             continue
-        periods = [p for p in periods_raw if isinstance(p, str)]
+        periods = [p for p in cast(list[object], periods_raw) if isinstance(p, str)]
         offerings[normalize_course_code(code)] = periods
     return offerings
 
@@ -396,12 +396,13 @@ def load_steering(path: Path, stderr: Any) -> SteeringConfig:
         return SteeringConfig()
 
     payload = cast(dict[str, Any], raw)
-    weights = payload.get("weights")
-    hints = payload.get("course_hints")
-    soft_precedence_raw = payload.get("soft_precedence_rules")
+    weights = cast(object, payload.get("weights"))
+    hints = cast(object, payload.get("course_hints"))
+    soft_precedence_raw = cast(object, payload.get("soft_precedence_rules"))
 
     cost = CostConfig()
     if isinstance(weights, dict):
+        weights_dict = cast(dict[str, object], weights)
         for field_name in (
             "offering_violation",
             "prerequisite_violation",
@@ -416,7 +417,7 @@ def load_steering(path: Path, stderr: Any) -> SteeringConfig:
             "placeholder_same_period_penalty",
             "implicit_year_hint_weight",
         ):
-            value = weights.get(field_name)
+            value = weights_dict.get(field_name)
             if isinstance(value, (int, float)):
                 setattr(cost, field_name, float(value))
 
@@ -444,9 +445,10 @@ def load_steering(path: Path, stderr: Any) -> SteeringConfig:
         for item in cast(list[object], soft_precedence_raw):
             if not isinstance(item, dict):
                 continue
-            before = item.get("before")
-            after = item.get("after")
-            weight = item.get("weight", 100.0)
+            item_dict = cast(dict[str, object], item)
+            before = item_dict.get("before")
+            after = item_dict.get("after")
+            weight = item_dict.get("weight", 100.0)
             if not isinstance(before, str) or not isinstance(after, str):
                 continue
             if not isinstance(weight, (int, float)):
@@ -460,16 +462,19 @@ def load_steering(path: Path, stderr: Any) -> SteeringConfig:
             )
 
     branch_preferences: list[BranchPreference] = []
-    branch_preferences_raw = payload.get("branch_preferences")
+    branch_preferences_raw = cast(object, payload.get("branch_preferences"))
     if isinstance(branch_preferences_raw, list):
         for item in cast(list[object], branch_preferences_raw):
             if not isinstance(item, dict):
                 continue
-            courses_raw = item.get("courses")
-            weight = item.get("weight", 0.0)
+            item_dict = cast(dict[str, object], item)
+            courses_raw = item_dict.get("courses")
+            weight = item_dict.get("weight", 0.0)
             if not isinstance(courses_raw, list) or not isinstance(weight, (int, float)):
                 continue
-            normalized_courses = [normalize_course_code(c) for c in courses_raw if isinstance(c, str)]
+            normalized_courses = [
+                normalize_course_code(c) for c in cast(list[object], courses_raw) if isinstance(c, str)
+            ]
             if normalized_courses:
                 pref: BranchPreference = {
                     "courses": normalized_courses,
@@ -486,33 +491,23 @@ def load_steering(path: Path, stderr: Any) -> SteeringConfig:
 
 
 def build_slots(templates: TemplateConfig, intake: str) -> list[Slot]:
-    intakes = templates.get("intakes")
-    if not isinstance(intakes, dict) or intake not in intakes:
-        available = ", ".join(sorted(intakes.keys())) if isinstance(intakes, dict) else ""
+    intakes = templates["intakes"]
+    if intake not in intakes:
+        available = ", ".join(sorted(intakes.keys()))
         raise ValueError(f"Intake '{intake}' not found in template config. Available: {available}")
 
     intake_cfg = intakes[intake]
-    years = intake_cfg.get("years")
-    if not isinstance(years, list):
-        raise ValueError(f"Template intake '{intake}' has no years list")
+    years = intake_cfg["years"]
 
     slots: list[Slot] = []
     slot_idx = 0
     for year_number, yobj in enumerate(years, start=1):
-        if not isinstance(yobj, dict):
-            continue
-        enrol_year = yobj.get("enrol_year")
-        calendar_year = yobj.get("year")
-        periods = yobj.get("periods")
-        if not isinstance(enrol_year, str) or not isinstance(calendar_year, int) or not isinstance(periods, list):
-            continue
+        enrol_year = yobj["enrol_year"]
+        calendar_year = yobj["year"]
+        periods = yobj["periods"]
         for pobj in periods:
-            if not isinstance(pobj, dict):
-                continue
-            period = pobj.get("period")
-            max_slots = pobj.get("max_slots")
-            if not isinstance(period, str) or not isinstance(max_slots, int):
-                continue
+            period = pobj["period"]
+            max_slots = pobj["max_slots"]
             slots.append(
                 Slot(
                     slot_idx=slot_idx,
@@ -536,8 +531,6 @@ def extract_expr_courses(expr: RuleExpr) -> set[str]:
     if isinstance(expr, str):
         code = normalize_course_code(expr)
         return {code} if looks_like_course(code) else set()
-    if not isinstance(expr, dict):
-        return set()
 
     if set(expr.keys()) == {"min", "from"}:
         courses: set[str] = set()
@@ -576,9 +569,6 @@ def estimate_expr_cost(
         penalty = 1000.0 if count == 0 else 1.0 / float(count)
         return penalty + level_bias, {code}
 
-    if not isinstance(expr, dict):
-        return 99999.0, set()
-
     if set(expr.keys()) == {"min", "from"}:
         min_count = cast(int, expr["min"])
         options = cast(list[RuleExpr], expr["from"])
@@ -597,21 +587,21 @@ def estimate_expr_cost(
         child_eval = [estimate_expr_cost(child, feasible_counts, catalogue, branch_preferences) for child in children]
         if op == "and":
             total = sum(item[0] for item in child_eval)
-            picked: set[str] = set()
+            and_picked: set[str] = set()
             for _, courses in child_eval:
-                picked.update(courses)
-            return total, picked
+                and_picked.update(courses)
+            return total, and_picked
         if op == "or":
             # Extract courses from each OR option and apply branch preferences
-            options_with_courses = []
+            options_with_courses: list[tuple[float, float, set[str]]] = []
             for cost, courses in child_eval:
                 adjusted_cost = cost
                 # Check if any branch preference matches this option
                 for pref in branch_preferences:
-                    pref_courses = pref.get("courses", [])
+                    pref_courses = pref["courses"] if "courses" in pref else []
                     if pref_courses and courses and all(c in courses for c in pref_courses):
                         # This option matches the preference; apply weight adjustment
-                        weight = pref.get("weight", 0.0)
+                        weight = pref["weight"] if "weight" in pref else 0.0
                         adjusted_cost += weight
                         break
                 options_with_courses.append((adjusted_cost, cost, courses))
@@ -664,7 +654,7 @@ def feasible_slots_for_course(
 def dependency_map(catalogue: dict[str, CourseMeta]) -> dict[str, RuleExpr | None]:
     expr_map: dict[str, RuleExpr | None] = {}
     for code, meta in catalogue.items():
-        prereq_expr, _, _ = _parse_prerequisite_field(meta.prerequisites)
+        prereq_expr, _, _ = parse_prerequisite_field(meta.prerequisites)
         expr_map[code] = prereq_expr
     return expr_map
 
@@ -799,10 +789,12 @@ def slot_hint_penalty_for_course(code: str, slot: Slot, steering: SteeringConfig
     if hint is None:
         # Explicit hint is absent, but implicit year hint still applies.
         hint = {}
-    weight = float(hint.get("hint_weight", 10.0))
+    hint_dict = cast(dict[str, object], hint)
+    hint_weight = hint_dict.get("hint_weight")
+    weight = float(hint_weight) if isinstance(hint_weight, (int, float)) else 10.0
     penalty = 0.0
-    preferred_period = hint.get("preferred_period")
-    preferred_year = hint.get("preferred_year_number")
+    preferred_period = hint_dict.get("preferred_period")
+    preferred_year = hint_dict.get("preferred_year_number")
     if isinstance(preferred_period, str) and canonical_period(preferred_period) != slot.canonical_period:
         penalty += weight
     if isinstance(preferred_year, int):
@@ -994,7 +986,7 @@ def greedy_place(
 
     candidates.sort(key=lambda code: (course_rank_score(code), code))
 
-    unplaced = []
+    unplaced: list[str] = []
     for code in candidates:
         feasible = feasible_slots_for_course(code, slots, offerings)
         candidate_slots = [slot_idx for slot_idx in feasible if free_capacity.get(slot_idx, 0) > 0]

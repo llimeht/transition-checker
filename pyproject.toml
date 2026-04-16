@@ -28,3 +28,11 @@ mapping-checker   = "mapping_checker:main"
 map-maker         = "map_maker:main"
 plan-validate     = "validate:main"
 extract-template  = "extract_template:main"
+cfcc-summary      = "cfcc_summary:main"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = [
+    "*py",
+]

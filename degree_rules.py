@@ -335,6 +335,8 @@ def _parse_prerequisite_field(
     if cached is not None:
         return cached
 
+    result: tuple[RuleExpr | None, RuleExpr | None, str | None]
+
     if not trimmed or trimmed in {".", "0"}:
         result = (None, None, None)
         _PREREQ_PARSE_CACHE[trimmed] = result
@@ -369,6 +371,13 @@ def _parse_prerequisite_field(
     result = (prereq_expr, coreq_expr, None)
     _PREREQ_PARSE_CACHE[trimmed] = result
     return result
+
+
+def parse_prerequisite_field(
+    raw_text: str,
+) -> tuple[RuleExpr | None, RuleExpr | None, str | None]:
+    """Public wrapper for parsing prerequisite/corequisite text."""
+    return _parse_prerequisite_field(raw_text)
 
 
 def validate_scheduled_prerequisites(

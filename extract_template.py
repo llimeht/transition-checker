@@ -227,12 +227,12 @@ def extract_template_configs_from_workbook(excel_path: Path) -> dict[str, Any]:
         if len(columns) >= 8:
             columns[0:8] = ["EnrolYear", "Year", "Period", "CourseN", "Code", "Title", "UoC", "Prerequisites"]
             df = df.copy()
-            df.columns = columns  # type: ignore[assignment]
+            df.columns = columns
         for intake, plan in iter_intakes(df):
             if not intake:
                 continue
-            years = build_year_structure(plan, intake)
-            for year_entry in years:
+            year_entries = build_year_structure(plan, intake)
+            for year_entry in year_entries:
                 enrol_year = str(year_entry.get("enrol_year", "")).strip()
                 year_val = year_entry.get("year")
                 periods = year_entry.get("periods", [])
