@@ -23,6 +23,10 @@ py-modules = [
     "cfcc_summary",
 ]
 
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["transitionchecker*"]
+
 [project.scripts]
 degree-rules      = "degree_rules:main"
 offering-checker  = "offering_checker:main"
@@ -35,6 +39,7 @@ cfcc-summary      = "cfcc_summary:main"
 [tool.mypy]
 python_version = "3.11"
 strict = true
+mypy_path = "src"
 files = [
     "*py",
 ]
