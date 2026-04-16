@@ -28,6 +28,7 @@ RuleExpr = CourseCode | dict[str, Any]
 
 
 _PREREQ_PARSE_CACHE: dict[str, tuple[RuleExpr | None, RuleExpr | None, str | None]] = {}
+_REQUIRED_VALIDATION_CACHE: set[int] = set()
 
 
 class PlanCourseRecord(TypedDict, total=False):
@@ -386,43 +387,63 @@ def validate_scheduled_prerequisites(
     failures: list[str] = []
     unsupported: list[str] = []
 
-    for idx, course in enumerate(courses):
-        prereq_expr, coreq_expr, unsupported_reason = _parse_prerequisite_field(
-            course.prerequisites
-        )
-        course_label = f"{course.code} ({course.year} {course.period})"
+    prior_courses: Counter[str] = Counter()
+    prior_uoc = 0
+    group_start = 0
 
-        if unsupported_reason:
-            unsupported.append(
-                f"{course_label}: {unsupported_reason}; raw='{course.prerequisites.strip()}'"
+    while group_start < len(courses):
+        course = courses[group_start]
+        period_key = (course.year, course.period_rank)
+        group_end = group_start
+        while group_end < len(courses):
+            candidate = courses[group_end]
+            if (candidate.year, candidate.period_rank) != period_key:
+                break
+            group_end += 1
+
+        group_courses = courses[group_start:group_end]
+        group_counter: Counter[str] = Counter(item.code for item in group_courses)
+        group_uoc = sum(item.uoc for item in group_courses)
+        coreq_base = Counter(prior_courses)
+        coreq_base.update(group_counter)
+
+        for current in group_courses:
+            prereq_expr, coreq_expr, unsupported_reason = _parse_prerequisite_field(
+                current.prerequisites
             )
-            continue
+            course_label = f"{current.code} ({current.year} {current.period})"
 
-        prior_history = _course_history(courses, idx, include_same_period=False)
-        prior_courses = Counter(item.code for item in prior_history)
-        prior_uoc = sum(item.uoc for item in prior_history)
+            if unsupported_reason:
+                unsupported.append(
+                    f"{course_label}: {unsupported_reason}; raw='{current.prerequisites.strip()}'"
+                )
+                continue
 
-        if prereq_expr is not None and not evaluate_expression(
-            prereq_expr, prior_courses, prior_uoc
-        ):
-            diagnosis = diagnose_expression(prereq_expr, prior_courses, prior_uoc)
-            failures.append(
-                f"[Prerequisite] {course_label}: {expression_to_text(prereq_expr)} - {diagnosis}"
-            )
-
-        if coreq_expr is not None:
-            coreq_history = _course_history(courses, idx, include_same_period=True)
-            prior_and_same_period = Counter(item.code for item in coreq_history)
-            prior_and_same_uoc = sum(item.uoc for item in coreq_history)
-            if not evaluate_expression(
-                coreq_expr, prior_and_same_period, prior_and_same_uoc
+            if prereq_expr is not None and not evaluate_expression(
+                prereq_expr, prior_courses, prior_uoc
             ):
-                diagnosis = diagnose_expression(
-                    coreq_expr, prior_and_same_period, prior_and_same_uoc
-                )
+                diagnosis = diagnose_expression(prereq_expr, prior_courses, prior_uoc)
                 failures.append(
-                    f"[Corequisite] {course_label}: {expression_to_text(coreq_expr)} - {diagnosis}"
+                    f"[Prerequisite] {course_label}: {expression_to_text(prereq_expr)} - {diagnosis}"
                 )
+
+            if coreq_expr is not None:
+                coreq_courses = Counter(coreq_base)
+                if coreq_courses[current.code] > 0:
+                    coreq_courses[current.code] -= 1
+                    if coreq_courses[current.code] <= 0:
+                        del coreq_courses[current.code]
+                coreq_uoc = prior_uoc + group_uoc - current.uoc
+
+                if not evaluate_expression(coreq_expr, coreq_courses, coreq_uoc):
+                    diagnosis = diagnose_expression(coreq_expr, coreq_courses, coreq_uoc)
+                    failures.append(
+                        f"[Corequisite] {course_label}: {expression_to_text(coreq_expr)} - {diagnosis}"
+                    )
+
+        prior_courses.update(group_counter)
+        prior_uoc += group_uoc
+        group_start = group_end
 
     return failures, unsupported
 
@@ -501,33 +522,6 @@ def extract_scheduled_courses(plan_data: dict[str, Any]) -> list[ScheduledPlanCo
         )
     )
     return scheduled_courses
-
-
-def _course_history(
-    courses: list[ScheduledPlanCourse],
-    idx: int,
-    include_same_period: bool,
-) -> list[ScheduledPlanCourse]:
-    """Return historical courses relative to the course at ``idx``.
-
-    ``include_same_period`` controls whether concurrent courses are included,
-    which is required for corequisite validation.
-    """
-    current = courses[idx]
-    available: list[ScheduledPlanCourse] = []
-    for other_idx, other in enumerate(courses):
-        if other_idx == idx:
-            continue
-        if (other.year, other.period_rank) < (current.year, current.period_rank):
-            available.append(other)
-            continue
-        if (
-            include_same_period
-            and other.year == current.year
-            and other.period_rank == current.period_rank
-        ):
-            available.append(other)
-    return available
 
 
 def validate_plan_prerequisites(
@@ -803,16 +797,23 @@ def evaluate_required(
     if not isinstance(required, dict):
         raise RuleValidationError("required", "required must be an object")
 
-    result: dict[str, bool] = {}
+    cfg_id = id(normalized_config)
     required_levels = cast(dict[str, Any], required)
+
+    if cfg_id not in _REQUIRED_VALIDATION_CACHE:
+        for level_name, clauses in required_levels.items():
+            if not isinstance(clauses, list):
+                raise RuleValidationError(
+                    f"required.{level_name}", "level requirements must be an array"
+                )
+            level_clauses = cast(list[RuleExpr], clauses)
+            for idx, clause in enumerate(level_clauses):
+                validate_canonical_expression(clause, f"required.{level_name}[{idx}]")
+        _REQUIRED_VALIDATION_CACHE.add(cfg_id)
+
+    result: dict[str, bool] = {}
     for level_name, clauses in required_levels.items():
-        if not isinstance(clauses, list):
-            raise RuleValidationError(
-                f"required.{level_name}", "level requirements must be an array"
-            )
         level_clauses = cast(list[RuleExpr], clauses)
-        for idx, clause in enumerate(level_clauses):
-            validate_canonical_expression(clause, f"required.{level_name}[{idx}]")
         result[level_name] = evaluate_level(level_clauses, completed_courses)
 
     return result
