@@ -363,7 +363,28 @@ def _parse_prerequisite_field(
 def parse_prerequisite_field(
     raw_text: str,
 ) -> tuple[RuleExpr | None, RuleExpr | None, str | None]:
-    """Public wrapper for parsing prerequisite/corequisite text."""
+    """Public wrapper for parsing prerequisite/corequisite text.
+
+    The supported grammar is intentionally small and token-based:
+
+    - Course tokens: ``[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?``
+        (for example ``CEIC2001``, ``GENE-XXXX``).
+    - UOC tokens: ``<integer> UOC`` (case-insensitive).
+    - Boolean operators: ``AND`` and ``OR`` (case-insensitive), with
+        precedence ``AND`` before ``OR``.
+    - Grouping: ``(`` and ``)``.
+    - ``PLUS`` splits a field into independent segments that are combined by
+        ``AND``.
+    - The phrase ``COMPLETION OF`` is ignored when parsing each segment.
+    - ``COREQ*``/``CO-REQ*`` markers split prerequisite and corequisite parts.
+
+    Input normalization also treats ``&`` and ``,`` as ``AND``, and strips
+    ``;`` and ``.`` as separators. Empty values (including ``.``, ``0``) are
+    treated as no prerequisite.
+
+    Expressions outside this grammar are reported as unsupported by returning
+    an error message in the third tuple value.
+    """
     return _parse_prerequisite_field(raw_text)
 
 

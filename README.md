@@ -33,6 +33,39 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+### Prerequisite Field Syntax
+
+Plan and catalogue `prerequisites` fields are parsed with a strict token-based
+grammar in the rules engine. Supported syntax is:
+
+- course code tokens matching `[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?` (i.e. `ABC1234` but also some variations as needed like `ABC1234-special`, or `ABCDES-RPL`)
+- UOC tokens like `120 UOC` (case-insensitive), interpreted as minimum UoC required to take a course
+- boolean operators `AND` and `OR` (case-insensitive).
+- parentheses for grouping
+- `PLUS` between clauses; each `PLUS` segment is combined as `AND`
+- co-requisite split markers: `COREQ...` or `CO-REQ...` (with optional `:`)
+
+Operator precedence is `AND` before `OR`.
+
+Normalisation rules applied before parsing:
+
+- `&` and `,` are treated as `AND`
+- `;` and `.` are treated as separators between separate sets of conditions.
+- `COMPLETION OF` is ignored
+- blank values, `.`, and `0` are treated as no prerequisite
+
+Examples:
+
+- `CEIC2001, CEIC2002`  (equivalent to `CEIC2001 AND CEIC2002`)
+- `CEIC2005 AND (CEIC3004 OR CHEM2021)`
+- `CEIC2001 PLUS COMPLETION OF 96 UOC` (completion of CEIC2001 and a maturity rule of 96 UoC completed)
+- `MATH1231. COREQ: PHYS1121` (prereq on MATH1231 and a coreq on PHYS1121)
+
+Any prerequisite text that cannot be tokenised with this grammar is reported
+as an unsupported prerequisite in validation output; it is skipped when trying
+to apply the rules.
+
+
 ## Common Commands
 
 ### Perform validation of all plans in a spreadsheet
