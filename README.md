@@ -54,7 +54,7 @@ python degree_rules.py rules/CEICDH3707-2026-2029.json -v
 
 ### Validate a plan against rules and prerequisites
 
-Validate an enrolment plan 
+Validate an enrolment plan, checking the academic rules for the program+stream, and the prerequisite sequencing.
 
 ```bash
 python degree_rules.py \
@@ -75,7 +75,7 @@ python map_maker.py \
   -v
 ```
 
-### Use steering hints
+### Use steering hints to tune a plan
 
 ```bash
 python map_maker.py \
@@ -102,14 +102,14 @@ Planning is split into four stages:
 
 The objective combines hard-leaning penalties and softer steering penalties, including:
 
-- offering violations
+- offering violations (i.e. course is not actually offered)
 - prerequisite violations
 - failed required clauses
 - unplaced courses
-- overload and seasonal penalties
-- slot delay / compactness
-- course hints
-- soft precedence rules
+- overload and seasonal penalties (i.e. avoid summer/winter)
+- slot delay / compactness (i.e. prioritise graduating quickly)
+- course-level hints into a particular year, implicitly based on the first digit of the course code or explicitly via steering.
+- soft precedence rules for preferred course sequencing
 
 ## Steering Configuration
 
@@ -143,9 +143,9 @@ Interpretation:
 
 The most important planner controls are:
 
-- `--restarts`: number of independent baseline attempts
-- `--iterations`: move budget per restart
-- `--patience`: early-stop threshold when a restart stops improving
+- `--restarts`: number of independent baseline attempts; restarts will fill the baseline plan in different ways based on some jitter parameters.
+- `--iterations`: number of permitted course optimisation moves per restart
+- `--patience`: early-stop threshold when a restart stops improving (defaults to 25% of the iterations)
 - `--ruin-fraction`: how large ruin-and-recreate moves are
 
 Practical guidance:
