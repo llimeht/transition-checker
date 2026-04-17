@@ -30,14 +30,14 @@ where = ["src"]
 include = ["transitionchecker*"]
 
 [project.scripts]
-degree-rules      = "degree_rules:main"
-offering-checker  = "offering_checker:main"
-mapping-checker   = "mapping_checker:main"
-map-maker         = "map_maker:main"
-plan-validate     = "validate:main"
-extract-template  = "extract_template:main"
-cfcc-summary      = "cfcc_summary:main"
-import-handbook   = "import_handbook:main"
+degree-rules      = "transitionchecker.cli.degree_rules_cli:main"
+offering-checker  = "transitionchecker.cli.offering_checker_cli:main"
+mapping-checker   = "transitionchecker.cli.mapping_checker_cli:main"
+map-maker         = "transitionchecker.cli.map_maker_cli:main"
+plan-validate     = "transitionchecker.cli.validate_cli:main"
+extract-template  = "transitionchecker.cli.extract_template_cli:main"
+cfcc-summary      = "transitionchecker.cli.cfcc_summary_cli:main"
+import-handbook   = "transitionchecker.cli.import_handbook_cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov"]
