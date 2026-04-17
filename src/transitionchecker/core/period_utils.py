@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 
 _PERIOD_ALIASES = {
     "t1": "term 1",
@@ -38,6 +40,16 @@ _PERIOD_RANKS = {
     "t3": 30,
 }
 
+_PERIOD_DISPLAY_LABELS = {
+    "summer term": "Summer Term",
+    "term 1": "Term 1",
+    "term 2": "Term 2",
+    "winter term": "Winter Term",
+    "term 3": "Term 3",
+    "semester 1": "Semester 1",
+    "semester 2": "Semester 2",
+}
+
 
 def canonical_period(period: str) -> str:
     """Canonicalize period aliases so offerings/templates compare consistently."""
@@ -58,3 +70,34 @@ def period_rank(period: str, fallback: int | None = 999) -> int | None:
 
     normalized = period.strip().lower()
     return _PERIOD_RANKS.get(normalized, fallback)
+
+
+def natural_sort_key(period: str) -> tuple[int, int]:
+    """Return a natural sort key for periods ordered by type, then number.
+
+    Sorts in order: T1, T2, T3, S1, S2, Summer, Winter
+    Returns tuple of (period_type, period_number) for consistent ordering.
+    """
+    canonical = canonical_period(period)
+
+    if canonical.startswith("term"):
+        match = re.search(r"(\d+)", canonical)
+        num = int(match.group(1)) if match else 0
+        return (0, num)
+    elif canonical.startswith("semester"):
+        match = re.search(r"(\d+)", canonical)
+        num = int(match.group(1)) if match else 0
+        return (1, num)
+    elif canonical == "summer term":
+        return (2, 0)
+    elif canonical == "winter term":
+        return (3, 0)
+    else:
+        return (99, 0)  # fallback for unknown periods
+
+
+def period_display_label(period: str) -> str:
+    """Return the preferred display label for a period alias or canonical value."""
+
+    canonical = canonical_period(period)
+    return _PERIOD_DISPLAY_LABELS.get(canonical, canonical.title())
