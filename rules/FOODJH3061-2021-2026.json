@@ -1,0 +1,79 @@
+{
+    "schemaVersion": 2,
+    "required": {
+        "Level 1": [
+            "BABS1201",
+            "CHEM1811", 
+            "CHEM1821",
+            "ENGG1811",
+            "FOOD1120",
+            "FOOD1130",
+            {
+                "or": ["PHYS1111", "PHYS1121", "PHYS1131"]
+            },
+            {
+                "or": ["MATH1131", "MATH1141", "MATH1031"]
+            },
+            {
+                "or": ["MATH1041", "MATH1231", "MATH1241"]
+            }
+        ],
+        "Level 2": [
+            "BIOC2201",
+            "CHEM2041",
+            "CHEM2921",
+            "FOOD2320",
+            "MICR2011",
+            {
+                "or": ["BIOC2101", "BIOC2181"]
+            }
+        ],
+        "Level 3": [
+            "FOOD3010",
+            "FOOD3020",
+            "FOOD3030",
+            "FOOD3220",
+            "FOOD3801",
+            "FOOD3060"
+        ],
+        "Level 4": [
+            "CEIC4007",
+            "CEIC4008",
+            "CEIC6711",
+            "FOOD4110",
+            "CEIC6789",
+            {
+                "or": ["CEIC4000", "PHCM3001"]
+            }
+        ],
+        "Discipline electives": [
+            {
+                "min": 3,
+                "from": [
+                    "FOODeeee",
+                    "BABS3031",
+                    "BABS3071",
+                    "BIOC3261",
+                    "CEIC6712",
+                    "CEIC8204",
+                    "ENGG2600",
+                    "ENGG2997",
+                    "ENGG3001",
+                    "ENGG3600",
+                    "ENGG4102",
+                    "ENGG4600",
+                    "FOOD4104",
+                    "FOOD4403",
+                    "FOOD4450",
+                    "PHSL2101",
+                    "PHSL2201"
+                ]
+            }
+        ],
+        "Free Electives": [
+            "GenEd1",
+            "GenEd2"
+        ]
+    }
+}
+
