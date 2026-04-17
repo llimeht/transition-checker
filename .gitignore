@@ -11,3 +11,4 @@ templates/
 *.egg-info
 dist/
 .coverage
+build/
