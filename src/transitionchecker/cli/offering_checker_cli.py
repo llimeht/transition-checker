@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import TypedDict, cast
@@ -48,6 +49,13 @@ class OfferingCheckResult(TypedDict):
     valid: bool
     violations_count: int
     violations: list[OfferingViolation]
+
+
+def _normalize_lookup_course_code(raw_course_code: str) -> str:
+    """Normalize a course code for offerings lookup, removing internal whitespace."""
+
+    normalized = normalize_course_code(raw_course_code)
+    return re.sub(r"\s+", "", normalized)
 
 
 def load_offerings(offerings_file: Path) -> dict[str, list[str]]:
@@ -134,7 +142,7 @@ def validate_plan_offerings(
         if not raw_course_code:
             continue
 
-        course_code = normalize_course_code(raw_course_code)
+        course_code = _normalize_lookup_course_code(raw_course_code)
         if not course_code:
             continue
 
