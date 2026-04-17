@@ -69,7 +69,9 @@
             }
         ],
         "Free Electives": [
-            "FREE1",
+            {
+                "or": ["FREE1", "CEIC1000"]
+            },
             "FREE2",
             "GenEd1",
             "GenEd2"
