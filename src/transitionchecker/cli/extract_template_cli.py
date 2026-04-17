@@ -62,13 +62,15 @@ def extract_catalogue(workbook: Any) -> dict[str, dict[str, Any]]:
             except (TypeError, ValueError):
                 uoc = None
         prereq = str(row[3].value).strip() if len(row) > 3 and row[3].value else "."
-        level = str(row[4].value).strip() if len(row) > 4 and row[4].value else ""
+        prerequisites_pg = (
+            str(row[4].value).strip() if len(row) > 4 and row[4].value else ""
+        )
 
         catalogue[course_code] = {
             "title": title,
             "uoc": uoc,
             "prerequisites": prereq,
-            "level": level or None,
+            "prerequisites_pg": prerequisites_pg or None,
         }
 
     print(f"Extracted {len(catalogue)} catalogue entries")
