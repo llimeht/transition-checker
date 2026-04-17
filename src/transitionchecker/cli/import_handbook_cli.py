@@ -379,9 +379,10 @@ def run_import_handbook_command(
     command: ImportHandbookCommand, *, stdout: TextIO, stderr: TextIO
 ) -> int:
     rows: list[HandbookCourseRecord] = []
+    unique_course_codes = list(dict.fromkeys(command.course_codes))
     session = _create_session()
     try:
-        for index, course_code in enumerate(command.course_codes):
+        for index, course_code in enumerate(unique_course_codes):
             record = fetch_handbook_record(
                 session,
                 course_code=course_code,
@@ -404,7 +405,7 @@ def run_import_handbook_command(
                     error_message=record.error_message,
                 )
             )
-            if index + 1 < len(command.course_codes) and command.sleep_seconds > 0:
+            if index + 1 < len(unique_course_codes) and command.sleep_seconds > 0:
                 time.sleep(command.sleep_seconds)
     finally:
         session.close()

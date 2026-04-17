@@ -117,3 +117,27 @@ def test_returns_exit_2_on_missing_file_error(
     exit_code = offering_checker_cli.main([str(plan_path)])
     assert exit_code == 2
     assert "missing offerings" in capsys.readouterr().err
+
+
+def test_normalizes_course_codes_when_checking_offerings() -> None:
+    """Verify that plan course codes are normalized before checking against offerings."""
+    plan: offering_checker_cli.PlanDocument = {
+        "sheet": "S",
+        "intake": "I",
+        "courses": [
+            {"code": "ceic2000", "period": "Term 1"},  # lowercase, no spaces
+            {"code": "CEIC 2001", "period": "Term 1"},  # uppercase with space
+            {"code": "bioc2181", "period": "Term 3"},  # another course, lowercase
+        ],
+    }
+    offerings = {
+        "CEIC2000": ["Term 1", "Semester 1"],
+        "CEIC2001": ["Term 1", "Term 2"],
+        "BIOC2181": ["Term 3", "Term 1"],
+    }
+
+    violations = offering_checker_cli.validate_plan_offerings(plan, offerings)
+
+    # All courses should be found (no "course_not_found" violations)
+    assert len(violations) == 0
+    assert all(v["error_type"] != "course_not_found" for v in violations)

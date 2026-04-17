@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import TypedDict, cast
 
-from transitionchecker.core import as_text
+from transitionchecker.core import as_text, normalize_course_code
 
 
 class OfferingViolation(TypedDict):
@@ -130,7 +130,11 @@ def validate_plan_offerings(
         return violations
 
     for course in courses:
-        course_code = as_text(course.get("code", ""))
+        raw_course_code = as_text(course.get("code", ""))
+        if not raw_course_code:
+            continue
+
+        course_code = normalize_course_code(raw_course_code)
         if not course_code:
             continue
 

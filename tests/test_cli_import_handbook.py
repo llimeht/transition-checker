@@ -179,3 +179,62 @@ def test_main_writes_csv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert rows[0]["Prereqs"] == "BABS1201 or DPST1051"
     assert rows[0]["career"] == "undergraduate"
     assert rows[0]["offering_terms"] == "T2"
+
+
+def test_main_deduplicates_course_codes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output_path = tmp_path / "handbook_dedup.csv"
+    seen_codes: list[str] = []
+
+    def _fake_fetch_record(
+        _session: import_handbook_cli.SupportsSessionGet,
+        *,
+        course_code: str,
+        year: int,
+        career: str,
+        timeout: float,
+        retries: int,
+    ) -> import_handbook_cli.HandbookCourseRecord:
+        seen_codes.append(course_code)
+        return import_handbook_cli.HandbookCourseRecord(
+            course_code=course_code,
+            year=year,
+            career=career,
+            handbook_url=(
+                "https://www.handbook.unsw.edu.au/undergraduate/courses/2026/"
+                f"{course_code}"
+            ),
+            course_title=f"{course_code} title",
+            uoc="6",
+            offering_terms="T2",
+            prerequisite="",
+            fetch_status="ok",
+            error_message="",
+        )
+
+    monkeypatch.setattr(import_handbook_cli, "fetch_handbook_record", _fake_fetch_record)
+
+    code = import_handbook_cli.main(
+        [
+            "--year",
+            "2026",
+            "BIOC2101",
+            "bioc2101",
+            "CHEM1011",
+            "BIOC2101",
+            "--output",
+            str(output_path),
+            "--sleep",
+            "0",
+        ]
+    )
+
+    assert code == 0
+    assert seen_codes == ["BIOC2101", "CHEM1011"]
+
+    with output_path.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert len(rows) == 2
+    assert [row["Code"] for row in rows] == ["BIOC2101", "CHEM1011"]
