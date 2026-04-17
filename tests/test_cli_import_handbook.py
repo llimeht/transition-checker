@@ -18,6 +18,7 @@ def _sample_payload() -> dict[str, object]:
                 "data": {
                     "code": "BIOC2101",
                     "title": "Principles of Biochemistry (Advanced)",
+                    "uoc": 6,
                     "offering_detail": {"offering_terms": "Term 2"},
                     "enrolment_rules": [
                         {
@@ -92,6 +93,7 @@ def test_extract_course_record_from_html() -> None:
     )
 
     assert record.course_title == "Principles of Biochemistry (Advanced)"
+    assert record.uoc == "6"
     assert record.offering_terms == "T2"
     assert (
         record.prerequisite
@@ -138,6 +140,7 @@ def test_main_writes_csv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
             career=career,
             handbook_url="https://www.handbook.unsw.edu.au/undergraduate/courses/2026/BIOC2101",
             course_title="Principles of Biochemistry (Advanced)",
+            uoc="6",
             offering_terms="T2",
             prerequisite="BABS1201 or DPST1051",
             fetch_status="ok",
@@ -169,7 +172,9 @@ def test_main_writes_csv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
         rows = list(csv.DictReader(handle))
 
     assert len(rows) == 1
-    assert rows[0]["course_code"] == "BIOC2101"
+    assert rows[0]["Code"] == "BIOC2101"
+    assert rows[0]["Title"] == "Principles of Biochemistry (Advanced)"
+    assert rows[0]["UoC"] == "6"
+    assert rows[0]["Prereqs"] == "BABS1201 or DPST1051"
     assert rows[0]["career"] == "undergraduate"
-    assert rows[0]["course_title"] == "Principles of Biochemistry (Advanced)"
     assert rows[0]["offering_terms"] == "T2"

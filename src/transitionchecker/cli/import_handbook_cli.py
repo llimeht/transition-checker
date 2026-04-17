@@ -27,13 +27,14 @@ _NEXT_DATA_RE = re.compile(
 _TAG_RE = re.compile(r"<[^>]+>")
 
 _CSV_COLUMNS = [
-    "course_code",
+    "Code",
+    "Title",
+    "UoC",
+    "Prereqs",
     "year",
     "career",
     "handbook_url",
-    "course_title",
     "offering_terms",
-    "prerequisite",
     "fetch_status",
     "error_message",
 ]
@@ -59,6 +60,7 @@ class HandbookCourseRecord:
     career: str
     handbook_url: str
     course_title: str
+    uoc: str
     offering_terms: str
     prerequisite: str
     fetch_status: str
@@ -66,13 +68,14 @@ class HandbookCourseRecord:
 
     def as_csv_row(self) -> dict[str, str]:
         return {
-            "course_code": self.course_code,
+            "Code": self.course_code,
+            "Title": self.course_title,
+            "UoC": self.uoc,
+            "Prereqs": self.prerequisite,
             "year": str(self.year),
             "career": self.career,
             "handbook_url": self.handbook_url,
-            "course_title": self.course_title,
             "offering_terms": self.offering_terms,
-            "prerequisite": self.prerequisite,
             "fetch_status": self.fetch_status,
             "error_message": self.error_message,
         }
@@ -276,6 +279,20 @@ def _extract_prerequisite(page_data: dict[str, Any]) -> str:
     return ""
 
 
+def _extract_uoc(page_data: dict[str, Any]) -> str:
+    for key in ("uoc", "credit_points", "units_of_credit"):
+        raw_value = page_data.get(key)
+        if isinstance(raw_value, int):
+            return str(raw_value)
+        if isinstance(raw_value, float):
+            return str(int(raw_value)) if raw_value.is_integer() else str(raw_value)
+        if isinstance(raw_value, str):
+            cleaned = raw_value.strip()
+            if cleaned:
+                return cleaned
+    return ""
+
+
 def extract_course_record_from_html(
     *, page_html: str, course_code: str, year: int, handbook_url: str
 ) -> HandbookCourseRecord:
@@ -298,6 +315,7 @@ def extract_course_record_from_html(
         career="",
         handbook_url=handbook_url,
         course_title=_clean_text(course_title),
+        uoc=_extract_uoc(page_data),
         offering_terms=_normalize_offering_terms(raw_terms),
         prerequisite=_extract_prerequisite(page_data),
         fetch_status="ok",
@@ -340,6 +358,7 @@ def fetch_handbook_record(
         career=career,
         handbook_url=handbook_url,
         course_title="",
+        uoc="",
         offering_terms="",
         prerequisite="",
         fetch_status="error",
@@ -378,6 +397,7 @@ def run_import_handbook_command(
                     career=command.career,
                     handbook_url=record.handbook_url,
                     course_title=record.course_title,
+                    uoc=record.uoc,
                     offering_terms=record.offering_terms,
                     prerequisite=record.prerequisite,
                     fetch_status=record.fetch_status,
