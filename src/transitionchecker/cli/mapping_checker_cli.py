@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Generator, TypedDict
 import warnings
 
-import pandas as pd  # type: ignore[import-untyped]
+import pandas as pd
 from transitionchecker.utils.logging import configure_logging
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
@@ -60,7 +60,7 @@ def iter_sheets(
                 "UoC",
                 "Prerequisites",
             ]
-            df.columns = columns
+            df.columns = pd.Index(columns)
             yield sheet_name, df
 
 

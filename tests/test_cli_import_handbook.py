@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+import requests
 
 from transitionchecker.cli import import_handbook_cli
 
@@ -52,7 +53,7 @@ class _FakeResponse:
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
-            raise import_handbook_cli.requests.HTTPError(f"HTTP {self.status_code}")
+            raise requests.HTTPError(f"HTTP {self.status_code}")
 
 
 class _FakeSession:

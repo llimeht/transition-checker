@@ -6,6 +6,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from transitionchecker.cli import validate_cli
 
 
@@ -29,7 +31,9 @@ def test_main_returns_1_for_missing_excel(tmp_path: Path) -> None:
     assert code == 1
 
 
-def test_main_propagates_export_failure_code(tmp_path: Path, monkeypatch) -> None:
+def test_main_propagates_export_failure_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     excel = tmp_path / "mapping.xlsx"
     excel.write_text("placeholder", encoding="utf-8")
 
@@ -44,7 +48,9 @@ def test_main_propagates_export_failure_code(tmp_path: Path, monkeypatch) -> Non
     assert code == 5
 
 
-def test_main_returns_0_when_no_plan_files(tmp_path: Path, monkeypatch) -> None:
+def test_main_returns_0_when_no_plan_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     excel = tmp_path / "mapping.xlsx"
     excel.write_text("placeholder", encoding="utf-8")
     out_dir = tmp_path / "out"

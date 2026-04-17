@@ -31,13 +31,13 @@ class TestCanonicalPeriod:
             ("winter term", "winter term"),
         ],
     )
-    def test_known_aliases(self, alias, expected):
+    def test_known_aliases(self, alias: str, expected: str) -> None:
         assert canonical_period(alias) == expected
 
-    def test_unknown_period_returned_lowercased(self):
+    def test_unknown_period_returned_lowercased(self) -> None:
         assert canonical_period("Hexamester 1") == "hexamester 1"
 
-    def test_strips_whitespace(self):
+    def test_strips_whitespace(self) -> None:
         assert canonical_period("  t1  ") == "term 1"
 
 
@@ -52,7 +52,7 @@ class TestIsNonstandardPeriod:
             "Summer Term",
         ],
     )
-    def test_nonstandard(self, period):
+    def test_nonstandard(self, period: str) -> None:
         assert is_nonstandard_period(period)
 
     @pytest.mark.parametrize(
@@ -64,7 +64,7 @@ class TestIsNonstandardPeriod:
             "s2",
         ],
     )
-    def test_standard(self, period):
+    def test_standard(self, period: str) -> None:
         assert not is_nonstandard_period(period)
 
 
@@ -86,14 +86,14 @@ class TestPeriodRank:
             ("s2", 30),
         ],
     )
-    def test_known_ranks(self, period, expected):
+    def test_known_ranks(self, period: str, expected: int) -> None:
         assert period_rank(period) == expected
 
-    def test_unknown_period_returns_fallback(self):
+    def test_unknown_period_returns_fallback(self) -> None:
         assert period_rank("hexamester 1") == 999
 
-    def test_unknown_period_custom_fallback(self):
+    def test_unknown_period_custom_fallback(self) -> None:
         assert period_rank("hexamester 1", fallback=0) == 0
 
-    def test_unknown_period_none_fallback(self):
+    def test_unknown_period_none_fallback(self) -> None:
         assert period_rank("hexamester 1", fallback=None) is None

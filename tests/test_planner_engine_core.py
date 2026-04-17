@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
+from typing import cast
 
 import pytest
 
 from transitionchecker.planner_engine import (
     CourseMeta,
     SteeringConfig,
+    TemplateConfig,
     build_slots,
     evaluate_plan_cost,
     feasible_slots_for_course,
@@ -17,23 +19,26 @@ from transitionchecker.planner_engine import (
 )
 
 
-def _template_config() -> dict[str, Any]:
-    return {
-        "intakes": {
-            "2026 T1": {
-                "years": [
-                    {
-                        "enrol_year": "Year 1",
-                        "year": 2026,
-                        "periods": [
-                            {"period": "Term 1", "max_slots": 2},
-                            {"period": "Term 2", "max_slots": 2},
-                        ],
-                    }
-                ]
+def _template_config() -> TemplateConfig:
+    return cast(
+        TemplateConfig,
+        {
+            "intakes": {
+                "2026 T1": {
+                    "years": [
+                        {
+                            "enrol_year": "Year 1",
+                            "year": 2026,
+                            "periods": [
+                                {"period": "Term 1", "max_slots": 2},
+                                {"period": "Term 2", "max_slots": 2},
+                            ],
+                        }
+                    ]
+                }
             }
-        }
-    }
+        },
+    )
 
 
 def test_build_slots_happy_path() -> None:
@@ -75,7 +80,7 @@ def test_select_required_courses_picks_feasible_or_branch() -> None:
     assert selected == ["TEST2002"]
 
 
-def test_path_or_exit_raises_for_missing_file(tmp_path) -> None:
+def test_path_or_exit_raises_for_missing_file(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="Missing"):
         path_or_exit(tmp_path / "missing.json", "rules file")
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pandas as pd
@@ -24,15 +25,17 @@ def test_main_runs_export_flow_and_writes_offerings(
     out_dir = tmp_path / "out"
 
     monkeypatch.setattr(
-        mapping_checker_cli.pd,
+        pd,
         "read_excel",
         lambda _file, sheet_name=None: {"Sheet1": pd.DataFrame()},
     )
 
-    def fake_iter_sheets(_dfs):
+    def fake_iter_sheets(
+        _dfs: dict[str, pd.DataFrame],
+    ) -> Iterator[tuple[str, pd.DataFrame]]:
         return iter([("Sheet1", pd.DataFrame())])
 
-    def fake_iter_plans(_df):
+    def fake_iter_plans(_df: pd.DataFrame) -> Iterator[tuple[str, pd.DataFrame]]:
         # one intake with one row so downstream functions are called
         plan = pd.DataFrame([{"Code": "TEST1001", "Period": "Term 1"}])
         return iter([("2026 T1", plan)])

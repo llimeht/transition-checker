@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import openpyxl
 import pytest
 
 from transitionchecker.cli import extract_template_cli
@@ -37,7 +38,7 @@ def test_main_success_writes_outputs(
     template_out = tmp_path / "templates" / "template_configs.json"
 
     monkeypatch.setattr(
-        extract_template_cli.openpyxl,
+        openpyxl,
         "load_workbook",
         lambda _path, data_only=True: _FakeWorkbook(),
     )

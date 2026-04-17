@@ -52,5 +52,11 @@ python_version = "3.11"
 strict = true
 mypy_path = "src"
 files = [
-    "*py",
+    "src/transitionchecker",
+    "tests",
+    "*.py",
 ]
+
+[[tool.mypy.overrides]]
+module = ["pandas"]
+ignore_missing_imports = true

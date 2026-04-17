@@ -24,7 +24,7 @@ from typing import Any, Generator
 import warnings
 
 import openpyxl
-import pandas as pd  # type: ignore[import-untyped]
+import pandas as pd
 from transitionchecker.core import period_rank
 
 
@@ -99,7 +99,7 @@ def iter_program_sheets(
                 "Prerequisites",
             ]
             df = df.copy()
-            df.columns = columns
+            df.columns = pd.Index(columns)
         yield sheet_name, df
 
 
@@ -225,7 +225,7 @@ def extract_template_configs_from_workbook(excel_path: Path) -> dict[str, Any]:
                 "Prerequisites",
             ]
             df = df.copy()
-            df.columns = columns
+            df.columns = pd.Index(columns)
         for intake, plan in iter_intakes(df):
             if not intake:
                 continue

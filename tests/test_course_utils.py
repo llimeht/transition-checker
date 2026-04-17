@@ -12,16 +12,16 @@ from transitionchecker.core.course_utils import (
 
 
 class TestNormalizeCourseCode:
-    def test_strips_whitespace(self):
+    def test_strips_whitespace(self) -> None:
         assert normalize_course_code("  ceic1000  ") == "CEIC1000"
 
-    def test_uppercases(self):
+    def test_uppercases(self) -> None:
         assert normalize_course_code("ceic1000") == "CEIC1000"
 
-    def test_already_normalized(self):
+    def test_already_normalized(self) -> None:
         assert normalize_course_code("CEIC1000") == "CEIC1000"
 
-    def test_empty_string(self):
+    def test_empty_string(self) -> None:
         assert normalize_course_code("") == ""
 
 
@@ -36,7 +36,7 @@ class TestLooksLikeCourse:
             "ABCD1234",
         ],
     )
-    def test_valid_codes(self, code):
+    def test_valid_codes(self, code: str) -> None:
         assert looks_like_course(code)
 
     @pytest.mark.parametrize(
@@ -50,7 +50,7 @@ class TestLooksLikeCourse:
             "120 UOC",
         ],
     )
-    def test_invalid_codes(self, code):
+    def test_invalid_codes(self, code: str) -> None:
         # lowercase is normalized so it should pass; others fail
         if code == "ceic1000":
             assert looks_like_course(code)
@@ -70,7 +70,7 @@ class TestIsPlaceholderCourse:
             "GENEDABC",
         ],
     )
-    def test_placeholder_codes(self, code):
+    def test_placeholder_codes(self, code: str) -> None:
         assert is_placeholder_course(code)
 
     @pytest.mark.parametrize(
@@ -81,5 +81,5 @@ class TestIsPlaceholderCourse:
             "ELEC1111",
         ],
     )
-    def test_non_placeholder_codes(self, code):
+    def test_non_placeholder_codes(self, code: str) -> None:
         assert not is_placeholder_course(code)
