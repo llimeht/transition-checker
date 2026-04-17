@@ -91,6 +91,7 @@ def test_result_json_prints_json_payload(
             }
         ],
     }
+
     def fake_check(_plan_file: Path, _offerings_file: Path) -> dict[str, Any]:
         return result
 

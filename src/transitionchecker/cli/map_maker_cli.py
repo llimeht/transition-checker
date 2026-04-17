@@ -16,8 +16,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python3 map_maker.py --rule rules/CEICDH3707-2026-2029.json --intake \"2026 T1\"\n"
-            "  python3 map_maker.py --rule rules/CEICDH3707-2026-2029.json --intake \"2026 T1\" \\\n"
+            '  python3 map_maker.py --rule rules/CEICDH3707-2026-2029.json --intake "2026 T1"\n'
+            '  python3 map_maker.py --rule rules/CEICDH3707-2026-2029.json --intake "2026 T1" \\\n'
             "      --num-solutions 5 --output plans/CEIC/CEICDH3707_2026_T1_options.csv --verbose\n\n"
             "Notes:\n"
             "  --restarts controls how many independent baselines are explored.\n"
@@ -50,8 +50,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Steering config JSON path (default: templates/map_steering.json)",
     )
     parser.add_argument("--num-solutions", type=int, default=5, help="Top K solutions")
-    parser.add_argument("--restarts", type=int, default=10, help="Independent SA restarts")
-    parser.add_argument("--iterations", type=int, default=2000, help="SA iterations per restart")
+    parser.add_argument(
+        "--restarts", type=int, default=10, help="Independent SA restarts"
+    )
+    parser.add_argument(
+        "--iterations", type=int, default=2000, help="SA iterations per restart"
+    )
     parser.add_argument(
         "--patience",
         type=int,

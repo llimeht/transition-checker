@@ -30,7 +30,9 @@ def test_parse_target_term_rejects_bad_period(bad_period: str) -> None:
 
 def test_main_returns_1_for_missing_directory(tmp_path: Path) -> None:
     missing = tmp_path / "does-not-exist"
-    exit_code = cfcc_summary_cli.main([str(missing), "--year", "2026", "--period", "T1"])
+    exit_code = cfcc_summary_cli.main(
+        [str(missing), "--year", "2026", "--period", "T1"]
+    )
     assert exit_code == 1
 
 
@@ -40,7 +42,9 @@ def test_main_writes_default_output_path(
     plans_dir = tmp_path / "plans"
     plans_dir.mkdir()
 
-    def fake_build_rows(_plans_dir: Path, _target_year: int, _target_period: str) -> list[list[str]]:
+    def fake_build_rows(
+        _plans_dir: Path, _target_year: int, _target_period: str
+    ) -> list[list[str]]:
         return [["P", "A", "B", "", "", "x.json"]]
 
     monkeypatch.setattr(cfcc_summary_cli, "_build_rows", fake_build_rows)
@@ -52,6 +56,8 @@ def test_main_writes_default_output_path(
 
     monkeypatch.setattr(cfcc_summary_cli, "write_csv", fake_write)
 
-    exit_code = cfcc_summary_cli.main([str(plans_dir), "--year", "2026", "--period", "Term 3"])
+    exit_code = cfcc_summary_cli.main(
+        [str(plans_dir), "--year", "2026", "--period", "Term 3"]
+    )
     assert exit_code == 0
     assert captured[0] == plans_dir / "2026_T3_CFCCs.csv"

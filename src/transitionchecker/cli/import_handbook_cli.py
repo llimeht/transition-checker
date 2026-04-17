@@ -99,7 +99,9 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--year", required=True, type=int, help="Handbook year to fetch")
+    parser.add_argument(
+        "--year", required=True, type=int, help="Handbook year to fetch"
+    )
     parser.add_argument(
         "--career",
         choices=_HANDBOOK_CAREERS,
@@ -144,11 +146,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def _create_session() -> requests.Session:
     session = requests.Session()
     session.headers.update(
-        {
-            "User-Agent": (
-                "transition-checker/0.1 (+https://www.handbook.unsw.edu.au/)"
-            )
-        }
+        {"User-Agent": ("transition-checker/0.1 (+https://www.handbook.unsw.edu.au/)")}
     )
     return session
 

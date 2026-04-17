@@ -39,9 +39,17 @@ def test_main_runs_export_flow_and_writes_offerings(
 
     monkeypatch.setattr(mapping_checker_cli, "iter_sheets", fake_iter_sheets)
     monkeypatch.setattr(mapping_checker_cli, "iter_plans", fake_iter_plans)
-    monkeypatch.setattr(mapping_checker_cli, "course_terms", lambda _plan: {"TEST1001": {"Term 1"}})
-    monkeypatch.setattr(mapping_checker_cli, "export_plan", lambda *_args, **_kwargs: out_dir / "p.json")
-    monkeypatch.setattr(mapping_checker_cli, "summarise_offerings", lambda _offers: {"TEST1001": {"Term 1"}})
+    monkeypatch.setattr(
+        mapping_checker_cli, "course_terms", lambda _plan: {"TEST1001": {"Term 1"}}
+    )
+    monkeypatch.setattr(
+        mapping_checker_cli, "export_plan", lambda *_args, **_kwargs: out_dir / "p.json"
+    )
+    monkeypatch.setattr(
+        mapping_checker_cli,
+        "summarise_offerings",
+        lambda _offers: {"TEST1001": {"Term 1"}},
+    )
     monkeypatch.setattr(
         mapping_checker_cli,
         "write_offerings_file",

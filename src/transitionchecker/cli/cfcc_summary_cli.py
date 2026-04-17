@@ -37,7 +37,9 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         "plans_dir",
         help="Directory containing plan JSON files (processed non-recursively)",
     )
-    parser.add_argument("--year", type=int, required=True, help="Target year (for example: 2026)")
+    parser.add_argument(
+        "--year", type=int, required=True, help="Target year (for example: 2026)"
+    )
     parser.add_argument(
         "--period",
         required=True,
@@ -59,6 +61,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         help="Increase verbosity (-v for info, -vv for debug)",
     )
     return parser
+
 
 def parse_target_term(year: int, period: str) -> tuple[int, str, str]:
     if year < 1900 or year > 3000:
@@ -136,7 +139,9 @@ def _matching_codes_for_term(
     return sorted(selected)
 
 
-def _build_rows(plans_dir: Path, target_year: int, target_period: str) -> list[list[str]]:
+def _build_rows(
+    plans_dir: Path, target_year: int, target_period: str
+) -> list[list[str]]:
     rows: list[list[str]] = []
 
     json_files = sorted(plans_dir.glob("*.json"))
@@ -187,14 +192,16 @@ def write_csv(output_path: Path, rows: list[list[str]]) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.writer(fh)
-        writer.writerow([
-            "Plan",
-            "Course1",
-            "Course2",
-            "Course3",
-            "Course4",
-            "SourceFiles",
-        ])
+        writer.writerow(
+            [
+                "Plan",
+                "Course1",
+                "Course2",
+                "Course3",
+                "Course4",
+                "SourceFiles",
+            ]
+        )
         writer.writerows(rows)
 
 
@@ -229,12 +236,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        target_year, target_period, term_slug = parse_target_term(args.year, args.period)
+        target_year, target_period, term_slug = parse_target_term(
+            args.year, args.period
+        )
     except ValueError as exc:
         LOGGER.error("%s", exc)
         return 1
 
-    output_path = Path(args.output) if args.output else plans_dir / f"{term_slug}_CFCCs.csv"
+    output_path = (
+        Path(args.output) if args.output else plans_dir / f"{term_slug}_CFCCs.csv"
+    )
     rows = _build_rows(plans_dir, target_year, target_period)
     write_csv(output_path, rows)
 

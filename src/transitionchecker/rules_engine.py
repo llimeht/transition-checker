@@ -453,7 +453,9 @@ def validate_scheduled_prerequisites(
                 coreq_uoc = prior_uoc + group_uoc - current.uoc
 
                 if not evaluate_expression(coreq_expr, coreq_courses, coreq_uoc):
-                    diagnosis = diagnose_expression(coreq_expr, coreq_courses, coreq_uoc)
+                    diagnosis = diagnose_expression(
+                        coreq_expr, coreq_courses, coreq_uoc
+                    )
                     failures.append(
                         f"[Corequisite] {course_label}: {expression_to_text(coreq_expr)} - {diagnosis}"
                     )
@@ -1100,7 +1102,9 @@ def run_rules_command(
             return 1
 
         try:
-            completed_courses = extract_completed_courses(cast(dict[str, Any], plan_data))
+            completed_courses = extract_completed_courses(
+                cast(dict[str, Any], plan_data)
+            )
             prereq_failures, prereq_unsupported = validate_plan_prerequisites(
                 cast(dict[str, Any], plan_data)
             )
@@ -1122,7 +1126,10 @@ def run_rules_command(
             return 0 if is_valid else 1
 
         if rule_failures:
-            print(f"Plan does not satisfy {len(rule_failures)} degree rule(s):", file=stdout)
+            print(
+                f"Plan does not satisfy {len(rule_failures)} degree rule(s):",
+                file=stdout,
+            )
             for failure in rule_failures:
                 print(f"  {failure}", file=stdout)
 

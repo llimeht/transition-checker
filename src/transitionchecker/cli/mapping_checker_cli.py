@@ -277,9 +277,7 @@ def plan_to_dict(sheet_name: str, intake: str, plan: pd.DataFrame) -> PlanExport
                 }
             )
         except (ValueError, KeyError) as e:
-            raise ValueError(
-                f"{sheet_name} intake {intake}, row {idx}: {e}"
-            ) from e
+            raise ValueError(f"{sheet_name} intake {intake}, row {idx}: {e}") from e
     return {"sheet": sheet_name, "intake": intake, "courses": courses}
 
 

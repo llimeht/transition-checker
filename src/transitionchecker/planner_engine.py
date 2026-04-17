@@ -461,10 +461,14 @@ def load_steering(path: Path) -> SteeringConfig:
             item_dict = cast(dict[str, object], item)
             courses_raw = item_dict.get("courses")
             weight = item_dict.get("weight", 0.0)
-            if not isinstance(courses_raw, list) or not isinstance(weight, (int, float)):
+            if not isinstance(courses_raw, list) or not isinstance(
+                weight, (int, float)
+            ):
                 continue
             normalized_courses = [
-                normalize_course_code(c) for c in cast(list[object], courses_raw) if isinstance(c, str)
+                normalize_course_code(c)
+                for c in cast(list[object], courses_raw)
+                if isinstance(c, str)
             ]
             if normalized_courses:
                 pref: BranchPreference = {
@@ -487,7 +491,9 @@ def build_slots(templates: TemplateConfig, intake: str) -> list[Slot]:
     intakes = templates["intakes"]
     if intake not in intakes:
         available = ", ".join(sorted(intakes.keys()))
-        raise ValueError(f"Intake '{intake}' not found in template config. Available: {available}")
+        raise ValueError(
+            f"Intake '{intake}' not found in template config. Available: {available}"
+        )
 
     intake_cfg = intakes[intake]
     years = intake_cfg["years"]
@@ -574,7 +580,10 @@ def estimate_expr_cost(
     if set(expr.keys()) == {"min", "from"}:
         min_count = cast(int, expr["min"])
         options = cast(list[RuleExpr], expr["from"])
-        evaluated = [estimate_expr_cost(option, feasible_counts, catalogue, branch_preferences) for option in options]
+        evaluated = [
+            estimate_expr_cost(option, feasible_counts, catalogue, branch_preferences)
+            for option in options
+        ]
         evaluated.sort(key=lambda item: item[0])
         # For min/from clauses, greedily keep the cheapest satisfiable options.
         selected = evaluated[:min_count]
@@ -587,7 +596,10 @@ def estimate_expr_cost(
     if len(expr) == 1:
         op = next(iter(expr.keys()))
         children = cast(list[RuleExpr], expr[op])
-        child_eval = [estimate_expr_cost(child, feasible_counts, catalogue, branch_preferences) for child in children]
+        child_eval = [
+            estimate_expr_cost(child, feasible_counts, catalogue, branch_preferences)
+            for child in children
+        ]
         if op == "and":
             total = sum(item[0] for item in child_eval)
             and_picked: set[str] = set()
@@ -602,7 +614,11 @@ def estimate_expr_cost(
                 # Check if any branch preference matches this option
                 for pref in branch_preferences:
                     pref_courses = pref["courses"] if "courses" in pref else []
-                    if pref_courses and courses and all(c in courses for c in pref_courses):
+                    if (
+                        pref_courses
+                        and courses
+                        and all(c in courses for c in pref_courses)
+                    ):
                         # This option matches the preference; apply weight adjustment
                         weight = pref["weight"] if "weight" in pref else 0.0
                         adjusted_cost += weight
@@ -636,7 +652,9 @@ def select_required_courses(
         if not isinstance(clauses, list):
             continue
         for clause in cast(list[RuleExpr], clauses):
-            _, chosen = estimate_expr_cost(clause, feasible_counts, catalogue, branch_preferences)
+            _, chosen = estimate_expr_cost(
+                clause, feasible_counts, catalogue, branch_preferences
+            )
             selected.update(chosen)
 
     return sorted(selected)
@@ -687,7 +705,11 @@ def prerequisite_depths(
             return 0
         visiting.add(code)
         expr = dependency_exprs.get(code)
-        prereqs = [prereq for prereq in extract_expr_courses(expr) if prereq in required_set] if expr is not None else []
+        prereqs = (
+            [prereq for prereq in extract_expr_courses(expr) if prereq in required_set]
+            if expr is not None
+            else []
+        )
         depth = 0
         if prereqs:
             depth = 1 + max(visit(prereq) for prereq in prereqs)
@@ -721,7 +743,9 @@ def build_plan_document(
     for slot in slots:
         course_codes = sorted(by_slot.get(slot.slot_idx, []))
         for i, code in enumerate(course_codes, start=1):
-            meta = catalogue.get(code, CourseMeta(title=code, uoc=6, prerequisites="", level=None))
+            meta = catalogue.get(
+                code, CourseMeta(title=code, uoc=6, prerequisites="", level=None)
+            )
             courses_out.append(
                 {
                     "enrol_year": slot.enrol_year,
@@ -758,7 +782,9 @@ def scheduled_courses_from_assignments(
     for slot in slots:
         course_codes = sorted(by_slot.get(slot.slot_idx, []))
         for course_pos, code in enumerate(course_codes, start=1):
-            meta = catalogue.get(code, CourseMeta(title=code, uoc=6, prerequisites="", level=None))
+            meta = catalogue.get(
+                code, CourseMeta(title=code, uoc=6, prerequisites="", level=None)
+            )
             scheduled.append(
                 ScheduledPlanCourse(
                     index=idx,
@@ -806,11 +832,15 @@ def slot_satisfies_prerequisites(
     expr = dependency_exprs.get(code)
     if expr is None:
         return True
-    prior_courses, prior_uoc = prior_history_for_slot(assignments, candidate_slot, catalogue)
+    prior_courses, prior_uoc = prior_history_for_slot(
+        assignments, candidate_slot, catalogue
+    )
     return evaluate_expression(expr, prior_courses, prior_uoc)
 
 
-def slot_hint_penalty_for_course(code: str, slot: Slot, steering: SteeringConfig) -> float:
+def slot_hint_penalty_for_course(
+    code: str, slot: Slot, steering: SteeringConfig
+) -> float:
     """Return soft placement penalty for scheduling one course in one slot."""
 
     hint = steering.course_hints.get(code)
@@ -823,7 +853,10 @@ def slot_hint_penalty_for_course(code: str, slot: Slot, steering: SteeringConfig
     penalty = 0.0
     preferred_period = hint_dict.get("preferred_period")
     preferred_year = hint_dict.get("preferred_year_number")
-    if isinstance(preferred_period, str) and canonical_period(preferred_period) != slot.canonical_period:
+    if (
+        isinstance(preferred_period, str)
+        and canonical_period(preferred_period) != slot.canonical_period
+    ):
         penalty += weight
     if isinstance(preferred_year, int):
         year_distance = abs(preferred_year - slot.year_number)
@@ -843,7 +876,9 @@ def slot_hint_penalty_for_course(code: str, slot: Slot, steering: SteeringConfig
     return penalty
 
 
-def placeholder_overlap_for_slot(code: str, slot_idx: int, assignments: dict[str, int]) -> int:
+def placeholder_overlap_for_slot(
+    code: str, slot_idx: int, assignments: dict[str, int]
+) -> int:
     if not is_placeholder_course(code):
         return 0
     return sum(
@@ -857,10 +892,46 @@ def baseline_config_for_restart(restart: int) -> BaselineConfig:
     """Cycle through baseline profiles to diversify restart starting points."""
 
     profiles = [
-        BaselineConfig(name="balanced", hint_factor=1.0, placeholder_factor=1.0, nonstandard_factor=1.0, slot_delay_factor=0.05, score_jitter=0.00, course_rank_jitter=0.00, top_slot_pool=1),
-        BaselineConfig(name="hint-heavy", hint_factor=1.35, placeholder_factor=1.0, nonstandard_factor=1.1, slot_delay_factor=0.04, score_jitter=0.10, course_rank_jitter=0.10, top_slot_pool=2),
-        BaselineConfig(name="compact", hint_factor=0.9, placeholder_factor=1.2, nonstandard_factor=1.3, slot_delay_factor=0.10, score_jitter=0.15, course_rank_jitter=0.20, top_slot_pool=2),
-        BaselineConfig(name="explore", hint_factor=0.8, placeholder_factor=1.4, nonstandard_factor=1.0, slot_delay_factor=0.02, score_jitter=0.30, course_rank_jitter=0.35, top_slot_pool=3),
+        BaselineConfig(
+            name="balanced",
+            hint_factor=1.0,
+            placeholder_factor=1.0,
+            nonstandard_factor=1.0,
+            slot_delay_factor=0.05,
+            score_jitter=0.00,
+            course_rank_jitter=0.00,
+            top_slot_pool=1,
+        ),
+        BaselineConfig(
+            name="hint-heavy",
+            hint_factor=1.35,
+            placeholder_factor=1.0,
+            nonstandard_factor=1.1,
+            slot_delay_factor=0.04,
+            score_jitter=0.10,
+            course_rank_jitter=0.10,
+            top_slot_pool=2,
+        ),
+        BaselineConfig(
+            name="compact",
+            hint_factor=0.9,
+            placeholder_factor=1.2,
+            nonstandard_factor=1.3,
+            slot_delay_factor=0.10,
+            score_jitter=0.15,
+            course_rank_jitter=0.20,
+            top_slot_pool=2,
+        ),
+        BaselineConfig(
+            name="explore",
+            hint_factor=0.8,
+            placeholder_factor=1.4,
+            nonstandard_factor=1.0,
+            slot_delay_factor=0.02,
+            score_jitter=0.30,
+            course_rank_jitter=0.35,
+            top_slot_pool=3,
+        ),
     ]
     return profiles[restart % len(profiles)]
 
@@ -891,7 +962,9 @@ def evaluate_plan_cost(
         if slots[slot_idx].period not in offered_periods:
             offering_violations += 1
 
-    scheduled_courses = scheduled_courses_from_assignments(assignments, slots, catalogue)
+    scheduled_courses = scheduled_courses_from_assignments(
+        assignments, slots, catalogue
+    )
     prereq_failures, _unsupported = validate_scheduled_prerequisites(scheduled_courses)
     prereq_violations = len(prereq_failures)
 
@@ -934,7 +1007,9 @@ def evaluate_plan_cost(
     uoc_stddev = 0.0
     if uoc_by_slot:
         mean_uoc = sum(uoc_by_slot) / len(uoc_by_slot)
-        variance = sum((value - mean_uoc) ** 2 for value in uoc_by_slot) / len(uoc_by_slot)
+        variance = sum((value - mean_uoc) ** 2 for value in uoc_by_slot) / len(
+            uoc_by_slot
+        )
         uoc_stddev = math.sqrt(variance)
 
     hint_penalty = 0.0
@@ -1014,10 +1089,15 @@ def greedy_place(
         free_capacity[slot_idx] = free_capacity.get(slot_idx, 0) - 1
 
     candidates = [code for code in required_courses if code not in assignments]
-    feasible_counts = {code: len(feasible_slots_for_course(code, slots, offerings)) for code in candidates}
+    feasible_counts = {
+        code: len(feasible_slots_for_course(code, slots, offerings))
+        for code in candidates
+    }
 
     def course_rank_score(code: str) -> float:
-        level_value = level_rank(catalogue.get(code, CourseMeta(code, 6, "", None)).level)
+        level_value = level_rank(
+            catalogue.get(code, CourseMeta(code, 6, "", None)).level
+        )
         score = 0.0
         score += 1000.0 * float(feasible_counts.get(code, 0))
         score += 100.0 * float(prereq_depth_by_course.get(code, 0))
@@ -1032,16 +1112,22 @@ def greedy_place(
     unplaced: list[str] = []
     for code in candidates:
         feasible = feasible_slots_for_course(code, slots, offerings)
-        candidate_slots = [slot_idx for slot_idx in feasible if free_capacity.get(slot_idx, 0) > 0]
+        candidate_slots = [
+            slot_idx for slot_idx in feasible if free_capacity.get(slot_idx, 0) > 0
+        ]
 
         def slot_score(slot_idx: int) -> tuple[float, int]:
             slot = slots[slot_idx]
             score = 0.0
-            score += baseline_config.hint_factor * slot_hint_penalty_for_course(code, slot, steering)
+            score += baseline_config.hint_factor * slot_hint_penalty_for_course(
+                code, slot, steering
+            )
             score += baseline_config.placeholder_factor * float(
                 placeholder_overlap_for_slot(code, slot_idx, assignments)
             )
-            score += baseline_config.nonstandard_factor * (1.0 if is_nonstandard_period(slot.canonical_period) else 0.0)
+            score += baseline_config.nonstandard_factor * (
+                1.0 if is_nonstandard_period(slot.canonical_period) else 0.0
+            )
             score += baseline_config.slot_delay_factor * float(slot_idx)
             if baseline_config.score_jitter > 0.0:
                 score += rng.random() * baseline_config.score_jitter
@@ -1052,7 +1138,9 @@ def greedy_place(
             prereq_safe_slots = [
                 slot_idx
                 for slot_idx in candidate_slots
-                if slot_satisfies_prerequisites(code, slot_idx, assignments, dependency_exprs, catalogue)
+                if slot_satisfies_prerequisites(
+                    code, slot_idx, assignments, dependency_exprs, catalogue
+                )
             ]
             search_slots = prereq_safe_slots if prereq_safe_slots else candidate_slots
             scored_slots = sorted(search_slots, key=slot_score)
@@ -1065,12 +1153,18 @@ def greedy_place(
             unplaced.append(code)
 
     if LOGGER.isEnabledFor(logging.DEBUG) and unplaced:
-        LOGGER.debug("greedy_place: %d/%d courses unplaced (no capacity)", len(unplaced), len(candidates))
+        LOGGER.debug(
+            "greedy_place: %d/%d courses unplaced (no capacity)",
+            len(unplaced),
+            len(candidates),
+        )
 
     return assignments
 
 
-def find_dependents(required_courses: Iterable[str], dependency_exprs: dict[str, RuleExpr | None]) -> dict[str, set[str]]:
+def find_dependents(
+    required_courses: Iterable[str], dependency_exprs: dict[str, RuleExpr | None]
+) -> dict[str, set[str]]:
     """Build reverse prerequisite links within the selected required course set."""
 
     required_set = set(required_courses)
@@ -1120,7 +1214,11 @@ def cascade_ruin_set(
         for ruined_code in current_ruined:
             dependents = reverse_dependents.get(ruined_code, set())
             for dep in dependents:
-                if dep in ruined or dep not in assignments or ruined_code not in assignments:
+                if (
+                    dep in ruined
+                    or dep not in assignments
+                    or ruined_code not in assignments
+                ):
                     continue
                 if slot_order(assignments, dep) <= slot_order(assignments, ruined_code):
                     continue
@@ -1157,7 +1255,9 @@ def repair_assignments(
     """
 
     current = dict(assignments)
-    current_cost = evaluate_plan_cost(current, required_courses, slots, offerings, catalogue, rules, steering, intake)
+    current_cost = evaluate_plan_cost(
+        current, required_courses, slots, offerings, catalogue, rules, steering, intake
+    )
 
     for _ in range(max_iters):
         improved = False
@@ -1171,10 +1271,14 @@ def repair_assignments(
             prereq_safe_slots = [
                 candidate_slot
                 for candidate_slot in feasible
-                if slot_satisfies_prerequisites(code, candidate_slot, current, dependency_exprs, catalogue)
+                if slot_satisfies_prerequisites(
+                    code, candidate_slot, current, dependency_exprs, catalogue
+                )
             ]
             candidate_order = prereq_safe_slots + [
-                candidate_slot for candidate_slot in feasible if candidate_slot not in prereq_safe_slots
+                candidate_slot
+                for candidate_slot in feasible
+                if candidate_slot not in prereq_safe_slots
             ]
             # Try prereq-safe slots first so local repair spends more effort on
             # structurally plausible placements before considering weaker fallbacks.
@@ -1183,7 +1287,16 @@ def repair_assignments(
                     continue
                 trial = dict(current)
                 trial[code] = candidate_slot
-                trial_cost = evaluate_plan_cost(trial, required_courses, slots, offerings, catalogue, rules, steering, intake)
+                trial_cost = evaluate_plan_cost(
+                    trial,
+                    required_courses,
+                    slots,
+                    offerings,
+                    catalogue,
+                    rules,
+                    steering,
+                    intake,
+                )
 
                 best_tuple = (
                     best_local.prereq_violations,
@@ -1265,7 +1378,9 @@ def propose_ruin_recreate(
     # obvious downstream prerequisite relationships broken.
     ruined = cascade_ruin_set(seeds, assignments, dependency_exprs, reverse_dependents)
 
-    kept = {code: slot_idx for code, slot_idx in assignments.items() if code not in ruined}
+    kept = {
+        code: slot_idx for code, slot_idx in assignments.items() if code not in ruined
+    }
     rebuilt = greedy_place(
         required_courses,
         slots,
@@ -1300,7 +1415,9 @@ def anneal(
     """Run one simulated annealing search from an initial repaired baseline."""
 
     current = dict(initial)
-    current_cost = evaluate_plan_cost(current, required_courses, slots, offerings, catalogue, rules, steering, intake)
+    current_cost = evaluate_plan_cost(
+        current, required_courses, slots, offerings, catalogue, rules, steering, intake
+    )
     best = dict(current)
     best_cost = current_cost
     log_every = max(1, search.iterations // 20)
@@ -1366,7 +1483,9 @@ def anneal(
             if current_cost.total_cost < best_cost.total_cost:
                 best = dict(current)
                 best_cost = current_cost
-                iterations_without_improvement = 0  # Reset patience counter on improvement
+                iterations_without_improvement = (
+                    0  # Reset patience counter on improvement
+                )
             else:
                 iterations_without_improvement += 1
         else:
@@ -1449,7 +1568,9 @@ def render_csv_rows(
             row = [year_label, slot.period, f"Course {row_idx + 1}"]
             for option_idx in range(len(options)):
                 option_courses = courses_per_option[option_idx]
-                row.append(option_courses[row_idx] if row_idx < len(option_courses) else "")
+                row.append(
+                    option_courses[row_idx] if row_idx < len(option_courses) else ""
+                )
             rows.append(row)
 
     return rows
@@ -1503,8 +1624,13 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
 
     slots = build_slots(templates, command.intake)
     all_codes = sorted(catalogue.keys())
-    feasible_counts = {code: len(feasible_slots_for_course(code, slots, offerings)) for code in all_codes}
-    required_courses = select_required_courses(rules, feasible_counts, catalogue, steering.branch_preferences)
+    feasible_counts = {
+        code: len(feasible_slots_for_course(code, slots, offerings))
+        for code in all_codes
+    }
+    required_courses = select_required_courses(
+        rules, feasible_counts, catalogue, steering.branch_preferences
+    )
 
     if not required_courses:
         raise ValueError("No required courses could be extracted from the rules file")
@@ -1517,7 +1643,9 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
         restarts=max(1, int(command.restarts)),
         iterations=max(1, int(command.iterations)),
         ruin_fraction=max(0.05, min(0.95, float(command.ruin_fraction))),
-        patience=(max(1, int(command.patience)) if command.patience is not None else None),
+        patience=(
+            max(1, int(command.patience)) if command.patience is not None else None
+        ),
     )
 
     best_by_signature: dict[str, tuple[dict[str, int], CostDetails]] = {}

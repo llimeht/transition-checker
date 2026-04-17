@@ -119,7 +119,9 @@ def test_evaluate_plan_cost_tracks_offering_and_prereq_violations() -> None:
     slots = build_slots(_template_config(), "2026 T1")
     rules = {"required": {"L1": ["TEST1001", "TEST1002"]}}
     catalogue = {
-        "TEST1001": CourseMeta(title="A", uoc=6, prerequisites="TEST1002", level="Level 1"),
+        "TEST1001": CourseMeta(
+            title="A", uoc=6, prerequisites="TEST1002", level="Level 1"
+        ),
         "TEST1002": CourseMeta(title="B", uoc=6, prerequisites="", level="Level 1"),
     }
     offerings = {

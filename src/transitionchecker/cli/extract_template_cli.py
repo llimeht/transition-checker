@@ -205,12 +205,23 @@ def extract_template_configs_from_workbook(excel_path: Path) -> dict[str, Any]:
     if not template_dfs:
         raise ValueError("No template sheet (e.g. {ABCD1234}) found in workbook")
 
-    intake_year_period_slots: dict[str, dict[tuple[str, int | None, str], int]] = defaultdict(dict)
+    intake_year_period_slots: dict[str, dict[tuple[str, int | None, str], int]] = (
+        defaultdict(dict)
+    )
 
     for _, df in template_dfs.items():
         columns = list(df.columns)
         if len(columns) >= 8:
-            columns[0:8] = ["EnrolYear", "Year", "Period", "CourseN", "Code", "Title", "UoC", "Prerequisites"]
+            columns[0:8] = [
+                "EnrolYear",
+                "Year",
+                "Period",
+                "CourseN",
+                "Code",
+                "Title",
+                "UoC",
+                "Prerequisites",
+            ]
             df = df.copy()
             df.columns = columns
         for intake, plan in iter_intakes(df):
@@ -264,10 +275,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Extract catalogue and intake templates from an Excel mapping workbook.",
         epilog=(
             "Examples:\n"
-            "  python3 extract_template.py \"plans/CEIC/CEIC Program Sequence Mapping.xlsx\"\n"
-            "  python3 extract_template.py \"plans/CEIC/CEIC Program Sequence Mapping.xlsx\" "
-            "--catalogue-output \"plans/catalogue.json\" "
-            "--template-output \"templates/template_configs.json\""
+            '  python3 extract_template.py "plans/CEIC/CEIC Program Sequence Mapping.xlsx"\n'
+            '  python3 extract_template.py "plans/CEIC/CEIC Program Sequence Mapping.xlsx" '
+            '--catalogue-output "plans/catalogue.json" '
+            '--template-output "templates/template_configs.json"'
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

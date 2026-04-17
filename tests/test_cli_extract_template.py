@@ -44,7 +44,14 @@ def test_main_success_writes_outputs(
     monkeypatch.setattr(
         extract_template_cli,
         "extract_catalogue",
-        lambda _wb: {"TEST1001": {"title": "T", "uoc": 6, "prerequisites": ".", "level": "Level 1"}},
+        lambda _wb: {
+            "TEST1001": {
+                "title": "T",
+                "uoc": 6,
+                "prerequisites": ".",
+                "level": "Level 1",
+            }
+        },
     )
     monkeypatch.setattr(
         extract_template_cli,

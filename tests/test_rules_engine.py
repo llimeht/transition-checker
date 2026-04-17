@@ -35,7 +35,13 @@ class TestExtractScheduledCourses:
     def test_skips_entries_with_no_code(self) -> None:
         plan: dict[str, Any] = {
             "courses": [
-                {"year": 2024, "period": "Term 1", "course_n": "C1", "uoc": 6, "prerequisites": "."},
+                {
+                    "year": 2024,
+                    "period": "Term 1",
+                    "course_n": "C1",
+                    "uoc": 6,
+                    "prerequisites": ".",
+                },
             ]
         }
         courses = extract_scheduled_courses(plan)
@@ -58,11 +64,22 @@ class TestValidatePlanPrerequisites:
         """A corequisite must be taken in the same or earlier term."""
         plan: dict[str, Any] = {
             "courses": [
-                {"year": 2024, "period": "Term 1", "course_n": "Course 1",
-                 "code": "CEIC1000", "uoc": 6, "prerequisites": "."},
-                {"year": 2024, "period": "Term 1", "course_n": "Course 2",
-                 "code": "CEIC1001", "uoc": 6,
-                 "prerequisites": "CO-REQ: CEIC1000"},
+                {
+                    "year": 2024,
+                    "period": "Term 1",
+                    "course_n": "Course 1",
+                    "code": "CEIC1000",
+                    "uoc": 6,
+                    "prerequisites": ".",
+                },
+                {
+                    "year": 2024,
+                    "period": "Term 1",
+                    "course_n": "Course 2",
+                    "code": "CEIC1001",
+                    "uoc": 6,
+                    "prerequisites": "CO-REQ: CEIC1000",
+                },
             ]
         }
         failures, _unsupported = validate_plan_prerequisites(plan)
@@ -81,28 +98,20 @@ class TestValidateRulesConfig:
 
     def test_unknown_operator_raises(self) -> None:
         bad_config: dict[str, Any] = {
-            "required": {
-                "Level 1": [{"xor": ["CEIC1000", "CEIC1001"]}]
-            }
+            "required": {"Level 1": [{"xor": ["CEIC1000", "CEIC1001"]}]}
         }
         with pytest.raises(RuleValidationError):
             validate_rules_config(bad_config)
 
     def test_min_less_than_from_raises(self) -> None:
         bad_config: dict[str, Any] = {
-            "required": {
-                "Level 1": [{"min": 5, "from": ["CEIC1000", "CEIC1001"]}]
-            }
+            "required": {"Level 1": [{"min": 5, "from": ["CEIC1000", "CEIC1001"]}]}
         }
         with pytest.raises(RuleValidationError):
             validate_rules_config(bad_config)
 
     def test_empty_level_raises(self) -> None:
-        bad_config: dict[str, Any] = {
-            "required": {
-                "Level 1": []
-            }
-        }
+        bad_config: dict[str, Any] = {"required": {"Level 1": []}}
         with pytest.raises(RuleValidationError):
             validate_rules_config(bad_config)
 
@@ -129,7 +138,9 @@ class TestEvaluateRequired:
         assert result["Level 1"]
         assert not result["Level 2"]
 
-    def test_or_alternative_satisfies_level2(self, rules_simple: dict[str, Any]) -> None:
+    def test_or_alternative_satisfies_level2(
+        self, rules_simple: dict[str, Any]
+    ) -> None:
         normalized = validate_rules_config(rules_simple)
         completed = Counter(["TEST1001", "TEST1002", "TEST2002", "TEST2004"])
         result = evaluate_required(normalized, completed)
