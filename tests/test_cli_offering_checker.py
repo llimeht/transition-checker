@@ -141,3 +141,22 @@ def test_normalizes_course_codes_when_checking_offerings() -> None:
     # All courses should be found (no "course_not_found" violations)
     assert len(violations) == 0
     assert all(v["error_type"] != "course_not_found" for v in violations)
+
+
+def test_load_offerings_normalizes_and_merges_course_code_keys(tmp_path: Path) -> None:
+    offerings_path = tmp_path / "offerings.json"
+    offerings_path.write_text(
+        json.dumps(
+            {
+                "ceic 2001": ["Term 1"],
+                "CEIC2001": ["Term 2"],
+                "BIOC 2181": ["Term 3"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    offerings = offering_checker_cli.load_offerings(offerings_path)
+
+    assert offerings["CEIC2001"] == ["Term 1", "Term 2"]
+    assert offerings["BIOC2181"] == ["Term 3"]

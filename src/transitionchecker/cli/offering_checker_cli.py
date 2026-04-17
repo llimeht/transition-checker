@@ -84,12 +84,21 @@ def load_offerings(offerings_file: Path) -> dict[str, list[str]]:
             continue
         if not isinstance(raw_periods, list):
             continue
+        normalized_code = _normalize_lookup_course_code(raw_code)
+        if not normalized_code:
+            continue
+
         periods = [
             period
             for period in cast(list[object], raw_periods)
             if isinstance(period, str)
         ]
-        offerings[raw_code] = periods
+
+        if normalized_code in offerings:
+            merged = offerings[normalized_code] + periods
+            offerings[normalized_code] = list(dict.fromkeys(merged))
+        else:
+            offerings[normalized_code] = periods
 
     return offerings
 
