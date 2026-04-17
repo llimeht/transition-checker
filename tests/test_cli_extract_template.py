@@ -37,27 +37,30 @@ def test_main_success_writes_outputs(
     catalogue_out = tmp_path / "plans" / "catalogue.json"
     template_out = tmp_path / "templates" / "template_configs.json"
 
-    monkeypatch.setattr(
-        openpyxl,
-        "load_workbook",
-        lambda _path, data_only=True: _FakeWorkbook(),
-    )
-    monkeypatch.setattr(
-        extract_template_cli,
-        "extract_catalogue",
-        lambda _wb: {
+    from typing import Any
+
+    def fake_load_workbook(_path: Path, data_only: bool = True) -> _FakeWorkbook:
+        return _FakeWorkbook()
+
+    def fake_extract_catalogue(_wb: Any) -> dict[str, dict[str, Any]]:
+        return {
             "TEST1001": {
                 "title": "T",
                 "uoc": 6,
                 "prerequisites": ".",
                 "level": "Level 1",
             }
-        },
-    )
+        }
+
+    def fake_extract_template_configs(_path: Path) -> dict[str, Any]:
+        return {"intakes": {"2026 T1": {"years": []}}}
+
+    monkeypatch.setattr(openpyxl, "load_workbook", fake_load_workbook)
+    monkeypatch.setattr(extract_template_cli, "extract_catalogue", fake_extract_catalogue)
     monkeypatch.setattr(
         extract_template_cli,
         "extract_template_configs_from_workbook",
-        lambda _path: {"intakes": {"2026 T1": {"years": []}}},
+        fake_extract_template_configs,
     )
 
     code = extract_template_cli.main(

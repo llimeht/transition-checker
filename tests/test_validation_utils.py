@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from transitionchecker.core.validation import as_json_object, as_text
 
 
 class TestAsJsonObject:
     def test_plain_dict(self) -> None:
-        d = {"a": 1, "b": "hello"}
+        d: dict[str, Any] = {"a": 1, "b": "hello"}
         assert as_json_object(d) == d
 
     def test_empty_dict(self) -> None:

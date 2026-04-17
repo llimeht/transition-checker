@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from collections import Counter
 
-import pytest
-
 from transitionchecker.rules_engine import (
+    RuleExpr,
     diagnose_expression,
     evaluate_expression,
     expression_to_text,
@@ -41,16 +40,15 @@ class TestEvaluateExpression:
 
     def test_min_from_satisfied(self) -> None:
         c = Counter(["CEIC1000", "CEIC1001"])
-        expr = {"min": 1, "from": ["CEIC1000", "CEIC1001", "CEIC1002"]}
+        expr: RuleExpr = {"min": 1, "from": ["CEIC1000", "CEIC1001", "CEIC1002"]}
         assert evaluate_expression(expr, c)
 
     def test_min_from_not_satisfied(self) -> None:
         c = Counter(["CEIC1000"])
-        expr = {"min": 2, "from": ["CEIC1000", "CEIC1001", "CEIC1002"]}
+        expr: RuleExpr = {"min": 2, "from": ["CEIC1000", "CEIC1001", "CEIC1002"]}
         assert not evaluate_expression(expr, c)
 
     def test_uoc_satisfied(self) -> None:
-        _, uoc = completed("CEIC1000", uoc=120)
         assert evaluate_expression({"uoc": 120}, Counter(), 120)
 
     def test_uoc_not_satisfied(self) -> None:
@@ -58,7 +56,7 @@ class TestEvaluateExpression:
 
     def test_nested_and_or(self) -> None:
         # (A AND B) OR C
-        expr = {"or": [{"and": ["CEIC1000", "CEIC1001"]}, "CEIC1002"]}
+        expr: RuleExpr = {"or": [{"and": ["CEIC1000", "CEIC1001"]}, "CEIC1002"]}
         # Only C present
         assert evaluate_expression(expr, Counter(["CEIC1002"]))
         # Neither A+B nor C

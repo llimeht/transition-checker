@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from typing import TextIO
 
 import pytest
 
 from transitionchecker.cli import degree_rules_cli
+from transitionchecker.rules_engine import RulesCommand
 
 
 def test_requires_rules_file_argument() -> None:
@@ -69,12 +71,11 @@ def test_configure_logging_receives_verbosity(monkeypatch: pytest.MonkeyPatch) -
     def fake_configure(level: int) -> None:
         levels.append(level)
 
+    def fake_run_noop(_command: RulesCommand, *, stdout: TextIO, stderr: TextIO) -> int:
+        return 0
+
     monkeypatch.setattr(degree_rules_cli, "configure_logging", fake_configure)
-    monkeypatch.setattr(
-        degree_rules_cli,
-        "run_rules_command",
-        lambda command, *, stdout, stderr: 0,
-    )
+    monkeypatch.setattr(degree_rules_cli, "run_rules_command", fake_run_noop)
 
     exit_code = degree_rules_cli.main(["rules/sample.json", "-v", "-v"])
     assert exit_code == 0
