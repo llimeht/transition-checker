@@ -43,6 +43,7 @@ def test_main_runs_export_flow_and_writes_offerings(
 
     monkeypatch.setattr(mapping_checker_cli, "iter_sheets", fake_iter_sheets)
     monkeypatch.setattr(mapping_checker_cli, "iter_plans", fake_iter_plans)
+
     def fake_course_terms(_plan: pd.DataFrame) -> dict[str, set[str]]:
         return {"TEST1001": {"Term 1"}}
 
@@ -68,9 +69,15 @@ def test_main_runs_export_flow_and_writes_offerings(
 
     monkeypatch.setattr(mapping_checker_cli, "course_terms", fake_course_terms)
     monkeypatch.setattr(mapping_checker_cli, "export_plan", fake_export_plan)
-    monkeypatch.setattr(mapping_checker_cli, "summarise_offerings", fake_summarise_offerings)
-    monkeypatch.setattr(mapping_checker_cli, "write_offerings_file", fake_write_offerings_file)
-    monkeypatch.setattr(mapping_checker_cli, "write_offerings_csv", fake_write_offerings_csv)
+    monkeypatch.setattr(
+        mapping_checker_cli, "summarise_offerings", fake_summarise_offerings
+    )
+    monkeypatch.setattr(
+        mapping_checker_cli, "write_offerings_file", fake_write_offerings_file
+    )
+    monkeypatch.setattr(
+        mapping_checker_cli, "write_offerings_csv", fake_write_offerings_csv
+    )
 
     code = mapping_checker_cli.main([str(excel), "--output-dir", str(out_dir)])
     assert code == 0

@@ -133,9 +133,7 @@ def _schedule_mode(offerings_file: Path, course_code: str, periods: list[str]) -
     write_offerings(offerings_file, normalized["offerings"])
 
     scheduled_periods = normalized["offerings"][normalized_course]
-    print(
-        f"✓ Updated {normalized_course} offerings: {', '.join(scheduled_periods)}"
-    )
+    print(f"✓ Updated {normalized_course} offerings: {', '.join(scheduled_periods)}")
     return 0
 
 

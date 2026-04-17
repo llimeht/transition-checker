@@ -56,7 +56,9 @@ def test_main_success_writes_outputs(
         return {"intakes": {"2026 T1": {"years": []}}}
 
     monkeypatch.setattr(openpyxl, "load_workbook", fake_load_workbook)
-    monkeypatch.setattr(extract_template_cli, "extract_catalogue", fake_extract_catalogue)
+    monkeypatch.setattr(
+        extract_template_cli, "extract_catalogue", fake_extract_catalogue
+    )
     monkeypatch.setattr(
         extract_template_cli,
         "extract_template_configs_from_workbook",

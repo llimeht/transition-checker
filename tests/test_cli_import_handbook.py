@@ -213,7 +213,9 @@ def test_main_deduplicates_course_codes(
             error_message="",
         )
 
-    monkeypatch.setattr(import_handbook_cli, "fetch_handbook_record", _fake_fetch_record)
+    monkeypatch.setattr(
+        import_handbook_cli, "fetch_handbook_record", _fake_fetch_record
+    )
 
     code = import_handbook_cli.main(
         [
