@@ -24,7 +24,7 @@ The repository currently has three main workflows:
 - Input files:
     - standardised transition planning spreadsheet (e.g. `CEIC Program Sequence Mapping.xlsx`, fetched from canonical location on SharePoint); stored in `plans/<SCHOOL>/`
     - degree rules for each specialisation of interest (e.g. `CEICAH3707.json`); stored in `rules/`; where rules have changed over time, they can be `<stream><program>-<YYYY>-<YYYY>.json` like `CEICDH3707-2020-2025.json` to indicate the start and stop handbook years.
-    - offerings list in `plans/offerings.json`; this can be copied from the output of `mapping_checker.py` with some manual checking that the courses are indeed in the intended teaching periods.
+    - offerings list in `plans/offerings.json`; this can be copied from the output of `mapping_checker.py` with some manual checking that the courses are indeed in the intended teaching periods. Use `add_offerings.py` to maintain and normalise this file.
 )
 
 Example setup:
@@ -79,6 +79,38 @@ python validate.py 'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
 ```
 
 
+### Check offering violations for a single plan
+
+Validate that every course in a plan is offered in its scheduled teaching period.
+
+```bash
+python offering_checker.py plans/CEIC/CEICDH3707_2026_T1.json
+```
+
+Looks for `offerings.json` in the same directory as the plan first; falls back to `plans/offerings.json` in the repository root. Exit code is 0 if no violations, 1 if violations found, 2 on input errors.
+
+Use `--result-json` to get machine-readable output:
+
+```bash
+python offering_checker.py plans/CEIC/CEICDH3707_2026_T1.json --result-json
+```
+
+### Manage the offerings list
+
+Canonicalise and sort an offerings file in place:
+
+```bash
+python add_offerings.py plans/offerings.json --validate
+```
+
+Add one or more teaching periods for a course (creates the entry if absent):
+
+```bash
+python add_offerings.py plans/offerings.json --schedule CEIC2001 T1 T3
+```
+
+Periods are accepted in any alias form (`T1`, `term 1`, `S2`, `semester 2`, `summer`, etc.) and stored in canonical display form. Unknown period names cause a non-zero exit and leave the file unchanged.
+
 ### Validate rules only
 
 Validate the degree rules to make sure they appear to be syntactically correct.
@@ -97,19 +129,6 @@ python degree_rules.py \
   --plan plans/CEIC/CEICDH3707_2026_T1.json
 ```
 
-### Generate one or more plan options
-
-```bash
-python map_maker.py \
-  --rule rules/CEICDH3707-2026-2029.json \
-  --intake "2026 T1" \
-  --num-solutions 4 \
-  --restarts 12 \
-  --iterations 200 \
-  --output plans/CEIC/options.csv \
-  -v
-```
-
 ### Obtain course metadata from the UNSW Handbook
 
 This downloads handbook course pages, extracts the embedded JSON payload from each
@@ -126,6 +145,19 @@ python import_handbook.py \
 The importer uses `requests` for fetching and currently targets
 course handbook URLs of the form `https://www.handbook.unsw.edu.au/<career>/courses/<year>/<course>`.
 Use `--career undergraduate` or `--career postgraduate` depending on which handbook path the course lives under.
+
+### Generate one or more plan options
+
+```bash
+python map_maker.py \
+  --rule rules/CEICDH3707-2026-2029.json \
+  --intake "2026 T1" \
+  --num-solutions 4 \
+  --restarts 12 \
+  --iterations 200 \
+  --output plans/CEIC/options.csv \
+  -v
+```
 
 ### Use steering hints to tune a plan
 
