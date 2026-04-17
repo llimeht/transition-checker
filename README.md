@@ -15,6 +15,8 @@ The repository currently has three main workflows:
 
 3. Analyse enrolment sequences to plan clash free course combinations (CFCCs) to provide timetabling information (`cfcc_summary.py`)
 
+4. Obtain handbook metadata for courses from handbook.unsw.edu.au into CSV (`import_handbook.py`)
+
 ## Requirements
 
 - Python 3.11+
@@ -107,6 +109,23 @@ python map_maker.py \
   --output plans/CEIC/options.csv \
   -v
 ```
+
+### Obtain course metadata from the UNSW Handbook
+
+This downloads handbook course pages, extracts the embedded JSON payload from each
+page, and writes a CSV with career, title, offering terms, and prerequisite text.
+
+```bash
+python import_handbook.py \
+  --year 2026 \
+  --career undergraduate \
+  BIOC2101 CHEM1011 \
+  --output plans/handbook_import.csv
+```
+
+The importer uses `requests` for fetching and currently targets
+course handbook URLs of the form `https://www.handbook.unsw.edu.au/<career>/courses/<year>/<course>`.
+Use `--career undergraduate` or `--career postgraduate` depending on which handbook path the course lives under.
 
 ### Use steering hints to tune a plan
 

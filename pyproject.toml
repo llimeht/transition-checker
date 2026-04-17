@@ -10,6 +10,7 @@ license = { text = "BSD-3-Clause" }
 dependencies = [
     "pandas",
     "openpyxl",
+    "requests",
 ]
 
 [tool.setuptools]
@@ -21,6 +22,7 @@ py-modules = [
     "validate",
     "extract_template",
     "cfcc_summary",
+    "import_handbook",
 ]
 
 [tool.setuptools.packages.find]
@@ -35,6 +37,7 @@ map-maker         = "map_maker:main"
 plan-validate     = "validate:main"
 extract-template  = "extract_template:main"
 cfcc-summary      = "cfcc_summary:main"
+import-handbook   = "import_handbook:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov"]
