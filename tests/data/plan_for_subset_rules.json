@@ -1,0 +1,26 @@
+{
+  "sheet": "TEST",
+  "intake": "2026 T1",
+  "courses": [
+    {
+      "enrol_year": "Year 1",
+      "year": 2026,
+      "period": "Term 1",
+      "course_n": "Course 1",
+      "code": "TEST1001",
+      "title": "Foundation",
+      "uoc": 6,
+      "prerequisites": "."
+    },
+    {
+      "enrol_year": "Year 1",
+      "year": 2026,
+      "period": "Term 2",
+      "course_n": "Course 2",
+      "code": "TEST3001",
+      "title": "Advanced A",
+      "uoc": 6,
+      "prerequisites": "."
+    }
+  ]
+}

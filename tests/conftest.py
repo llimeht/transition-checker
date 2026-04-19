@@ -36,3 +36,27 @@ def offerings_simple() -> dict[str, Any]:
     return cast(
         dict[str, Any], json.loads((DATA_DIR / "offerings_simple.json").read_text())
     )
+
+
+@pytest.fixture
+def rules_with_subset_ids() -> dict[str, Any]:
+    return cast(
+        dict[str, Any],
+        json.loads((DATA_DIR / "rules_with_subset_ids.json").read_text()),
+    )
+
+
+@pytest.fixture
+def rules_without_subset_ids() -> dict[str, Any]:
+    return cast(
+        dict[str, Any],
+        json.loads((DATA_DIR / "rules_without_subset_ids.json").read_text()),
+    )
+
+
+@pytest.fixture
+def plan_for_subset_rules() -> dict[str, Any]:
+    return cast(
+        dict[str, Any],
+        json.loads((DATA_DIR / "plan_for_subset_rules.json").read_text()),
+    )

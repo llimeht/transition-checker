@@ -9,7 +9,7 @@ from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TextIO, TypedDict, cast
+from typing import Any, NotRequired, TextIO, TypedDict, cast
 
 from transitionchecker.core import period_rank
 
@@ -31,6 +31,34 @@ class PlanCourseRecord(TypedDict, total=False):
     course_n: str
     uoc: int
     prerequisites: str
+
+
+class ValidationWarning(TypedDict):
+    """Structured warning emitted during validation/report generation."""
+
+    code: str
+    message: str
+    failure_id: NotRequired[str]
+    location: NotRequired[str]
+
+
+class ValidationFinding(TypedDict):
+    """Structured finding for rule/prerequisite/corequisite validation."""
+
+    failure_id: str
+    kind: str
+    message: str
+    overrideable: bool
+    accepted: bool
+    non_overrideable_reason: NotRequired[str]
+
+
+class ClauseMeta(TypedDict, total=False):
+    """Metadata for top-level required clauses by level/index."""
+
+    subset_id: str
+    overrideable: bool
+    non_overrideable_reason: str
 
 
 @dataclass(frozen=True)
@@ -65,6 +93,200 @@ class RulesCommand:
     plan_file: Path | None = None
     plan_report_json: bool = False
     render_rules_text: bool = False
+    add_overrides: tuple[str, ...] = ()
+
+
+_CLAUSE_META_KEY = "_required_clause_meta"
+
+
+def _make_warning(
+    code: str,
+    message: str,
+    *,
+    failure_id: str | None = None,
+    location: str | None = None,
+) -> ValidationWarning:
+    warning: ValidationWarning = {
+        "code": code,
+        "message": message,
+    }
+    if failure_id is not None:
+        warning["failure_id"] = failure_id
+    if location is not None:
+        warning["location"] = location
+    return warning
+
+
+def _warning_message(warning: ValidationWarning) -> str:
+    location = warning.get("location")
+    context = f" ({location})" if isinstance(location, str) and location else ""
+    return f"[{warning['code']}] {warning['message']}{context}"
+
+
+def _as_clause_meta_map(config: dict[str, Any]) -> dict[str, ClauseMeta]:
+    value = config.get(_CLAUSE_META_KEY)
+    if not isinstance(value, dict):
+        return {}
+
+    result: dict[str, ClauseMeta] = {}
+    for key, raw_meta in cast(dict[object, object], value).items():
+        if not isinstance(key, str) or not isinstance(raw_meta, dict):
+            continue
+        raw_meta_dict = cast(dict[str, object], raw_meta)
+        meta: ClauseMeta = {}
+        subset_id = raw_meta_dict.get("subset_id")
+        if isinstance(subset_id, str) and subset_id:
+            meta["subset_id"] = subset_id
+        overrideable = raw_meta_dict.get("overrideable")
+        if isinstance(overrideable, bool):
+            meta["overrideable"] = overrideable
+        reason = raw_meta_dict.get("non_overrideable_reason")
+        if isinstance(reason, str) and reason:
+            meta["non_overrideable_reason"] = reason
+        result[key] = meta
+
+    return result
+
+
+def _slug_level_name(level_name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", level_name.strip().lower())
+    return slug.strip("-") or "level"
+
+
+def _normalize_subset_rule_id(raw_value: str) -> str:
+    return raw_value.strip()
+
+
+def _implicit_level_id(level_name: str) -> str:
+    """Derive an implicit subset id from a level name by title-casing words and joining.
+
+    E.g. "Breadth electives" -> "BreadthElectives", "Free Electives" -> "FreeElectives".
+    """
+    return "".join(word.capitalize() for word in level_name.split())
+
+
+def _clause_summary(clause: dict[str, Any], max_items: int = 4) -> str:
+    """Return a short human-readable summary of an or/min-from clause for use in locations."""
+    raw_or = clause.get("or")
+    if isinstance(raw_or, list):
+        options = cast(list[Any], raw_or)  # type: ignore[redundant-cast]
+        labels: list[str] = []
+        for opt in options[:max_items]:
+            if isinstance(opt, str):
+                labels.append(opt)
+            elif isinstance(opt, dict) and "and" in opt:
+                opt_dict = cast(dict[str, Any], opt)
+                raw_and_val = opt_dict.get("and")
+                and_list = cast(list[Any], raw_and_val) if isinstance(raw_and_val, list) else []  # type: ignore[redundant-cast]
+                labels.append("+".join(str(c) for c in and_list[:3]) if and_list else "...")
+            else:
+                labels.append("...")
+        suffix = "|..." if len(options) > max_items else ""
+        return f"or[{'|'.join(labels)}{suffix}]"
+    if "min" in clause and "from" in clause:
+        n = clause["min"]
+        raw_from = clause.get("from")
+        if isinstance(raw_from, list):
+            pool = cast(list[Any], raw_from)  # type: ignore[redundant-cast]
+            items = [str(c) for c in pool[:max_items]]
+            suffix = "|..." if len(pool) > max_items else ""
+            return f"min {n} from[{'|'.join(items)}{suffix}]"
+    return ""
+
+
+def _extract_clause_metadata(raw_config: dict[str, Any]) -> list[ValidationWarning]:
+    """Attach top-level clause metadata to raw rules config and return warnings."""
+
+    required = raw_config.get("required")
+    if not isinstance(required, dict):
+        return []
+
+    warnings: list[ValidationWarning] = []
+    clause_meta_map: dict[str, ClauseMeta] = {}
+    seen_subset_ids: dict[str, tuple[str, str]] = {}
+
+    required_levels = cast(dict[object, object], required)
+    for level_name_obj, clauses_obj in required_levels.items():
+        if not isinstance(level_name_obj, str) or not isinstance(clauses_obj, list):
+            continue
+
+        level_name = level_name_obj
+        clauses = cast(list[object], clauses_obj)
+
+        # Count how many subset clauses (or / min-from) exist in this level
+        subset_clause_count = sum(
+            1
+            for c in clauses
+            if isinstance(c, dict)
+            and ("or" in cast(dict[str, Any], c) or ("min" in cast(dict[str, Any], c) and "from" in cast(dict[str, Any], c)))
+        )
+
+        for idx, clause_obj in enumerate(clauses):
+            if not isinstance(clause_obj, dict):
+                continue
+
+            clause = cast(dict[str, Any], clause_obj)
+            has_or = "or" in clause
+            has_min_from = "min" in clause and "from" in clause
+            if not has_or and not has_min_from:
+                continue
+
+            location = f"required.{level_name}[{idx}] {_clause_summary(clause)}"
+            meta_key = f"{level_name}\u241f{idx}"
+            meta: ClauseMeta = {"overrideable": True}
+
+            subset_id_obj = clause.get("id")
+            subset_id = (
+                _normalize_subset_rule_id(subset_id_obj)
+                if isinstance(subset_id_obj, str)
+                else ""
+            )
+
+            if not subset_id:
+                if subset_clause_count == 1:
+                    # Single subset clause in this level: derive id from the level name
+                    subset_id = _implicit_level_id(level_name)
+                else:
+                    meta["overrideable"] = False
+                    meta["non_overrideable_reason"] = "missing_rule_id"
+                    warnings.append(
+                        _make_warning(
+                            "missing_rule_id",
+                            "Subset clause has no 'id' and cannot be overridden",
+                            location=location,
+                        )
+                    )
+                    clause_meta_map[meta_key] = meta
+                    continue
+
+            if subset_id in seen_subset_ids:
+                first_location, first_key = seen_subset_ids[subset_id]
+                meta["overrideable"] = False
+                meta["non_overrideable_reason"] = "duplicate_rule_id"
+                meta["subset_id"] = subset_id
+                warnings.append(
+                    _make_warning(
+                        "duplicate_rule_id",
+                        (
+                            f"Subset id '{subset_id}' is duplicated"
+                            f" (first seen at {first_location})"
+                        ),
+                        location=location,
+                    )
+                )
+                first_meta = clause_meta_map.get(first_key)
+                if first_meta is not None:
+                    first_meta["overrideable"] = False
+                    first_meta["non_overrideable_reason"] = "duplicate_rule_id"
+                clause_meta_map[meta_key] = meta
+                continue
+
+            seen_subset_ids[subset_id] = (location, meta_key)
+            meta["subset_id"] = subset_id
+            clause_meta_map[meta_key] = meta
+
+    raw_config[_CLAUSE_META_KEY] = clause_meta_map
+    return warnings
 
 
 COURSE_TOKEN_RE = re.compile(r"[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?")
@@ -401,8 +623,58 @@ def validate_scheduled_prerequisites(
         - ``failures`` contains unmet prerequisite/corequisite diagnostics.
         - ``unsupported`` contains expressions that could not be parsed.
     """
+    failures, unsupported, _findings, _warnings = validate_scheduled_prerequisites_detailed(
+        courses
+    )
+    return failures, unsupported
+
+
+def _expr_oneof_label(expr: RuleExpr) -> str:
+    if not isinstance(expr, dict) or "or" not in expr:
+        return "oneof"
+    children = cast(list[RuleExpr], expr["or"])
+    options = ", ".join(expression_to_text(child) for child in children)
+    return f"one of ({options})"
+
+
+def _collect_missing_atoms(
+    expr: RuleExpr,
+    completed_courses: Counter[str],
+    completed_uoc: int,
+) -> list[str]:
+    if _is_course_code(expr):
+        course = cast(str, expr)
+        return [] if completed_courses[course] > 0 else [course]
+
+    node = cast(dict[str, Any], expr)
+    if set(node.keys()) == {"uoc"}:
+        threshold = cast(int, node["uoc"])
+        return [] if completed_uoc >= threshold else [f"{threshold}uoc"]
+
+    if set(node.keys()) == {"and"}:
+        children = cast(list[RuleExpr], node["and"])
+        missing: list[str] = []
+        for child in children:
+            missing.extend(_collect_missing_atoms(child, completed_courses, completed_uoc))
+        return missing
+
+    if set(node.keys()) == {"or"}:
+        if evaluate_expression(expr, completed_courses, completed_uoc):
+            return []
+        return ["__ONEOF__"]
+
+    return [expression_to_text(expr)]
+
+
+def validate_scheduled_prerequisites_detailed(
+    courses: list[ScheduledPlanCourse],
+) -> tuple[list[str], list[str], list[ValidationFinding], list[ValidationWarning]]:
+    """Validate prerequisites and return both legacy strings and structured findings."""
+
     failures: list[str] = []
     unsupported: list[str] = []
+    findings: list[ValidationFinding] = []
+    warnings: list[ValidationWarning] = []
 
     prior_courses: Counter[str] = Counter()
     prior_uoc = 0
@@ -424,6 +696,8 @@ def validate_scheduled_prerequisites(
         coreq_base = Counter(prior_courses)
         coreq_base.update(group_counter)
 
+        oneof_index_by_course: dict[tuple[str, str], int] = {}
+
         for current in group_courses:
             prereq_expr, coreq_expr, unsupported_reason = _parse_prerequisite_field(
                 current.prerequisites
@@ -431,8 +705,26 @@ def validate_scheduled_prerequisites(
             course_label = f"{current.code} ({current.year} {current.period})"
 
             if unsupported_reason:
-                unsupported.append(
+                unsupported_msg = (
                     f"{course_label}: {unsupported_reason}; raw='{current.prerequisites.strip()}'"
+                )
+                unsupported.append(unsupported_msg)
+                warnings.append(
+                    _make_warning(
+                        "unsupported_syntax",
+                        unsupported_msg,
+                        location=course_label,
+                    )
+                )
+                findings.append(
+                    {
+                        "failure_id": f"unsupported-syntax:{current.code}>{current.prerequisites.strip()}",
+                        "kind": "unsupported-syntax",
+                        "message": unsupported_msg,
+                        "overrideable": False,
+                        "accepted": False,
+                        "non_overrideable_reason": "unsupported_syntax",
+                    }
                 )
                 continue
 
@@ -440,9 +732,42 @@ def validate_scheduled_prerequisites(
                 prereq_expr, prior_courses, prior_uoc
             ):
                 diagnosis = diagnose_expression(prereq_expr, prior_courses, prior_uoc)
-                failures.append(
-                    f"[Prerequisite] {course_label}: {expression_to_text(prereq_expr)} - {diagnosis}"
-                )
+                prereq_text = expression_to_text(prereq_expr)
+                failure_msg = f"[Prerequisite] {course_label}: {prereq_text} - {diagnosis}"
+                failures.append(failure_msg)
+
+                missing_atoms = _collect_missing_atoms(prereq_expr, prior_courses, prior_uoc)
+                for atom in missing_atoms:
+                    if atom == "__ONEOF__":
+                        key = ("prereq", current.code)
+                        next_idx = oneof_index_by_course.get(key, 0) + 1
+                        oneof_index_by_course[key] = next_idx
+                        atom = f"oneof{next_idx}"
+                        detail = _expr_oneof_label(prereq_expr)
+                        findings.append(
+                            {
+                                "failure_id": f"prereq:{current.code}>{atom}",
+                                "kind": "prereq",
+                                "message": f"{course_label}: {detail}",
+                                "overrideable": True,
+                                "accepted": False,
+                            }
+                        )
+                        continue
+
+                    findings.append(
+                        {
+                            "failure_id": f"prereq:{current.code}>{atom}",
+                            "kind": "prereq",
+                            "message": (
+                                f"{course_label}: missing {atom} (has {prior_uoc}uoc)"
+                                if UOC_TOKEN_RE.fullmatch(atom)
+                                else f"{course_label}: missing {atom}"
+                            ),
+                            "overrideable": True,
+                            "accepted": False,
+                        }
+                    )
 
             if coreq_expr is not None:
                 coreq_courses = Counter(coreq_base)
@@ -456,15 +781,48 @@ def validate_scheduled_prerequisites(
                     diagnosis = diagnose_expression(
                         coreq_expr, coreq_courses, coreq_uoc
                     )
-                    failures.append(
-                        f"[Corequisite] {course_label}: {expression_to_text(coreq_expr)} - {diagnosis}"
-                    )
+                    coreq_text = expression_to_text(coreq_expr)
+                    failure_msg = f"[Corequisite] {course_label}: {coreq_text} - {diagnosis}"
+                    failures.append(failure_msg)
+
+                    missing_atoms = _collect_missing_atoms(coreq_expr, coreq_courses, coreq_uoc)
+                    for atom in missing_atoms:
+                        if atom == "__ONEOF__":
+                            key = ("coreq", current.code)
+                            next_idx = oneof_index_by_course.get(key, 0) + 1
+                            oneof_index_by_course[key] = next_idx
+                            atom = f"oneof{next_idx}"
+                            detail = _expr_oneof_label(coreq_expr)
+                            findings.append(
+                                {
+                                    "failure_id": f"coreq:{current.code}>={atom}",
+                                    "kind": "coreq",
+                                    "message": f"{course_label}: {detail}",
+                                    "overrideable": True,
+                                    "accepted": False,
+                                }
+                            )
+                            continue
+
+                        findings.append(
+                            {
+                                "failure_id": f"coreq:{current.code}>={atom}",
+                                "kind": "coreq",
+                                "message": (
+                                    f"{course_label}: missing {atom} (has {coreq_uoc}uoc)"
+                                    if UOC_TOKEN_RE.fullmatch(atom)
+                                    else f"{course_label}: missing {atom}"
+                                ),
+                                "overrideable": True,
+                                "accepted": False,
+                            }
+                        )
 
         prior_courses.update(group_counter)
         prior_uoc += group_uoc
         group_start = group_end
 
-    return failures, unsupported
+    return failures, unsupported, findings, warnings
 
 
 def extract_scheduled_courses(plan_data: dict[str, Any]) -> list[ScheduledPlanCourse]:
@@ -557,6 +915,15 @@ def validate_plan_prerequisites(
     return validate_scheduled_prerequisites(courses)
 
 
+def validate_plan_prerequisites_detailed(
+    plan_data: dict[str, Any],
+) -> tuple[list[str], list[str], list[ValidationFinding], list[ValidationWarning]]:
+    """Detailed prerequisite validation with structured findings/warnings."""
+
+    courses = extract_scheduled_courses(plan_data)
+    return validate_scheduled_prerequisites_detailed(courses)
+
+
 def _is_course_code(value: Any) -> bool:
     """Return ``True`` when value is a non-empty course code string."""
     return isinstance(value, str) and bool(value.strip())
@@ -585,7 +952,8 @@ def normalize_clause(clause: Any) -> RuleExpr:
         )
 
     if isinstance(clause, dict):
-        operator_clause = cast(dict[str, Any], clause)
+        operator_clause = dict(cast(dict[str, Any], clause))
+        operator_clause.pop("id", None)
         keys = set(operator_clause.keys())
 
         if keys == {"min", "from"}:
@@ -664,6 +1032,8 @@ def normalize_rules_config(config: dict[str, Any]) -> dict[str, Any]:
 
     data["required"] = normalized_required
     data["schemaVersion"] = 2
+    if _CLAUSE_META_KEY in config:
+        data[_CLAUSE_META_KEY] = deepcopy(config[_CLAUSE_META_KEY])
     return data
 
 
@@ -849,7 +1219,9 @@ def validate_rules_config(config: dict[str, Any]) -> dict[str, Any]:
     Returns:
         Canonical validated rules configuration.
     """
-    normalized = normalize_rules_config(config)
+    prepared = deepcopy(config)
+    _extract_clause_metadata(prepared)
+    normalized = normalize_rules_config(prepared)
 
     required = normalized.get("required", {})
     if not isinstance(required, dict):
@@ -1002,18 +1374,104 @@ def report_plan(
     Returns:
         List of human-readable failure strings.
     """
+    failures, _findings, _warnings = report_plan_detailed(normalized_config, completed_courses)
+    return failures
+
+
+def _emit_atomic_rule_findings(
+    clause: RuleExpr,
+    completed_courses: Counter[str],
+    level_name: str,
+    clause_index: int,
+) -> list[ValidationFinding]:
+    if _is_course_code(clause):
+        course = cast(str, clause)
+        if completed_courses[course] > 0:
+            return []
+        return [
+            {
+                "failure_id": f"rule:{course}",
+                "kind": "rule",
+                "message": f"[{level_name}] clause {clause_index}: missing {course}",
+                "overrideable": True,
+                "accepted": False,
+            }
+        ]
+
+    node = cast(dict[str, Any], clause)
+    if set(node.keys()) == {"and"}:
+        findings: list[ValidationFinding] = []
+        for child in cast(list[RuleExpr], node["and"]):
+            findings.extend(
+                _emit_atomic_rule_findings(child, completed_courses, level_name, clause_index)
+            )
+        return findings
+
+    return []
+
+
+def report_plan_detailed(
+    normalized_config: dict[str, Any],
+    completed_courses: Counter[str],
+) -> tuple[list[str], list[ValidationFinding], list[ValidationWarning]]:
+    """Build legacy and structured rule findings for one plan."""
+
     failures: list[str] = []
+    findings: list[ValidationFinding] = []
+    warnings: list[ValidationWarning] = []
+    clause_meta_map = _as_clause_meta_map(normalized_config)
+
     required = cast(dict[str, Any], normalized_config.get("required", {}))
     for level_name, clauses in required.items():
         level_clauses = cast(list[RuleExpr], clauses)
         for idx, clause in enumerate(level_clauses, start=1):
-            if not evaluate_expression(clause, completed_courses):
-                rule_text = expression_to_text(clause)
-                diagnosis = diagnose_expression(clause, completed_courses)
-                failures.append(
-                    f"[{level_name}] clause {idx}: {rule_text} \u2014 {diagnosis}"
+            if evaluate_expression(clause, completed_courses):
+                continue
+
+            rule_text = expression_to_text(clause)
+            diagnosis = diagnose_expression(clause, completed_courses)
+            failures.append(f"[{level_name}] clause {idx}: {rule_text} \u2014 {diagnosis}")
+
+            atomic_findings = _emit_atomic_rule_findings(
+                clause, completed_courses, level_name, idx
+            )
+            if atomic_findings:
+                findings.extend(atomic_findings)
+                continue
+
+            meta_key = f"{level_name}\u241f{idx - 1}"
+            meta = clause_meta_map.get(meta_key, {})
+            subset_id = meta.get("subset_id")
+            overrideable = bool(meta.get("overrideable", False)) if meta else False
+            reason = meta.get("non_overrideable_reason") if meta else None
+
+            if isinstance(subset_id, str) and subset_id:
+                failure_id = f"rule:{subset_id}"
+            else:
+                failure_id = f"rule:unnamed:{_slug_level_name(level_name)}:{idx}"
+                if reason is None:
+                    reason = "missing_rule_id"
+                warnings.append(
+                    _make_warning(
+                        "missing_rule_id",
+                        "Subset clause has no 'id' and cannot be overridden",
+                        failure_id=failure_id,
+                        location=f"required.{level_name}[{idx - 1}]",
+                    )
                 )
-    return failures
+
+            finding: ValidationFinding = {
+                "failure_id": failure_id,
+                "kind": "rule",
+                "message": f"[{level_name}] clause {idx}: {rule_text} \u2014 {diagnosis}",
+                "overrideable": overrideable,
+                "accepted": False,
+            }
+            if not overrideable and isinstance(reason, str) and reason:
+                finding["non_overrideable_reason"] = reason
+            findings.append(finding)
+
+    return failures, findings, warnings
 
 
 def extract_completed_courses(plan_data: dict[str, Any]) -> Counter[str]:
@@ -1046,6 +1504,188 @@ def extract_completed_courses(plan_data: dict[str, Any]) -> Counter[str]:
     return completed_courses
 
 
+def _override_file_for_plan(plan_file: Path) -> Path:
+    return plan_file.with_name(f"{plan_file.stem}.degree_rules_overrides.json")
+
+
+def _load_overrides(plan_file: Path) -> tuple[set[str], list[ValidationWarning]]:
+    override_file = _override_file_for_plan(plan_file)
+    if not override_file.is_file():
+        return set(), []
+
+    try:
+        with open(override_file, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except json.JSONDecodeError as exc:
+        warning = _make_warning(
+            "invalid_overrides_file",
+            f"Could not parse overrides JSON: {exc}",
+            location=str(override_file),
+        )
+        return set(), [warning]
+
+    if not isinstance(raw, dict):
+        warning = _make_warning(
+            "invalid_overrides_file",
+            "Overrides file must be a JSON object",
+            location=str(override_file),
+        )
+        return set(), [warning]
+
+    raw_dict = cast(dict[str, object], raw)
+    overrides_raw = raw_dict.get("overrides", [])
+    if not isinstance(overrides_raw, list):
+        warning = _make_warning(
+            "invalid_overrides_file",
+            "Overrides file field 'overrides' must be an array",
+            location=str(override_file),
+        )
+        return set(), [warning]
+
+    ids: set[str] = set()
+    warnings: list[ValidationWarning] = []
+    for idx, item in enumerate(cast(list[object], overrides_raw)):
+        if not isinstance(item, dict):
+            warnings.append(
+                _make_warning(
+                    "invalid_override_entry",
+                    "Override entry must be an object",
+                    location=f"{override_file}:overrides[{idx}]",
+                )
+            )
+            continue
+
+        item_dict = cast(dict[str, object], item)
+        failure_id = item_dict.get("failure_id")
+        if not isinstance(failure_id, str) or not failure_id.strip():
+            warnings.append(
+                _make_warning(
+                    "invalid_override_entry",
+                    "Override entry requires non-empty 'failure_id'",
+                    location=f"{override_file}:overrides[{idx}]",
+                )
+            )
+            continue
+
+        normalized = failure_id.strip()
+        if normalized in ids:
+            warnings.append(
+                _make_warning(
+                    "duplicate_override_id",
+                    f"Duplicate override id '{normalized}'",
+                    failure_id=normalized,
+                    location=f"{override_file}:overrides[{idx}]",
+                )
+            )
+            continue
+        ids.add(normalized)
+
+    return ids, warnings
+
+
+def _write_new_overrides(
+    plan_file: Path, new_ids: tuple[str, ...]
+) -> list[ValidationWarning]:
+    """Append new override entries to the sidecar file, creating it if needed.
+
+    Returns any warnings produced (e.g. duplicate entries already present).
+    """
+    from datetime import datetime, timezone
+
+    override_file = _override_file_for_plan(plan_file)
+    existing: dict[str, object] = {}
+    if override_file.is_file():
+        try:
+            with open(override_file, "r", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            if isinstance(raw, dict):
+                existing = cast(dict[str, object], raw)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    overrides_raw = existing.get("overrides", [])
+    overrides: list[dict[str, object]] = (
+        cast(list[dict[str, object]], overrides_raw)
+        if isinstance(overrides_raw, list)
+        else []
+    )
+
+    existing_ids: set[str] = {
+        str(e.get("failure_id", ""))
+        for e in overrides
+    }
+
+    warnings: list[ValidationWarning] = []
+    now = datetime.now(timezone.utc).isoformat()
+    for fid in new_ids:
+        if fid in existing_ids:
+            warnings.append(
+                _make_warning(
+                    "duplicate_override_id",
+                    f"Override id '{fid}' already present in sidecar file; skipping",
+                    failure_id=fid,
+                    location=str(override_file),
+                )
+            )
+            continue
+        overrides.append({"failure_id": fid, "added_at_utc": now})
+        existing_ids.add(fid)
+
+    existing["overrides"] = overrides
+    override_file.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+    return warnings
+
+
+def _apply_overrides_to_findings(
+    findings: list[ValidationFinding],
+    override_ids: set[str],
+) -> list[ValidationWarning]:
+    warnings: list[ValidationWarning] = []
+    finding_by_id: dict[str, ValidationFinding] = {}
+    for finding in findings:
+        finding_by_id[finding["failure_id"]] = finding
+
+    for override_id in sorted(override_ids):
+        matched = finding_by_id.get(override_id)
+        if matched is None:
+            warnings.append(
+                _make_warning(
+                    "unknown_override_id",
+                    f"Override id '{override_id}' did not match any finding",
+                    failure_id=override_id,
+                )
+            )
+            continue
+
+        overrideable = bool(matched.get("overrideable", False))
+        if not overrideable:
+            warnings.append(
+                _make_warning(
+                    "override_not_allowed",
+                    f"Override id '{override_id}' targets a non-overrideable finding",
+                    failure_id=override_id,
+                )
+            )
+            continue
+
+        matched["accepted"] = True
+
+    return warnings
+
+
+def _compute_plan_status(findings: list[ValidationFinding]) -> tuple[str, bool]:
+    if not findings:
+        return "PASS", True
+
+    for finding in findings:
+        accepted = bool(finding.get("accepted", False))
+        if accepted:
+            continue
+        return "FAIL", False
+
+    return "ACCEPTED", True
+
+
 def run_rules_command(
     command: RulesCommand,
     *,
@@ -1071,6 +1711,7 @@ def run_rules_command(
         return 1
 
     try:
+        rule_warnings = _extract_clause_metadata(cast(dict[str, Any], raw_config))
         validated = validate_rules_config(cast(dict[str, Any], raw_config))
     except RuleValidationError as exc:
         print(f"Validation failed: {exc}", file=stderr)
@@ -1082,6 +1723,11 @@ def run_rules_command(
     if command.json_output:
         print("\nCanonical JSON", file=stdout)
         print(json.dumps(validated, indent=2, sort_keys=False), file=stdout)
+
+    if rule_warnings and command.plan_file is None:
+        print(f"Rules validation warnings ({len(rule_warnings)}):", file=stdout)
+        for warning in rule_warnings:
+            print(f"  {_warning_message(warning)}", file=stdout)
 
     if command.plan_file is not None:
         try:
@@ -1105,55 +1751,99 @@ def run_rules_command(
             completed_courses = extract_completed_courses(
                 cast(dict[str, Any], plan_data)
             )
-            prereq_failures, prereq_unsupported = validate_plan_prerequisites(
+            (
+                prereq_failures,
+                prereq_unsupported,
+                prereq_findings,
+                prereq_warnings,
+            ) = validate_plan_prerequisites_detailed(
                 cast(dict[str, Any], plan_data)
             )
         except RuleValidationError as exc:
             print(f"Error: {exc}", file=stderr)
             return 1
 
-        rule_failures = report_plan(validated, completed_courses)
-        is_valid = not rule_failures and not prereq_failures and not prereq_unsupported
+        rule_failures, rule_findings, generated_rule_warnings = report_plan_detailed(
+            validated,
+            completed_courses,
+        )
+
+        all_findings = [*rule_findings, *prereq_findings]
+        warnings: list[ValidationWarning] = [
+            *rule_warnings,
+            *generated_rule_warnings,
+            *prereq_warnings,
+        ]
+
+        override_ids, override_file_warnings = _load_overrides(command.plan_file)
+        if command.add_overrides:
+            override_file_warnings.extend(
+                _write_new_overrides(command.plan_file, command.add_overrides)
+            )
+            override_ids.update(command.add_overrides)
+        warnings.extend(override_file_warnings)
+        warnings.extend(_apply_overrides_to_findings(all_findings, override_ids))
+
+        status, is_valid = _compute_plan_status(all_findings)
 
         if command.plan_report_json:
             report_payload: dict[str, Any] = {
+                "status": status,
                 "valid": is_valid,
                 "rule_failures": rule_failures,
                 "prerequisite_failures": prereq_failures,
                 "unsupported_prerequisites": prereq_unsupported,
+                "findings": all_findings,
+                "warnings": warnings,
             }
             print(json.dumps(report_payload, indent=2), file=stdout)
             return 0 if is_valid else 1
 
-        if rule_failures:
-            print(
-                f"Plan does not satisfy {len(rule_failures)} degree rule(s):",
-                file=stdout,
-            )
-            for failure in rule_failures:
-                print(f"  {failure}", file=stdout)
+        active_findings = [f for f in all_findings if not f["accepted"]]
+        active_rule = [f for f in active_findings if f["kind"].startswith("rule")]
+        active_prereq = [
+            f for f in active_findings
+            if f["kind"].startswith("prereq") or f["kind"].startswith("coreq")
+        ]
+        active_unsup = [f for f in active_findings if f["kind"] == "unsupported_syntax"]
 
-        if prereq_failures:
+        if active_rule:
             print(
-                f"Plan has {len(prereq_failures)} prerequisite/corequisite violation(s):",
+                f"Plan does not satisfy {len(active_rule)} degree rule(s):",
                 file=stdout,
             )
-            for failure in prereq_failures:
-                print(f"  {failure}", file=stdout)
+            for f in active_rule:
+                print(f"  [{f['failure_id']}] {f['message']}", file=stdout)
 
-        if prereq_unsupported:
+        if active_prereq:
             print(
-                f"Plan has {len(prereq_unsupported)} unsupported prerequisite expression(s):",
+                f"Plan has {len(active_prereq)} prerequisite/corequisite violation(s):",
                 file=stdout,
             )
-            for unsupported in prereq_unsupported:
-                print(f"  {unsupported}", file=stdout)
+            for f in active_prereq:
+                print(f"  [{f['failure_id']}] {f['message']}", file=stdout)
+
+        if active_unsup:
+            print(
+                f"Plan has {len(active_unsup)} unsupported syntax expression(s):",
+                file=stdout,
+            )
+            for f in active_unsup:
+                print(f"  [{f['failure_id']}] {f['message']}", file=stdout)
+
+        if warnings:
+            print(f"Plan has {len(warnings)} warning(s):", file=stdout)
+            for warning in warnings:
+                print(f"  {_warning_message(warning)}", file=stdout)
 
         if is_valid:
-            print(
-                "Plan satisfies degree rules and prerequisite/corequisite checks.",
-                file=stdout,
-            )
+            if status == "ACCEPTED":
+                print("Plan status: ACCEPTED", file=stdout)
+            else:
+                print(
+                    "Plan satisfies degree rules and prerequisite/corequisite checks.",
+                    file=stdout,
+                )
             return 0
         return 1
 

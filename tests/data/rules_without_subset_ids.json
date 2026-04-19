@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "required": {
+    "Level 1": [
+      "TEST1001",
+      {
+        "or": ["TEST2001", "TEST2002"]
+      },
+      {
+        "min": 2,
+        "from": ["TEST3001", "TEST3002", "TEST3003"]
+      }
+    ]
+  }
+}

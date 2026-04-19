@@ -38,6 +38,17 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         help="With --plan, print machine-readable validation JSON",
     )
     parser.add_argument(
+        "--add-override",
+        metavar="FAILURE_ID",
+        action="append",
+        dest="add_overrides",
+        default=[],
+        help=(
+            "Add a failure_id override to the plan sidecar file and treat it as "
+            "accepted in this run. May be specified multiple times."
+        ),
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -58,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         plan_file=Path(args.plan) if args.plan else None,
         plan_report_json=args.plan_report_json,
         render_rules_text=args.plan is None and args.verbose > 0,
+        add_overrides=tuple(args.add_overrides),
     )
     return run_rules_command(command, stdout=sys.stdout, stderr=sys.stderr)
 

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "required": {
+    "Level 1": [
+      "TEST1001",
+      {
+        "id": "PATHWAY_TEST200x",
+        "or": ["TEST2001", "TEST2002"]
+      },
+      {
+        "id": "ADVANCED_POOL_MIN2",
+        "min": 2,
+        "from": ["TEST3001", "TEST3002", "TEST3003"]
+      }
+    ]
+  }
+}

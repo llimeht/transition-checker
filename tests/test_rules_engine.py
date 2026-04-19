@@ -10,7 +10,9 @@ import pytest
 from transitionchecker.rules_engine import (
     RuleValidationError,
     extract_scheduled_courses,
+    report_plan_detailed,
     validate_plan_prerequisites,
+    validate_plan_prerequisites_detailed,
     validate_rules_config,
     evaluate_required,
 )
@@ -146,3 +148,119 @@ class TestEvaluateRequired:
         result = evaluate_required(normalized, completed)
         assert result["Level 1"]
         assert result["Level 2"]
+
+
+class TestRuleFindingIds:
+    def test_named_subset_ids_are_overrideable(
+        self,
+        rules_with_subset_ids: dict[str, Any],
+        plan_for_subset_rules: dict[str, Any],
+    ) -> None:
+        validated = validate_rules_config(rules_with_subset_ids)
+        completed = Counter(["TEST1001", "TEST3001"])
+
+        _legacy, findings, warnings = report_plan_detailed(validated, completed)
+
+        failure_ids = {f["failure_id"] for f in findings}
+        assert "rule:PATHWAY_TEST200x" in failure_ids
+        assert "rule:ADVANCED_POOL_MIN2" in failure_ids
+        assert not any(w["code"] == "missing_rule_id" for w in warnings)
+
+        subset_findings = [
+            f
+            for f in findings
+            if f["failure_id"] in {"rule:PATHWAY_TEST200x", "rule:ADVANCED_POOL_MIN2"}
+        ]
+        assert subset_findings
+        assert all(f["overrideable"] is True for f in subset_findings)
+
+    def test_missing_subset_ids_warn_and_disable_override(
+        self,
+        rules_without_subset_ids: dict[str, Any],
+    ) -> None:
+        validated = validate_rules_config(rules_without_subset_ids)
+        completed = Counter(["TEST1001", "TEST3001"])
+
+        _legacy, findings, warnings = report_plan_detailed(validated, completed)
+
+        missing_id_warnings = [w for w in warnings if w["code"] == "missing_rule_id"]
+        assert missing_id_warnings
+        assert len(missing_id_warnings) >= 2
+
+        unnamed_subset_findings = [f for f in findings if f["failure_id"].startswith("rule:unnamed:")]
+        assert unnamed_subset_findings
+        assert all(f["overrideable"] is False for f in unnamed_subset_findings)
+        assert all(
+            f.get("non_overrideable_reason") == "missing_rule_id"
+            for f in unnamed_subset_findings
+        )
+
+
+class TestPrerequisiteFindingDecomposition:
+    def test_prereq_and_decomposes_into_multiple_atomic_findings(self) -> None:
+        plan: dict[str, Any] = {
+            "courses": [
+                {
+                    "year": 2026,
+                    "period": "Term 1",
+                    "course_n": "Course 1",
+                    "code": "TEST4001",
+                    "uoc": 6,
+                    "prerequisites": "TEST1001 AND TEST1002",
+                }
+            ]
+        }
+        _legacy_failures, _legacy_unsupported, findings, warnings = (
+            validate_plan_prerequisites_detailed(plan)
+        )
+
+        ids = {f["failure_id"] for f in findings if f["kind"] == "prereq"}
+        assert "prereq:TEST4001>TEST1001" in ids
+        assert "prereq:TEST4001>TEST1002" in ids
+        assert not warnings
+
+    def test_coreq_uses_greater_equal_operator(self) -> None:
+        plan: dict[str, Any] = {
+            "courses": [
+                {
+                    "year": 2026,
+                    "period": "Term 1",
+                    "course_n": "Course 1",
+                    "code": "TEST5001",
+                    "uoc": 6,
+                    "prerequisites": "CO-REQ: TEST1001",
+                }
+            ]
+        }
+        _legacy_failures, _legacy_unsupported, findings, _warnings = (
+            validate_plan_prerequisites_detailed(plan)
+        )
+        ids = {f["failure_id"] for f in findings if f["kind"] == "coreq"}
+        assert "coreq:TEST5001>=TEST1001" in ids
+
+    def test_unsupported_syntax_is_warning_and_non_overrideable(self) -> None:
+        plan: dict[str, Any] = {
+            "courses": [
+                {
+                    "year": 2026,
+                    "period": "Term 1",
+                    "course_n": "Course 1",
+                    "code": "TEST6001",
+                    "uoc": 6,
+                    "prerequisites": "TEST1001 / TEST1002",
+                }
+            ]
+        }
+        _legacy_failures, legacy_unsupported, findings, warnings = (
+            validate_plan_prerequisites_detailed(plan)
+        )
+
+        assert legacy_unsupported
+        assert any(w["code"] == "unsupported_syntax" for w in warnings)
+        unsupported_findings = [f for f in findings if f["kind"] == "unsupported-syntax"]
+        assert unsupported_findings
+        assert all(f["overrideable"] is False for f in unsupported_findings)
+        assert all(
+            f.get("non_overrideable_reason") == "unsupported_syntax"
+            for f in unsupported_findings
+        )

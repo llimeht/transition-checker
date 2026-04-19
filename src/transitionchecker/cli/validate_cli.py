@@ -200,6 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         if p.is_file()
         and not p.name.endswith("_offerings.json")
         and not p.name.endswith("_offering_violations.json")
+        and not p.name.endswith(".degree_rules_overrides.json")
     )
 
     if not plan_files:
@@ -234,6 +235,15 @@ def main(argv: list[str] | None = None) -> int:
         program_code = plan_stem.split("_", 1)[0]
         rule_file = resolve_rule_file(program_code, plan_stem, project_root)
         rule_name = rule_file.name
+        cwd = Path.cwd()
+        try:
+            rule_file_rel = rule_file.relative_to(cwd)
+        except ValueError:
+            rule_file_rel = rule_file
+        try:
+            plan_file_rel = plan_file.relative_to(cwd)
+        except ValueError:
+            plan_file_rel = plan_file
 
         if not rule_file.is_file():
             skipped_no_rule += 1
@@ -265,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         unsupported_prereqs = _as_object_list(
             plan_report.get("unsupported_prerequisites", [])
         )
+        structured_findings = _as_object_dict_list(plan_report.get("findings", []))
         plan_is_valid = (
             bool(plan_report.get("valid")) if plan_report else result.returncode == 0
         )
@@ -360,20 +371,58 @@ def main(argv: list[str] | None = None) -> int:
         results.append(failed_entry)
         detail_lines: list[str] = []
 
-        if rule_failures:
-            detail_lines.append(f"rule_failures={len(rule_failures)}")
-            for failure in rule_failures:
-                detail_lines.append(f"  - {failure}")
+        if rule_failures or prereq_failures or unsupported_prereqs:
+            # Use structured findings when available so failure_ids are shown
+            active_findings = [
+                f for f in structured_findings if not f.get("accepted")
+            ]
+            rule_finding_lines = [
+                f for f in active_findings if str(f.get("kind", "")).startswith("rule")
+            ]
+            prereq_finding_lines = [
+                f for f in active_findings if str(f.get("kind", "")).startswith("prereq")
+                or str(f.get("kind", "")).startswith("coreq")
+            ]
+            unsup_finding_lines = [
+                f for f in active_findings if str(f.get("kind", "")) == "unsupported_syntax"
+            ]
 
-        if prereq_failures:
-            detail_lines.append(f"prerequisite_failures={len(prereq_failures)}")
-            for failure in prereq_failures:
-                detail_lines.append(f"  - {failure}")
+            if rule_finding_lines:
+                detail_lines.append(f"rule_failures={len(rule_finding_lines)}")
+                for f in rule_finding_lines:
+                    fid = str(f.get("failure_id", ""))
+                    msg = str(f.get("message", ""))
+                    detail_lines.append(f"  - [{fid}] {msg}" if fid else f"  - {msg}")
+                    if fid and f.get("overrideable"):
+                        detail_lines.append(f"    \u2192 degree-rules {rule_file_rel} --plan {plan_file_rel} --add-override '{fid}'")
+            elif rule_failures:
+                detail_lines.append(f"rule_failures={len(rule_failures)}")
+                for failure in rule_failures:
+                    detail_lines.append(f"  - {failure}")
 
-        if unsupported_prereqs:
-            detail_lines.append(f"unsupported_prerequisites={len(unsupported_prereqs)}")
-            for failure in unsupported_prereqs:
-                detail_lines.append(f"  - {failure}")
+            if prereq_finding_lines:
+                detail_lines.append(f"prerequisite_failures={len(prereq_finding_lines)}")
+                for f in prereq_finding_lines:
+                    fid = str(f.get("failure_id", ""))
+                    msg = str(f.get("message", ""))
+                    detail_lines.append(f"  - [{fid}] {msg}" if fid else f"  - {msg}")
+                    if fid and f.get("overrideable"):
+                        detail_lines.append(f"    \u2192 degree-rules {rule_file_rel} --plan {plan_file_rel} --add-override '{fid}'")
+            elif prereq_failures:
+                detail_lines.append(f"prerequisite_failures={len(prereq_failures)}")
+                for failure in prereq_failures:
+                    detail_lines.append(f"  - {failure}")
+
+            if unsup_finding_lines:
+                detail_lines.append(f"unsupported_prerequisites={len(unsup_finding_lines)}")
+                for f in unsup_finding_lines:
+                    fid = str(f.get("failure_id", ""))
+                    msg = str(f.get("message", ""))
+                    detail_lines.append(f"  - [{fid}] {msg}" if fid else f"  - {msg}")
+            elif unsupported_prereqs:
+                detail_lines.append(f"unsupported_prerequisites={len(unsupported_prereqs)}")
+                for failure in unsupported_prereqs:
+                    detail_lines.append(f"  - {failure}")
 
         if offering_violations:
             detail_lines.append(f"offering_violations={len(offering_violations)}")
@@ -411,6 +460,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if detail_lines:
             failure_details.append((plan_file.name, rule_name, "\n".join(detail_lines)))
+
         failed += 1
 
     if failure_details:
@@ -429,6 +479,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     write_validation_report(report_path, report)
     print(f"\n☑️ Validation report written to: {report_path}")
+
 
     print()
     if failed == 0:
