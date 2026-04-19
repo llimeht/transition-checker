@@ -12,3 +12,4 @@ templates/
 dist/
 .coverage
 build/
+coverage.json
