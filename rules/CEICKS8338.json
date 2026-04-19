@@ -29,9 +29,11 @@
         ],
         "ADK Core": [
             {
+                "id": "ADKProduct",
                 "or": ["CEIC6711", "CEIC8105"]
             },
             {
+                "id": "ADKProcess",
                 "or": ["CEIC8102", "CEIC8341", "CHEN6701", "CHEN6706", "FOOD8801"]
             }
         ],
@@ -54,9 +56,11 @@
         ],
         "Capstone": [
             {
+                "id": "ResearchMethods",
                 "or": ["GSOE9010", "GSOE9011"]
             },
             {
+                "id": "CapstoneProject",
                 "or": [
                     {
                         "and": ["CEIC9007", "CEIC90008"]

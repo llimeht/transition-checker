@@ -3,20 +3,24 @@
     "required": {
         "Level 1": [
             {
+                "id": "CHEM1A+1B",
                 "or": [
                     { "and": ["CHEM1811", "CHEM1821"] },
                     { "and": ["CHEM1011", "CHEM1021", "CEIC1000"] }
                 ]
             },
             {
+                "id": "PHYS1A",
                 "or": ["PHYS1121", "PHYS1131"]
             },
             "ENGG1811",
             "DESN1000",
             {
+                "id": "MATH1A",
                 "or": ["MATH1131", "MATH1141"]
             },
             {
+                "id": "MATH1B",
                 "or": ["MATH1231", "MATH1241"]
             }
         ],
@@ -30,6 +34,7 @@
                 "or": ["DESN2000", "DESN2000-CEIC"]
             },
             {
+                "id": "MATH2018/2019",
                 "or": ["MATH2019", "MATH2018"]
             },
             "MATH2089"
@@ -46,6 +51,7 @@
             "CEIC4000",
             "CEIC4001",
             {
+                "id": "Thesis",
                 "or": [
                     { "and": ["CEIC4002", "CEIC4003"] },
                     { "and": ["CEIC4951", "CEIC4952", "CEIC4953"] }

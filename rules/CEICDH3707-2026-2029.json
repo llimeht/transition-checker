@@ -3,20 +3,24 @@
     "required": {
         "Level 1": [
             {
+                "id": "CHEM1A+1B",
                 "or": [
                     { "and": ["CHEM1811", "CHEM1821"] },
                     { "and": ["CHEM1011", "CHEM1021"] }
                 ]
             },
             {
+                "id": "PHYS1121+1131",
                 "or": ["PHYS1121", "PHYS1131"]
             },
             "ENGG1811",
             "DESN1000",
             {
+                "id": "MATH1A",
                 "or": ["MATH1131", "MATH1141"]
             },
             {
+                "id": "MATH1B",
                 "or": ["MATH1231", "MATH1241"]
             }
         ],
@@ -26,9 +30,11 @@
             "CEIC2002",
             "CEIC2005",
             {
+                "id": "DESN2000",
                 "or": ["DESN2000", "DESN2000-CEIC"]
             },
             {
+                "id": "MATH2018/2019",
                 "or": ["MATH2019", "MATH2018"]
             },
             "MATH2089",
@@ -40,12 +46,16 @@
             "CEIC3001",
             "CEIC3711",
             "CEIC8104",
-            { "or": ["CHEM3021", "CHEM3031"] }
+            {
+                "id": "CHEM3xxxx",
+                "or": ["CHEM3021", "CHEM3031"]
+            }
         ],
         "Level 4": [
             "CEIC4000",
             "CEIC6711",
-            { "and": ["CEIC4007", "CEIC4008"] },
+            "CEIC4007",
+            "CEIC4008",
             "CEIC8204"
         ],
         "Electives": [
