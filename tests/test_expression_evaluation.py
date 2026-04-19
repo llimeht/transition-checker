@@ -12,10 +12,6 @@ from transitionchecker.rules_engine import (
 )
 
 
-def completed(*codes: str, uoc: int = 0) -> tuple[Counter[str], int]:
-    return Counter(codes), uoc
-
-
 class TestEvaluateExpression:
     def test_leaf_present(self) -> None:
         assert evaluate_expression("CEIC1000", Counter(["CEIC1000"]))

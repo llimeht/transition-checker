@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
 from pathlib import Path
 
@@ -66,7 +67,73 @@ class _FakeSession:
         return self.response
 
     def close(self) -> None:
-        return None
+        return None  # pragma: no cover
+
+
+def test_fetch_handbook_record_returns_error_on_http_failure() -> None:
+    session = _FakeSession(_FakeResponse("", status_code=500))
+    record = import_handbook_cli.fetch_handbook_record(
+        session,
+        course_code="bioc2101",
+        year=2026,
+        career="undergraduate",
+        timeout=12.0,
+        retries=0,
+    )
+
+    assert record.fetch_status == "error"
+    assert record.course_code == "BIOC2101"
+    assert "HTTP 500" in record.error_message
+
+
+def test_run_import_handbook_command_closes_session_when_fetch_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _TrackedSession:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    session = _TrackedSession()
+
+    def _create_session() -> _TrackedSession:
+        return session
+
+    def _raise_fetch_error(
+        _session: import_handbook_cli.SupportsSessionGet,
+        *,
+        course_code: str,
+        year: int,
+        career: str,
+        timeout: float,
+        retries: int,
+    ) -> import_handbook_cli.HandbookCourseRecord:
+        raise RuntimeError(
+            f"boom for {course_code}/{year}/{career}/{timeout}/{retries}"
+        )
+
+    monkeypatch.setattr(import_handbook_cli, "_create_session", _create_session)
+    monkeypatch.setattr(import_handbook_cli, "fetch_handbook_record", _raise_fetch_error)
+
+    command = import_handbook_cli.ImportHandbookCommand(
+        year=2026,
+        career="undergraduate",
+        course_codes=["BIOC2101"],
+        output_path=tmp_path / "unused.csv",
+    )
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    with pytest.raises(RuntimeError, match="boom"):
+        import_handbook_cli.run_import_handbook_command(
+            command,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    assert session.closed is True
 
 
 def test_parse_args_requires_year() -> None:
