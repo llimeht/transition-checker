@@ -289,6 +289,46 @@ def extract_template_configs_from_workbook(excel_path: Path) -> dict[str, Any]:
     return {"intakes": intakes}
 
 
+def lint_prerequisites(catalogue: dict[str, dict[str, Any]], output: str | None = None) -> int:
+    """Lint prerequisites in the catalogue and report unrecognized ones."""
+    from transitionchecker.rules_engine import parse_prerequisite_field
+    lint_results: list[dict[str, str]] = []
+    for course_code, course in catalogue.items():
+        prereq = str(course.get("prerequisites", ""))
+        _, _, error = parse_prerequisite_field(prereq)
+        if error:
+            lint_results.append({
+                "course_code": str(course_code),
+                "prerequisites": prereq,
+                "error": str(error)
+            })
+    if output:
+        out_path = Path(output)
+        if out_path.suffix.lower() == ".csv":
+            import csv
+            with open(out_path, "w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=["course_code", "prerequisites", "error"])
+                writer.writeheader()
+                writer.writerows(lint_results)
+            print(f"Lint results written to {out_path} (CSV)")
+        elif out_path.suffix.lower() == ".json":
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(lint_results, f, indent=2)
+            print(f"Lint results written to {out_path} (JSON)")
+        else:
+            print(f"ERROR: Unknown lint output file extension: {out_path.suffix}")
+            return 1
+    else:
+        # Print to stdout
+        if lint_results:
+            print("\n=== LINT: Unrecognized Prerequisites ===")
+            for entry in lint_results:
+                print(f"{entry['course_code']}: '{entry['prerequisites']}' -> {entry['error']}")
+        else:
+            print("No unrecognized prerequisites found.")
+    # Exit with nonzero code if any errors found
+    return 1 if lint_results else 0
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Extract catalogue and intake templates from an Excel mapping workbook.",
@@ -351,6 +391,9 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         print(f"ERROR: Failed to extract catalogue: {exc}")
         return 1
+
+    if args.lint:
+        return lint_prerequisites(catalogue, args.lint_output)
 
     try:
         template_configs = extract_template_configs_from_workbook(excel_path)
