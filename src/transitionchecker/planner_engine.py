@@ -1,31 +1,5 @@
 from __future__ import annotations
 
-"""Generate multiple candidate degree plans and export them to CSV.
-
-The planner combines four inputs:
-- degree rules: canonical requirement structure from ``degree_rules.py``
-- offerings: which teaching periods each course can run in
-- catalogue: course metadata such as UoC, level, and prerequisites
-- intake template: the period layout and capacity model for an intake
-
-Planning proceeds in four stages:
-1. Choose the concrete set of required courses from the rules, resolving ``or``
-    and ``min/from`` branches using feasibility plus optional steering hints.
-2. Seed an initial assignment with a greedy placer.
-3. Improve obvious defects with a local repair loop.
-4. Explore alternatives with ruin-and-recreate, shift, and swap moves under a
-    simulated annealing acceptance schedule.
-
-The output is a CSV laid out by year/period, with one column block per solution.
-Higher verbosity levels print restart summaries and search progress to stderr.
-
-Examples:
-  python3 map_maker.py --rule rules/CEICDH3707-2026-2029.json --intake "2026 T1"
-  python3 map_maker.py --rule rules/CEICDH3707-2026-2029.json --intake "2026 T1" \
-        --num-solutions 8 --restarts 20 --iterations 3000 \
-        --output plans/CEIC/CEICDH3707_2026_T1_options.csv --verbose
-"""
-
 import csv
 import json
 import logging
