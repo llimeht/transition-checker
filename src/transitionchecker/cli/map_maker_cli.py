@@ -59,10 +59,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--num-solutions", type=int, default=5, help="Top K solutions")
     parser.add_argument(
-        "--restarts", type=int, default=10, help="Independent SA restarts"
+        "--restarts", type=int, default=4, help="Independent SA restarts"
     )
     parser.add_argument(
-        "--iterations", type=int, default=2000, help="SA iterations per restart"
+        "--iterations", type=int, default=100, help="SA iterations per restart"
     )
     parser.add_argument(
         "--patience",

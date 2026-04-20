@@ -25,8 +25,8 @@ def test_parse_args_defaults() -> None:
     assert args.steering == "templates/map_steering.json"
     assert args.partial_plan is None
     assert args.num_solutions == 5
-    assert args.restarts == 10
-    assert args.iterations == 2000
+    assert args.restarts == 4
+    assert args.iterations == 100
 
 
 def test_main_builds_command_and_returns_runner_code(
