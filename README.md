@@ -41,7 +41,11 @@ All the examples below assume that the package has been installed; the entry poi
 ### Prerequisite Field Syntax
 
 Plan and catalogue `prerequisites` fields are parsed with a strict token-based
-grammar in the rules engine. Supported syntax is:
+grammar in the rules engine. There are lots of quite interesting things written in the
+handbook that cannot be supported by this tool and it can only possibly implement
+course-level constraints, not constraints based on program, specialisation, or marks in other courses.
+
+Supported syntax is:
 
 - course code tokens matching `[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?` (i.e. `ABC1234` but also some variations as needed like `ABC1234-special`, or `ABCDES-RPL`)
 - UOC tokens like `120 UOC` (case-insensitive), interpreted as minimum UoC required to take a course
@@ -68,7 +72,22 @@ Examples:
 
 Any prerequisite text that cannot be tokenised with this grammar is reported
 as an unsupported prerequisite in validation output; it is skipped when trying
-to apply the rules.
+to apply the rules. Requirements that exist in the handbook that are known to be
+unsupported include:
+
+ - Must be enrollmed in program 9999; Admission to program 9999.
+ - Enrolment in a ABCD major
+ - Must have completed at least XX UoC in program 9999; completed at least XX UoC of School of XYZ courses; completed at least XX UoC of ABCD (prefix) courses
+ - Must have a WAM of XX or above
+ - Only single and double degree School of XYZ students
+ - This course is by application only
+ - Enrolled in the final term of the program
+ - Minimum mark of XX in ABCD1234
+ - Must have completed XYZ test.
+
+ Mixing these types of requirements in with an otherwise simple prerequisite expression might cause the entire field to be ignored.
+
+ (We believe that some of these maturity requirements also cannot be implemented by UNSW's own systems.)
 
 
 ## Common Commands
@@ -147,6 +166,7 @@ Plan has 1 prerequisite/corequisite violation(s):
 ```
 
 And you can then override this error:
+
 ```bash
 degree-rules \
     rules/CEICDH3707-2020-2025.json \
@@ -236,33 +256,9 @@ map-maker \
 
 Copy whichever version of this plan you like back into the spreadsheet.
 
-## How `map-maker` Works
+## Details for `map-maker`
 
-Planning is split into four stages:
-
-1. Resolve the rules file into the concrete course set to schedule.
-   - `or` and `min/from` clauses are resolved heuristically.
-   - Steering can bias branch selection.
-2. Build a baseline assignment with `greedy_place()`.
-3. Improve obvious defects with `repair_assignments()`.
-4. Explore alternatives with simulated annealing using:
-   - ruin-and-recreate moves
-   - shift moves
-   - swap moves
-
-The objective combines hard-leaning penalties and softer steering penalties, including:
-
-- offering violations (i.e. course is not actually offered)
-- prerequisite violations
-- failed required clauses
-- unplaced courses
-- overload and seasonal penalties (i.e. avoid summer/winter)
-- slot delay / compactness (i.e. prioritise graduating quickly)
-- optional post-target penalty to discourage extending beyond a chosen end period
-- course-level hints into a particular year, implicitly based on the first digit of the course code or explicitly via steering.
-- soft precedence rules for preferred course sequencing
-
-## Steering Configuration
+### Steering Configuration
 
 The optional steering file can influence plan shape without changing the rule set.
 
@@ -290,7 +286,7 @@ Interpretation:
 - negative weight: prefer that branch
 - positive weight: avoid that branch
 
-## Search Tuning Notes
+### Search Tuning Notes
 
 The most important planner controls are:
 
@@ -304,6 +300,33 @@ Practical guidance:
 - increase `--restarts` when you want more diversity
 - increase `--iterations` when each restart should search more deeply
 - reduce `--patience` when long runs stall too often
+
+## How `map-maker` Works
+
+Planning is split into four stages:
+
+1. Resolve the rules file into the concrete course set to schedule.
+   - `or` and `min/from` clauses are resolved heuristically.
+   - Steering can bias branch selection.
+2. Build a baseline assignment with `greedy_place()`.
+3. Improve obvious defects with `repair_assignments()`.
+4. Explore alternatives with simulated annealing using:
+   - ruin-and-recreate moves
+   - shift moves
+   - swap moves
+
+The objective combines hard-leaning penalties and softer steering penalties, including:
+
+- offering violations (i.e. course is not actually offered)
+- prerequisite violations
+- failed required clauses
+- unplaced courses
+- overload and seasonal penalties (i.e. avoid summer/winter)
+- slot delay / compactness (i.e. prioritise graduating quickly)
+- optional post-target penalty to discourage extending beyond a chosen end period
+- course-level hints into a particular year, implicitly based on the first digit of the course code or explicitly via steering.
+- soft precedence rules for preferred course sequencing
+
 
 ## Contributing
 
