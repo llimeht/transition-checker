@@ -349,6 +349,8 @@ def _canonicalize_prereq_text(text: str) -> str:
     canonical = text.upper()
     canonical = canonical.replace("&", " AND ")
     canonical = canonical.replace(",", " AND ")
+    canonical = canonical.replace("UNITS OF CREDIT", " UOC ")
+    canonical = canonical.replace("UNIT OF CREDITS", " UOC ")   # yes, really.
     canonical = canonical.replace(";", " ")
     canonical = canonical.replace(".", " ")
     canonical = re.sub(r"\s+", " ", canonical).strip()
@@ -539,16 +541,18 @@ def _parse_prerequisite_field(
         ``None`` when absent. ``error_message`` is populated for unsupported
         formats that cannot be parsed safely.
     """
-    trimmed = raw_text.strip()
-    cached = _PREREQ_PARSE_CACHE.get(trimmed)
+    cached = _PREREQ_PARSE_CACHE.get(raw_text)
     if cached is not None:
         return cached
 
+    trimmed = raw_text.strip()
+    trimmed = re.sub(r"^pre-?req(uisite)?s?:?\s*", "", trimmed, flags=re.IGNORECASE)
+
     result: tuple[RuleExpr | None, RuleExpr | None, str | None]
 
-    if not trimmed or trimmed in {".", "0"}:
+    if not trimmed or trimmed in {".", "0", "NONE", "NIL", "N/A"}:
         result = (None, None, None)
-        _PREREQ_PARSE_CACHE[trimmed] = result
+        _PREREQ_PARSE_CACHE[raw_text] = result
         return result
 
     prereq_text, coreq_text = _split_prerequisite_parts(trimmed)
@@ -559,14 +563,14 @@ def _parse_prerequisite_field(
     prereq_expr, prereq_error = _parse_prerequisite_expression(prereq_text)
     if prereq_error:
         result = (None, None, f"prerequisite parse error: {prereq_error}")
-        _PREREQ_PARSE_CACHE[trimmed] = result
+        _PREREQ_PARSE_CACHE[raw_text] = result
         return result
 
     if coreq_text:
         coreq_expr, coreq_error = _parse_prerequisite_expression(coreq_text)
         if coreq_error:
             result = (None, None, f"corequisite parse error: {coreq_error}")
-            _PREREQ_PARSE_CACHE[trimmed] = result
+            _PREREQ_PARSE_CACHE[raw_text] = result
             return result
         if coreq_expr is None:
             result = (
@@ -574,11 +578,11 @@ def _parse_prerequisite_field(
                 None,
                 "corequisite text exists but no course code expression was parsed",
             )
-            _PREREQ_PARSE_CACHE[trimmed] = result
+            _PREREQ_PARSE_CACHE[raw_text] = result
             return result
 
     result = (prereq_expr, coreq_expr, None)
-    _PREREQ_PARSE_CACHE[trimmed] = result
+    _PREREQ_PARSE_CACHE[raw_text] = result
     return result
 
 
