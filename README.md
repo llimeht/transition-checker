@@ -159,6 +159,8 @@ python map_maker.py \
   -v
 ```
 
+Copy whichever version of this plan you like back into the planning spreadsheet.
+
 ### Use steering hints to tune a plan
 
 ```bash
@@ -169,6 +171,32 @@ python map_maker.py \
   --output /tmp/plan.csv \
   -v
 ```
+
+### Use a partial plan as a basis for a full plan
+
+Build the partial plan (say, for up to 2027 based on previously published enrolment sequences)
+in the Excel file with the plans.
+
+Export all the plans (including the partial plan):
+
+```bash
+python mapping_checker.py \
+  --output-dir plans/CEIC/ \
+  'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
+```
+
+Complete the partial plan:
+
+```bash
+python map_maker.py \
+  --rule rules/CEICDH3707-2020-2025.json \
+  --intake "2025 T3" \
+  --steering templates/map_steering.json \
+  --output /tmp/plan.csv \
+  -v
+```
+
+Copy whichever version of this plan you like back into the spreadsheet.
 
 ## How `map_maker.py` Works
 

@@ -158,6 +158,7 @@ class CostConfig:
     used_slot_penalty: float = 40.0
     placeholder_same_period_penalty: float = 150.0
     implicit_year_hint_weight: float = 8.0
+    fixed_constraint_violation: float = 2000.0
 
 
 @dataclass
@@ -179,6 +180,28 @@ class CostDetails:
     placeholder_overlap_count: int
     slot_delay_total: int
     used_slot_count: int
+    fixed_constraint_violations: int
+
+
+@dataclass(frozen=True)
+class PartialPlanCourseRecord:
+    """One fixed course row extracted from an existing mapping-checker plan file."""
+
+    code: str
+    year: int | None
+    enrol_year: str | None
+    period: str
+    course_n: str | None
+
+
+@dataclass(frozen=True)
+class FixedConstraints:
+    """Hard placement constraints derived from a partial plan file."""
+
+    fixed_assignments: dict[str, int] = field(default_factory=lambda: {})
+    locked_slots: set[int] = field(default_factory=lambda: set())
+    allowed_codes_by_slot: dict[int, set[str]] = field(default_factory=lambda: {})
+    diagnostics: list[str] = field(default_factory=lambda: [])
 
 
 @dataclass
@@ -227,6 +250,7 @@ class PlannerCommand:
     catalogue_path: Path
     template_config_path: Path
     steering_path: Path
+    partial_plan_path: Path | None = None
     num_solutions: int = 5
     restarts: int = 10
     iterations: int = 2000
@@ -372,6 +396,134 @@ def load_templates(path: Path) -> TemplateConfig:
     return cast(TemplateConfig, raw)
 
 
+def extract_partial_plan_courses(plan_data: dict[str, Any]) -> list[PartialPlanCourseRecord]:
+    """Extract fixed course rows from an existing plan JSON document."""
+
+    courses_raw = plan_data.get("courses")
+    if not isinstance(courses_raw, list):
+        return []
+
+    extracted: list[PartialPlanCourseRecord] = []
+    for item in cast(list[object], courses_raw):
+        if not isinstance(item, dict):
+            continue
+        row = cast(dict[str, object], item)
+
+        code_raw = row.get("code")
+        if not isinstance(code_raw, str) or not code_raw.strip():
+            continue
+
+        period_raw = row.get("period")
+        if not isinstance(period_raw, str) or not period_raw.strip():
+            continue
+
+        year_raw = row.get("year")
+        year: int | None = year_raw if isinstance(year_raw, int) else None
+
+        enrol_year_raw = row.get("enrol_year")
+        enrol_year = enrol_year_raw if isinstance(enrol_year_raw, str) else None
+
+        course_n_raw = row.get("course_n")
+        course_n = course_n_raw if isinstance(course_n_raw, str) else None
+
+        extracted.append(
+            PartialPlanCourseRecord(
+                code=normalize_course_code(code_raw),
+                year=year,
+                enrol_year=enrol_year,
+                period=period_raw,
+                course_n=course_n,
+            )
+        )
+
+    return extracted
+
+
+def _resolve_partial_row_slot(
+    row: PartialPlanCourseRecord,
+    slots: list[Slot],
+) -> int | None:
+    """Resolve one partial-plan row to a unique template slot index."""
+
+    row_period = canonical_period(row.period)
+    period_matches = [slot for slot in slots if slot.canonical_period == row_period]
+    if not period_matches:
+        return None
+
+    scoped = period_matches
+    if row.year is not None:
+        year_matches = [slot for slot in scoped if slot.calendar_year == row.year]
+        if year_matches:
+            scoped = year_matches
+
+    if row.enrol_year is not None:
+        enrol_matches = [slot for slot in scoped if slot.enrol_year == row.enrol_year]
+        if enrol_matches:
+            scoped = enrol_matches
+
+    if len(scoped) == 1:
+        return scoped[0].slot_idx
+    return None
+
+
+def derive_fixed_constraints(
+    partial_plan_courses: list[PartialPlanCourseRecord],
+    slots: list[Slot],
+    required_courses: set[str] | None = None,
+) -> FixedConstraints:
+    """Build immutable course placements and locked-empty periods.
+
+    A period becomes locked when at least one fixed row exists for it. In locked
+    periods, only explicitly fixed courses can be placed; all remaining capacity
+    is treated as intentionally empty.
+    """
+
+    diagnostics: list[str] = []
+    fixed_assignments: dict[str, int] = {}
+    locked_slots: set[int] = set()
+
+    for row in partial_plan_courses:
+        slot_idx = _resolve_partial_row_slot(row, slots)
+        if slot_idx is None:
+            diagnostics.append(
+                (
+                    "partial plan row could not be matched to one template slot: "
+                    f"code={row.code}, period={row.period}, year={row.year}, enrol_year={row.enrol_year}"
+                )
+            )
+            continue
+
+        locked_slots.add(slot_idx)
+
+        if required_courses is not None and row.code not in required_courses:
+            diagnostics.append(
+                f"fixed course {row.code} is not part of selected required courses; ignoring fixed row"
+            )
+            continue
+
+        existing = fixed_assignments.get(row.code)
+        if existing is not None and existing != slot_idx:
+            diagnostics.append(
+                (
+                    f"fixed course {row.code} appears in multiple slots "
+                    f"({existing} and {slot_idx}); keeping first occurrence"
+                )
+            )
+            continue
+        fixed_assignments[row.code] = slot_idx
+
+    by_slot: dict[int, set[str]] = {}
+    for code, slot_idx in fixed_assignments.items():
+        by_slot.setdefault(slot_idx, set()).add(code)
+
+    return FixedConstraints(
+        fixed_assignments=fixed_assignments,
+        locked_slots=locked_slots,
+        allowed_codes_by_slot=by_slot,
+        diagnostics=diagnostics,
+    )
+
+
 def load_steering(path: Path) -> SteeringConfig:
     """Load optional steering configuration.
 
@@ -407,6 +559,7 @@ def load_steering(path: Path) -> SteeringConfig:
             "used_slot_penalty",
             "placeholder_same_period_penalty",
             "implicit_year_hint_weight",
+            "fixed_constraint_violation",
         ):
             value = weights_dict.get(field_name)
             if isinstance(value, (int, float)):
@@ -664,6 +817,7 @@ def feasible_slots_for_course(
     code: str,
     slots: list[Slot],
     offerings: dict[str, list[str]],
+    fixed_constraints: FixedConstraints | None = None,
 ) -> list[int]:
     """Return slot indices where the course is offered, ordered by preference."""
 
@@ -674,6 +828,21 @@ def feasible_slots_for_course(
 
     allowed = {canonical_period(period) for period in offered_periods}
     feasible_slots = [slot for slot in slots if slot.canonical_period in allowed]
+
+    if fixed_constraints is not None:
+        pinned_slot = fixed_constraints.fixed_assignments.get(code)
+        if pinned_slot is not None:
+            feasible_slots = [slot for slot in feasible_slots if slot.slot_idx == pinned_slot]
+        else:
+            feasible_slots = [
+                slot
+                for slot in feasible_slots
+                if (
+                    slot.slot_idx not in fixed_constraints.locked_slots
+                    or code in fixed_constraints.allowed_codes_by_slot.get(slot.slot_idx, set())
+                )
+            ]
+
     feasible_slots.sort(key=slot_preference_key)
     return [slot.slot_idx for slot in feasible_slots]
 
@@ -945,6 +1114,7 @@ def evaluate_plan_cost(
     rules: dict[str, Any],
     steering: SteeringConfig,
     intake: str,
+    fixed_constraints: FixedConstraints | None = None,
 ) -> CostDetails:
     """Evaluate the full planner objective for one assignment mapping.
 
@@ -1031,6 +1201,17 @@ def evaluate_plan_cost(
             soft_precedence_penalty += rule.weight
         soft_precedence_violations += 1
 
+    fixed_constraint_violations = 0
+    if fixed_constraints is not None:
+        for code, required_slot in fixed_constraints.fixed_assignments.items():
+            actual_slot = assignments.get(code)
+            if actual_slot != required_slot:
+                fixed_constraint_violations += 1
+
+        for code, slot_idx in assignments.items():
+            if slot_idx in fixed_constraints.locked_slots and code not in fixed_constraints.allowed_codes_by_slot.get(slot_idx, set()):
+                fixed_constraint_violations += 1
+
     cost = 0.0
     cost += steering.cost.offering_violation * offering_violations
     cost += steering.cost.prerequisite_violation * prereq_violations
@@ -1045,6 +1226,7 @@ def evaluate_plan_cost(
     cost += steering.cost.placeholder_same_period_penalty * placeholder_overlap_count
     cost += hint_penalty
     cost += soft_precedence_penalty
+    cost += steering.cost.fixed_constraint_violation * fixed_constraint_violations
 
     return CostDetails(
         total_cost=cost,
@@ -1062,6 +1244,7 @@ def evaluate_plan_cost(
         placeholder_overlap_count=placeholder_overlap_count,
         slot_delay_total=slot_delay_total,
         used_slot_count=used_slot_count,
+        fixed_constraint_violations=fixed_constraint_violations,
     )
 
 
@@ -1076,6 +1259,7 @@ def greedy_place(
     baseline_config: BaselineConfig,
     existing: dict[str, int] | None,
     rng: random.Random,
+    fixed_constraints: FixedConstraints | None = None,
 ) -> dict[str, int]:
     """Create one baseline plan by greedily assigning courses to slots.
 
@@ -1090,7 +1274,7 @@ def greedy_place(
 
     candidates = [code for code in required_courses if code not in assignments]
     feasible_counts = {
-        code: len(feasible_slots_for_course(code, slots, offerings))
+        code: len(feasible_slots_for_course(code, slots, offerings, fixed_constraints))
         for code in candidates
     }
 
@@ -1111,7 +1295,7 @@ def greedy_place(
 
     unplaced: list[str] = []
     for code in candidates:
-        feasible = feasible_slots_for_course(code, slots, offerings)
+        feasible = feasible_slots_for_course(code, slots, offerings, fixed_constraints)
         candidate_slots = [
             slot_idx for slot_idx in feasible if free_capacity.get(slot_idx, 0) > 0
         ]
@@ -1247,6 +1431,7 @@ def repair_assignments(
     steering: SteeringConfig,
     intake: str,
     max_iters: int = 100,
+    fixed_constraints: FixedConstraints | None = None,
 ) -> tuple[dict[str, int], CostDetails]:
     """Apply deterministic local improvements before or during annealing.
 
@@ -1256,7 +1441,21 @@ def repair_assignments(
 
     current = dict(assignments)
     current_cost = evaluate_plan_cost(
-        current, required_courses, slots, offerings, catalogue, rules, steering, intake
+        current,
+        required_courses,
+        slots,
+        offerings,
+        catalogue,
+        rules,
+        steering,
+        intake,
+        fixed_constraints,
+    )
+
+    fixed_codes: set[str] = (
+        set(fixed_constraints.fixed_assignments.keys())
+        if fixed_constraints is not None
+        else set()
     )
 
     for _ in range(max_iters):
@@ -1264,8 +1463,10 @@ def repair_assignments(
         for code in required_courses:
             if code not in current:
                 continue
+            if code in fixed_codes:
+                continue
             original_slot = current[code]
-            feasible = feasible_slots_for_course(code, slots, offerings)
+            feasible = feasible_slots_for_course(code, slots, offerings, fixed_constraints)
             best_local = current_cost
             best_slot = original_slot
             prereq_safe_slots = [
@@ -1296,6 +1497,7 @@ def repair_assignments(
                     rules,
                     steering,
                     intake,
+                    fixed_constraints,
                 )
 
                 best_tuple = (
@@ -1327,13 +1529,21 @@ def propose_shift(
     slots: list[Slot],
     offerings: dict[str, list[str]],
     rng: random.Random,
+    fixed_constraints: FixedConstraints | None = None,
 ) -> dict[str, int]:
     """Propose moving one course to another feasible offered slot."""
 
     if not assignments:
         return dict(assignments)
-    code = rng.choice(list(assignments.keys()))
-    feasible = feasible_slots_for_course(code, slots, offerings)
+    movable_codes = list(assignments.keys())
+    if fixed_constraints is not None:
+        fixed_codes = set(fixed_constraints.fixed_assignments.keys())
+        movable_codes = [code for code in movable_codes if code not in fixed_codes]
+    if not movable_codes:
+        return dict(assignments)
+
+    code = rng.choice(movable_codes)
+    feasible = feasible_slots_for_course(code, slots, offerings, fixed_constraints)
     if not feasible:
         return dict(assignments)
     target_slot = rng.choice(feasible)
@@ -1342,12 +1552,23 @@ def propose_shift(
     return trial
 
 
-def propose_swap(assignments: dict[str, int], rng: random.Random) -> dict[str, int]:
+def propose_swap(
+    assignments: dict[str, int],
+    rng: random.Random,
+    fixed_constraints: FixedConstraints | None = None,
+) -> dict[str, int]:
     """Propose swapping the slots of two already-placed courses."""
 
     if len(assignments) < 2:
         return dict(assignments)
-    a, b = rng.sample(list(assignments.keys()), 2)
+    movable_codes = list(assignments.keys())
+    if fixed_constraints is not None:
+        fixed_codes = set(fixed_constraints.fixed_assignments.keys())
+        movable_codes = [code for code in movable_codes if code not in fixed_codes]
+    if len(movable_codes) < 2:
+        return dict(assignments)
+
+    a, b = rng.sample(movable_codes, 2)
     trial = dict(assignments)
     trial[a], trial[b] = trial[b], trial[a]
     return trial
@@ -1366,14 +1587,22 @@ def propose_ruin_recreate(
     reverse_dependents: dict[str, set[str]],
     ruin_fraction: float,
     rng: random.Random,
+    fixed_constraints: FixedConstraints | None = None,
 ) -> dict[str, int]:
     """Propose a larger neighborhood move by removing and rebuilding a subset."""
 
     if not assignments:
         return dict(assignments)
 
-    count = max(1, int(len(assignments) * ruin_fraction))
-    seeds = set(rng.sample(list(assignments.keys()), min(count, len(assignments))))
+    movable_codes = list(assignments.keys())
+    if fixed_constraints is not None:
+        fixed_codes = set(fixed_constraints.fixed_assignments.keys())
+        movable_codes = [code for code in movable_codes if code not in fixed_codes]
+    if not movable_codes:
+        return dict(assignments)
+
+    count = max(1, int(len(movable_codes) * ruin_fraction))
+    seeds = set(rng.sample(movable_codes, min(count, len(movable_codes))))
     # Cascading the ruin set avoids rebuilding an assignment that would leave
     # obvious downstream prerequisite relationships broken.
     ruined = cascade_ruin_set(seeds, assignments, dependency_exprs, reverse_dependents)
@@ -1392,6 +1621,7 @@ def propose_ruin_recreate(
         baseline_config,
         kept,
         rng,
+        fixed_constraints,
     )
     return rebuilt
 
@@ -1411,12 +1641,21 @@ def anneal(
     reverse_dependents: dict[str, set[str]],
     intake: str,
     rng: random.Random,
+    fixed_constraints: FixedConstraints | None = None,
 ) -> tuple[dict[str, int], CostDetails]:
     """Run one simulated annealing search from an initial repaired baseline."""
 
     current = dict(initial)
     current_cost = evaluate_plan_cost(
-        current, required_courses, slots, offerings, catalogue, rules, steering, intake
+        current,
+        required_courses,
+        slots,
+        offerings,
+        catalogue,
+        rules,
+        steering,
+        intake,
+        fixed_constraints,
     )
     best = dict(current)
     best_cost = current_cost
@@ -1450,11 +1689,19 @@ def anneal(
                 reverse_dependents,
                 search.ruin_fraction,
                 rng,
+                fixed_constraints,
             )
         elif move_roll < 0.90:
-            proposal = propose_shift(current, required_courses, slots, offerings, rng)
+            proposal = propose_shift(
+                current,
+                required_courses,
+                slots,
+                offerings,
+                rng,
+                fixed_constraints,
+            )
         else:
-            proposal = propose_swap(current, rng)
+            proposal = propose_swap(current, rng, fixed_constraints)
 
         proposal, proposal_cost = repair_assignments(
             proposal,
@@ -1467,6 +1714,7 @@ def anneal(
             steering,
             intake,
             max_iters=8,
+            fixed_constraints=fixed_constraints,
         )
 
         delta = proposal_cost.total_cost - current_cost.total_cost
@@ -1615,6 +1863,11 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
     offerings_path = path_or_exit(command.offerings_path, "offerings file")
     catalogue_path = path_or_exit(command.catalogue_path, "catalogue file")
     template_path = path_or_exit(command.template_config_path, "template config file")
+    partial_plan_path = (
+        path_or_exit(command.partial_plan_path, "partial plan file")
+        if command.partial_plan_path is not None
+        else None
+    )
 
     rules = load_rules(rule_path)
     offerings = load_offerings(offerings_path)
@@ -1623,9 +1876,38 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
     steering = load_steering(command.steering_path)
 
     slots = build_slots(templates, command.intake)
+
+    partial_plan_courses: list[PartialPlanCourseRecord] = []
+    if partial_plan_path is not None:
+        partial_plan_raw = read_json(partial_plan_path)
+        if not isinstance(partial_plan_raw, dict):
+            raise ValueError("Partial plan file must contain an object")
+        partial_plan = cast(dict[str, Any], partial_plan_raw)
+        partial_plan_courses = extract_partial_plan_courses(partial_plan)
+        plan_intake = partial_plan.get("intake")
+        if isinstance(plan_intake, str) and plan_intake != command.intake:
+            print(
+                (
+                    f"Warning: partial plan intake '{plan_intake}' differs from requested "
+                    f"intake '{command.intake}'"
+                ),
+                file=stderr,
+            )
+
+    preselected_constraints = derive_fixed_constraints(partial_plan_courses, slots)
+    for message in preselected_constraints.diagnostics:
+        print(f"Warning: {message}", file=stderr)
+
     all_codes = sorted(catalogue.keys())
     feasible_counts = {
-        code: len(feasible_slots_for_course(code, slots, offerings))
+        code: len(
+            feasible_slots_for_course(
+                code,
+                slots,
+                offerings,
+                preselected_constraints,
+            )
+        )
         for code in all_codes
     }
     required_courses = select_required_courses(
@@ -1638,6 +1920,13 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
     dependency_exprs = dependency_map(catalogue)
     prereq_depth_by_course = prerequisite_depths(required_courses, dependency_exprs)
     reverse_dependents = find_dependents(required_courses, dependency_exprs)
+    fixed_constraints = derive_fixed_constraints(
+        partial_plan_courses,
+        slots,
+        set(required_courses),
+    )
+    for message in fixed_constraints.diagnostics:
+        print(f"Warning: {message}", file=stderr)
 
     search = SearchConfig(
         restarts=max(1, int(command.restarts)),
@@ -1664,8 +1953,9 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             prereq_depth_by_course,
             steering,
             baseline_config,
-            existing=None,
+            existing=fixed_constraints.fixed_assignments,
             rng=local_rng,
+            fixed_constraints=fixed_constraints,
         )
         baseline_cost = evaluate_plan_cost(
             baseline,
@@ -1676,6 +1966,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             rules,
             steering,
             command.intake,
+            fixed_constraints,
         )
         LOGGER.info(
             "baseline: placed=%d unplaced=%d cost=%.1f violations=offer:%d prereq:%d required:%d overload:%d",
@@ -1697,6 +1988,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             rules,
             steering,
             command.intake,
+            fixed_constraints=fixed_constraints,
         )
         LOGGER.info(
             "after repair: cost=%.1f violations=offer:%d prereq:%d required:%d overload:%d",
@@ -1721,6 +2013,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             reverse_dependents,
             command.intake,
             local_rng,
+            fixed_constraints,
         )
 
         LOGGER.info(
@@ -1756,7 +2049,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
                     f"overload={details.overload_count}, summer={details.summer_count}, winter={details.winter_count}, "
                     f"used_slots={details.used_slot_count}, delay={details.slot_delay_total}, placeholders={details.placeholder_overlap_count}, "
                     f"soft_prec={details.soft_precedence_violations}/{details.soft_precedence_penalty:.1f}, "
-                    f"hint={details.hint_penalty:.1f}"
+                    f"hint={details.hint_penalty:.1f}, fixed={details.fixed_constraint_violations}"
                 ),
                 file=stderr,
             )

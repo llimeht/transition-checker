@@ -9,9 +9,11 @@ import pytest
 
 from transitionchecker.planner_engine import (
     CourseMeta,
+    PartialPlanCourseRecord,
     SteeringConfig,
     TemplateConfig,
     build_slots,
+    derive_fixed_constraints,
     evaluate_plan_cost,
     feasible_slots_for_course,
     path_or_exit,
@@ -149,3 +151,84 @@ def test_evaluate_plan_cost_tracks_offering_and_prereq_violations() -> None:
 
     assert details.offering_violations == 0
     assert details.prereq_violations >= 1
+
+
+def test_derive_fixed_constraints_locks_period_and_allows_only_fixed_courses() -> None:
+    slots = build_slots(_template_config(), "2026 T1")
+    partial = [
+        PartialPlanCourseRecord(
+            code="TEST1001",
+            year=2026,
+            enrol_year="Year 1",
+            period="Term 1",
+            course_n="Course 1",
+        )
+    ]
+
+    constraints = derive_fixed_constraints(partial, slots, {"TEST1001", "TEST1002"})
+    offerings = {
+        "TEST1001": ["Term 1", "Term 2"],
+        "TEST1002": ["Term 1", "Term 2"],
+    }
+
+    fixed_feasible = feasible_slots_for_course("TEST1001", slots, offerings, constraints)
+    other_feasible = feasible_slots_for_course("TEST1002", slots, offerings, constraints)
+
+    assert constraints.fixed_assignments == {"TEST1001": 0}
+    assert constraints.locked_slots == {0}
+    assert fixed_feasible == [0]
+    assert other_feasible == [1]
+
+
+def test_evaluate_plan_cost_counts_fixed_constraint_violations() -> None:
+    slots = build_slots(_template_config(), "2026 T1")
+    rules = {"required": {"L1": ["TEST1001", "TEST1002"]}}
+    catalogue = {
+        "TEST1001": CourseMeta(title="A", uoc=6, prerequisites="", level="Level 1"),
+        "TEST1002": CourseMeta(title="B", uoc=6, prerequisites="", level="Level 1"),
+    }
+    offerings = {
+        "TEST1001": ["Term 1", "Term 2"],
+        "TEST1002": ["Term 1", "Term 2"],
+    }
+    steering = SteeringConfig()
+    constraints = derive_fixed_constraints(
+        [
+            PartialPlanCourseRecord(
+                code="TEST1001",
+                year=2026,
+                enrol_year="Year 1",
+                period="Term 1",
+                course_n="Course 1",
+            )
+        ],
+        slots,
+        {"TEST1001", "TEST1002"},
+    )
+
+    obeys = evaluate_plan_cost(
+        {"TEST1001": 0, "TEST1002": 1},
+        ["TEST1001", "TEST1002"],
+        slots,
+        offerings,
+        catalogue,
+        rules,
+        steering,
+        "2026 T1",
+        constraints,
+    )
+    violates = evaluate_plan_cost(
+        {"TEST1001": 1, "TEST1002": 0},
+        ["TEST1001", "TEST1002"],
+        slots,
+        offerings,
+        catalogue,
+        rules,
+        steering,
+        "2026 T1",
+        constraints,
+    )
+
+    assert obeys.fixed_constraint_violations == 0
+    assert violates.fixed_constraint_violations >= 2
+    assert violates.total_cost > obeys.total_cost

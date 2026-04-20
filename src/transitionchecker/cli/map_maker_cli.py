@@ -49,6 +49,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="templates/map_steering.json",
         help="Steering config JSON path (default: templates/map_steering.json)",
     )
+    parser.add_argument(
+        "--partial-plan",
+        help=(
+            "Optional existing mapping-checker plan JSON used as a fixed partial map. "
+            "Courses present in that plan are treated as fixed, and remaining capacity in "
+            "those periods remains empty."
+        ),
+    )
     parser.add_argument("--num-solutions", type=int, default=5, help="Top K solutions")
     parser.add_argument(
         "--restarts", type=int, default=10, help="Independent SA restarts"
@@ -94,6 +102,7 @@ def main() -> int:
         catalogue_path=Path(args.catalogue),
         template_config_path=Path(args.template_config),
         steering_path=Path(args.steering),
+        partial_plan_path=Path(args.partial_plan) if args.partial_plan else None,
         num_solutions=args.num_solutions,
         restarts=args.restarts,
         iterations=args.iterations,

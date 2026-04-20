@@ -23,6 +23,7 @@ def test_parse_args_defaults() -> None:
     assert args.catalogue == "plans/catalogue.json"
     assert args.template_config == "templates/template_configs.json"
     assert args.steering == "templates/map_steering.json"
+    assert args.partial_plan is None
     assert args.num_solutions == 5
     assert args.restarts == 10
     assert args.iterations == 2000
@@ -38,6 +39,7 @@ def test_main_builds_command_and_returns_runner_code(
         catalogue="plans/catalogue.json",
         template_config="templates/template_configs.json",
         steering="templates/map_steering.json",
+        partial_plan="plans/test_partial_plan.json",
         num_solutions=3,
         restarts=4,
         iterations=50,
@@ -70,6 +72,7 @@ def test_main_builds_command_and_returns_runner_code(
     assert cmd.seed == 99
     assert cmd.output_path == Path("out.csv")
     assert cmd.verbose == 2
+    assert cmd.partial_plan_path == Path("plans/test_partial_plan.json")
 
 
 def test_main_returns_1_when_runner_raises(
@@ -82,6 +85,7 @@ def test_main_returns_1_when_runner_raises(
         catalogue="plans/catalogue.json",
         template_config="templates/template_configs.json",
         steering="templates/map_steering.json",
+        partial_plan=None,
         num_solutions=1,
         restarts=1,
         iterations=1,
