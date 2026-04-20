@@ -97,8 +97,8 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         description="Download UNSW handbook course pages and extract course data to CSV.",
         epilog=(
             "Examples:\n"
-            "  python3 import_handbook.py --year 2026 --career undergraduate BIOC2101 CHEM1011\n"
-            "  python3 import_handbook.py --year 2026 --career postgraduate CEIC8201 --output plans/handbook.csv"
+            "  import-handbook --year 2026 --career undergraduate BIOC2101 CHEM1011\n"
+            "  import-handbook --year 2026 --career postgraduate CEIC8201 --output plans/handbook.csv"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

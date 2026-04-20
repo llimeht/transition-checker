@@ -277,10 +277,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Extract catalogue and intake templates from an Excel mapping workbook.",
         epilog=(
             "Examples:\n"
-            '  python3 extract_template.py "plans/CEIC/CEIC Program Sequence Mapping.xlsx"\n'
-            '  python3 extract_template.py "plans/CEIC/CEIC Program Sequence Mapping.xlsx" '
-            '--catalogue-output "plans/catalogue.json" '
-            '--template-output "templates/template_configs.json"'
+            "  extract-template 'plans/CEIC/CEIC Program Sequence Mapping.xlsx'\n"
+            "  extract-template 'plans/CEIC/CEIC Program Sequence Mapping.xlsx' "
+            "--catalogue-output plans/catalogue.json "
+            "--template-output templates/template_configs.json"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

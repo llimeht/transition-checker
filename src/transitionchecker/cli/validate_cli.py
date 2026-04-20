@@ -58,7 +58,8 @@ def _build_cli_parser() -> argparse.ArgumentParser:
             "against rules, prerequisites, and offerings."
         ),
         epilog=(
-            "Example: validate plans/CEIC/'CEIC Program Sequence Mapping.xlsx'\n"
+            "Example: \n\n"
+            "  plan-validate 'plans/CEIC/CEIC Program Sequence Mapping.xlsx'\n\n"
             "By default, outputs are written beside the Excel file."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,

@@ -281,8 +281,8 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Examples:\n"
-            "  offering_checker.py plans/CEIC/CEICAH3707_2026_T1.json\n"
-            "  offering_checker.py plan.json --offerings plans/offerings.json --result-json"
+            "  offering-checker plans/CEIC/CEICAH3707_2026_T1.json\n"
+            "  offering-checker plan.json --offerings plans/offerings.json --result-json"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

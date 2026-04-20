@@ -13,8 +13,8 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         description="Validate degree rules JSON and optionally validate a plan against them.",
         epilog=(
             "Examples:\n"
-            "  degree_rules.py rules/CEICAH3707.json -v\n"
-            "  degree_rules.py rules/CEICAH3707.json --plan plans/CEIC/CEICAH3707_2026_T1.json"
+            "  degree-rules rules/CEICAH3707.json -v\n"
+            "  degree-rules rules/CEICAH3707.json --plan plans/CEIC/CEICAH3707_2026_T1.json"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

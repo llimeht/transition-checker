@@ -28,8 +28,8 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Examples:\n"
-            "  python3 cfcc_summary.py plans/CEIC --year 2026 --period T3\n"
-            "  python3 cfcc_summary.py plans/CEIC --year 2026 --period T3 --output /tmp/cfcc.csv"
+            "  cfcc-summary plans/CEIC --year 2026 --period T3\n"
+            "  cfcc-summary plans/CEIC --year 2026 --period T3 --output /tmp/cfcc.csv"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

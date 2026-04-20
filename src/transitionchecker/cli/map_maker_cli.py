@@ -16,8 +16,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            '  python3 map_maker.py --rule rules/CEICDH3707-2026-2029.json --intake "2026 T1"\n'
-            '  python3 map_maker.py --rule rules/CEICDH3707-2026-2029.json --intake "2026 T1" \\\n'
+            '  map-maker --rule rules/CEICDH3707-2026-2029.json --intake "2026 T1"\n'
+            '  map-maker --rule rules/CEICDH3707-2026-2029.json --intake "2026 T1" \\\n'
             "      --num-solutions 5 --output plans/CEIC/CEICDH3707_2026_T1_options.csv --verbose\n\n"
             "Notes:\n"
             "  --restarts controls how many independent baselines are explored.\n"

@@ -317,7 +317,8 @@ def _build_cli_parser() -> argparse.ArgumentParser:
             "Excel workbook."
         ),
         epilog=(
-            "Example: mapping_checker.py 'plans/CEIC/CEIC Program Sequence Mapping.xlsx' "
+            "Example: \n"
+             "  mapping-checker 'plans/CEIC/CEIC Program Sequence Mapping.xlsx' "
             "--output-dir plans/CEIC -v"
         ),
     )
