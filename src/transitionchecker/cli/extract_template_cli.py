@@ -31,19 +31,36 @@ from transitionchecker.core import period_rank
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 
+METATDATA_SHEET_NAMES = {
+    "Cat",
+    "Catalogue",
+    "Course Catalogue",
+    "Courses Master",
+}
+
+TEMPLATE_SHEET_RE = re.compile(r"(\{.*\}|template|ABCDEF)", re.IGNORECASE)
+
+
 def _period_rank(period: str) -> int:
     rank = period_rank(period, fallback=999)
     assert rank is not None
     return rank
 
 
+def _find_catalogue_sheet(workbook: Any) -> Any:
+    for name in METATDATA_SHEET_NAMES:
+        if name in workbook:
+            return workbook[name]
+    raise ValueError(f"No catalogue sheet found. Expected one of: {', '.join(METATDATA_SHEET_NAMES)}")
+
+
 def extract_catalogue(workbook: Any) -> dict[str, dict[str, Any]]:
-    """Extract course catalogue from Cat sheet."""
+    """Extract course catalogue from Catalogue sheet."""
     print("\n=== EXTRACTING CATALOGUE ===")
     try:
-        cat_sheet = workbook["Cat"]
+        cat_sheet = _find_catalogue_sheet(workbook)
     except KeyError:
-        raise ValueError("Cat sheet not found in workbook")
+        raise ValueError("Catalogue sheet not found in workbook")
 
     catalogue: dict[str, dict[str, Any]] = {}
     for row in cat_sheet.iter_rows(min_row=2, values_only=False):
@@ -82,9 +99,9 @@ def iter_program_sheets(
 ) -> Generator[tuple[str, pd.DataFrame], None, None]:
     """Yield only program mapping sheets (skip template/internal sheets)."""
     for sheet_name, df in dfs.items():
-        if sheet_name in ("Cat", "Lookup"):
+        if sheet_name in METATDATA_SHEET_NAMES:
             continue
-        if "{" in sheet_name:
+        if TEMPLATE_SHEET_RE.match(sheet_name):
             continue
         columns = list(df.columns)
         if len(columns) >= 8:
