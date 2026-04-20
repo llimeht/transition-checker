@@ -5,17 +5,17 @@ Utilities for validating degree rules, extracting planning templates, and genera
 The repository currently has three main workflows:
 
 1. Extract and validate enrolment transition plans:
-    - Extract enrolment and transition plans from standardised Excel sheets (`mapping_checker.py`), noting the required semester offerings of courses.
-    - Validate that plans will satisfy the degree rules and prerequisite rules with `degree_rules.py`
-    - Validate that plans will satisfy actual intended semester offerings with `offering_checker.py`
+    - Extract enrolment and transition plans from standardised Excel sheets (`mapping-checker`), noting the required semester offerings of courses.
+    - Validate that plans will satisfy the degree rules and prerequisite rules with `degree-rules`
+    - Validate that plans will satisfy actual intended semester offerings with `offering-checker`
 
 2. Generate candidate enrolment transition plans based on degree rules and intended offerings.
-    - Extract teaching period template and catalogue of offerings from standardised Excel sheets (`extract_template.py`) 
-    - Generate candidate enrolment plans with `map_maker.py`
+    - Extract teaching period template and catalogue of offerings from standardised Excel sheets (`extract-template`)
+    - Generate candidate enrolment plans with `map-maker`
 
-3. Analyse enrolment sequences to plan clash free course combinations (CFCCs) to provide timetabling information (`cfcc_summary.py`)
+3. Analyse enrolment sequences to plan clash free course combinations (CFCCs) to provide timetabling information (`cfcc-summary`)
 
-4. Obtain handbook metadata for courses from handbook.unsw.edu.au into CSV (`import_handbook.py`)
+4. Obtain handbook metadata for courses from handbook.unsw.edu.au into CSV (`import-handbook`)
 
 ## Requirements
 
@@ -24,7 +24,7 @@ The repository currently has three main workflows:
 - Input files:
     - standardised transition planning spreadsheet (e.g. `CEIC Program Sequence Mapping.xlsx`, fetched from canonical location on SharePoint); stored in `plans/<SCHOOL>/`
     - degree rules for each specialisation of interest (e.g. `CEICAH3707.json`); stored in `rules/`; where rules have changed over time, they can be `<stream><program>-<YYYY>-<YYYY>.json` like `CEICDH3707-2020-2025.json` to indicate the start and stop handbook years.
-    - offerings list in `plans/offerings.json`; this can be copied from the output of `mapping_checker.py` with some manual checking that the courses are indeed in the intended teaching periods. Use `add_offerings.py` to maintain and normalise this file.
+    - offerings list in `plans/offerings.json`; this can be copied from the output of `mapping-checker` with some manual checking that the courses are indeed in the intended teaching periods. Use `add-offerings` to maintain and normalise this file.
 )
 
 Example setup:
@@ -34,6 +34,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
+
+All the examples below assume that the package has been installed; the entry point scripts are used.
+
 
 ### Prerequisite Field Syntax
 
@@ -75,7 +78,7 @@ to apply the rules.
 This will extract all plans from the spreadsheet and validate them against degree rules, prereq rules, and intended teaching period offerings.
 
 ```bash
-python validate.py 'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
+plan-validate 'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
 ```
 
 
@@ -84,7 +87,7 @@ python validate.py 'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
 Validate that every course in a plan is offered in its scheduled teaching period.
 
 ```bash
-python offering_checker.py plans/CEIC/CEICDH3707_2026_T1.json
+offering-checker plans/CEIC/CEICDH3707_2026_T1.json
 ```
 
 Looks for `offerings.json` in the same directory as the plan first; falls back to `plans/offerings.json` in the repository root. Exit code is 0 if no violations, 1 if violations found, 2 on input errors.
@@ -92,7 +95,7 @@ Looks for `offerings.json` in the same directory as the plan first; falls back t
 Use `--result-json` to get machine-readable output:
 
 ```bash
-python offering_checker.py plans/CEIC/CEICDH3707_2026_T1.json --result-json
+offering-checker plans/CEIC/CEICDH3707_2026_T1.json --result-json
 ```
 
 ### Manage the offerings list
@@ -100,13 +103,13 @@ python offering_checker.py plans/CEIC/CEICDH3707_2026_T1.json --result-json
 Canonicalise and sort an offerings file in place:
 
 ```bash
-python add_offerings.py plans/offerings.json --validate
+add-offerings plans/offerings.json --validate
 ```
 
 Add one or more teaching periods for a course (creates the entry if absent):
 
 ```bash
-python add_offerings.py plans/offerings.json --schedule CEIC2001 T1 T3
+add-offerings plans/offerings.json --schedule CEIC2001 T1 T3
 ```
 
 Periods are accepted in any alias form (`T1`, `term 1`, `S2`, `semester 2`, `summer`, etc.) and stored in canonical display form. Unknown period names cause a non-zero exit and leave the file unchanged.
@@ -116,7 +119,7 @@ Periods are accepted in any alias form (`T1`, `term 1`, `S2`, `semester 2`, `sum
 Validate the degree rules to make sure they appear to be syntactically correct.
 
 ```bash
-python degree_rules.py rules/CEICDH3707-2026-2029.json -v
+degree-rules rules/CEICDH3707-2026-2029.json -v
 ```
 
 ### Validate a plan against rules and prerequisites
@@ -124,7 +127,7 @@ python degree_rules.py rules/CEICDH3707-2026-2029.json -v
 Validate an enrolment plan, checking the academic rules for the program+stream, and the prerequisite sequencing.
 
 ```bash
-python degree_rules.py \
+degree-rules \
   rules/CEICDH3707-2026-2029.json \
   --plan plans/CEIC/CEICDH3707_2026_T1.json
 ```
@@ -135,7 +138,7 @@ This downloads handbook course pages, extracts the embedded JSON payload from ea
 page, and writes a CSV with career, title, offering terms, and prerequisite text.
 
 ```bash
-python import_handbook.py \
+import-handbook \
   --year 2026 \
   --career undergraduate \
   BIOC2101 CHEM1011 \
@@ -149,7 +152,7 @@ Use `--career undergraduate` or `--career postgraduate` depending on which handb
 ### Generate one or more plan options
 
 ```bash
-python map_maker.py \
+map-maker \
   --rule rules/CEICDH3707-2026-2029.json \
   --intake "2026 T1" \
   --num-solutions 4 \
@@ -164,7 +167,7 @@ Copy whichever version of this plan you like back into the planning spreadsheet.
 ### Use steering hints to tune a plan
 
 ```bash
-python map_maker.py \
+map-maker \
   --rule rules/CEICDH3707-2026-2029.json \
   --intake "2026 T1" \
   --steering templates/map_steering.json \
@@ -180,7 +183,7 @@ in the Excel file with the plans.
 Export all the plans (including the partial plan):
 
 ```bash
-python mapping_checker.py \
+mapping-checker \
   --output-dir plans/CEIC/ \
   'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
 ```
@@ -188,7 +191,7 @@ python mapping_checker.py \
 Complete the partial plan:
 
 ```bash
-python map_maker.py \
+map-maker \
   --rule rules/CEICDH3707-2020-2025.json \
   --intake "2025 T3" \
   --steering templates/map_steering.json \
@@ -198,7 +201,7 @@ python map_maker.py \
 
 Copy whichever version of this plan you like back into the spreadsheet.
 
-## How `map_maker.py` Works
+## How `map-maker` Works
 
 Planning is split into four stages:
 
