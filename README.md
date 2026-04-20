@@ -81,7 +81,6 @@ This will extract all plans from the spreadsheet and validate them against degre
 plan-validate 'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
 ```
 
-
 ### Check offering violations for a single plan
 
 Validate that every course in a plan is offered in its scheduled teaching period.
@@ -131,6 +130,37 @@ degree-rules \
   rules/CEICDH3707-2026-2029.json \
   --plan plans/CEIC/CEICDH3707_2026_T1.json
 ```
+
+If rule violations are found, these can be overridden so that the plan is ACCEPTED
+(which is treated as a PASS) for all subsequent tests.
+Each rule violation that is reported by `degree-rules` (or via `plan-validate`) includes
+a short-code that describes the rule. For example:
+
+```bash
+degree-rules \
+    rules/CEICDH3707-2020-2025.json \
+    --plan plans/CEIC/CEICDH3707_2025_T2.json
+```
+```
+Plan has 1 prerequisite/corequisite violation(s):
+  [prereq:CEICEEEE>96uoc] CEICEEEE (2027 Term 1): missing 96uoc (has 84uoc)
+```
+
+And you can then override this error:
+```bash
+degree-rules \
+    rules/CEICDH3707-2020-2025.json \
+    --plan plans/CEIC/CEICDH3707_2025_T2.json \
+    --add-override 'prereq:CEICEEEE>96uoc'
+```
+```
+Plan status: ACCEPTED
+```
+
+The overrides are stored next to the plans (with `degree_rules_overrides` included in the filename)
+and can be edited/deleted by hand.
+The above override was created in `plans/CEIC/CEICDH3707_2025_T2.degree_rules_overrides.json`
+
 
 ### Obtain course metadata from the UNSW Handbook
 
