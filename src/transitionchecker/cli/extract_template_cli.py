@@ -5,9 +5,9 @@ Outputs:
 - templates/template_configs.json
 
 Usage:
-    python3 extract_template.py "plans/CEIC/CEIC Program Sequence Mapping.xlsx"
+    extract-template "plans/CEIC/CEIC Program Sequence Mapping.xlsx"
 
-    python3 extract_template.py "plans/CEIC/CEIC Program Sequence Mapping.xlsx" \
+    extract-template "plans/CEIC/CEIC Program Sequence Mapping.xlsx" \
         --catalogue-output "plans/catalogue.json" \
         --template-output "templates/template_configs.json"
 """
@@ -297,6 +297,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--template-output",
         default="templates/template_configs.json",
         help="Output path for template JSON (default: templates/template_configs.json)",
+    )
+    parser.add_argument(
+        "--lint",
+        action="store_true",
+        help="Lint all prerequisites in the extracted catalogue and report unrecognized ones."
+    )
+    parser.add_argument(
+        "--lint-output",
+        default=None,
+        help="Output file for lint results (CSV or JSON, determined by file extension)."
     )
     return parser.parse_args(argv)
 
