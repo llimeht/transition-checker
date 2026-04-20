@@ -52,6 +52,7 @@ from transitionchecker.core import (
     is_placeholder_course as _is_placeholder_course,
     looks_like_course as _looks_like_course,
     normalize_course_code as _normalize_course_code,
+    period_rank as _period_rank,
 )
 
 
@@ -159,6 +160,7 @@ class CostConfig:
     placeholder_same_period_penalty: float = 150.0
     implicit_year_hint_weight: float = 8.0
     fixed_constraint_violation: float = 2000.0
+    post_target_period_penalty: float = 1000.0
 
 
 @dataclass
@@ -181,6 +183,7 @@ class CostDetails:
     slot_delay_total: int
     used_slot_count: int
     fixed_constraint_violations: int
+    post_target_period_count: int
 
 
 @dataclass(frozen=True)
@@ -250,6 +253,7 @@ class PlannerCommand:
     catalogue_path: Path
     template_config_path: Path
     steering_path: Path
+    target_end: str | None = None
     partial_plan_path: Path | None = None
     num_solutions: int = 5
     restarts: int = 10
@@ -274,6 +278,10 @@ def canonical_period(period: str) -> str:
     """Canonicalize period aliases so offerings/templates compare consistently."""
 
     return _canonical_period(period)
+
+
+def period_rank(period: str, fallback: int | None = 999) -> int | None:
+    return _period_rank(period, fallback)
 
 
 def is_nonstandard_period(period: str) -> bool:
@@ -560,6 +568,7 @@ def load_steering(path: Path) -> SteeringConfig:
             "placeholder_same_period_penalty",
             "implicit_year_hint_weight",
             "fixed_constraint_violation",
+            "post_target_period_penalty",
         ):
             value = weights_dict.get(field_name)
             if isinstance(value, (int, float)):
@@ -642,13 +651,9 @@ def build_slots(templates: TemplateConfig, intake: str) -> list[Slot]:
     """Expand one intake template into an ordered list of concrete slots."""
 
     intakes = templates["intakes"]
-    if intake not in intakes:
-        available = ", ".join(sorted(intakes.keys()))
-        raise ValueError(
-            f"Intake '{intake}' not found in template config. Available: {available}"
-        )
 
-    intake_cfg = intakes[intake]
+    intake_key = resolve_intake_key(intakes, intake)
+    intake_cfg = intakes[intake_key]
     years = intake_cfg["years"]
 
     slots: list[Slot] = []
@@ -677,6 +682,159 @@ def build_slots(templates: TemplateConfig, intake: str) -> list[Slot]:
         raise ValueError(f"Intake '{intake}' does not contain any schedulable slots")
 
     return slots
+
+
+def parse_year_period_value(value: str, *, label: str) -> tuple[int, str]:
+    """Parse a value in YYYY period form and canonicalize its period.
+
+    Examples: "2028 S1", "2027 Term 3", "2026 t1".
+    """
+
+    parts = value.strip().split()
+    if len(parts) < 2:
+        raise ValueError(
+            f"{label} '{value}' is invalid. Expected format: 'YYYY pp' (e.g., '2028 S1')."
+        )
+
+    year_str = parts[0]
+    period_str = " ".join(parts[1:])
+
+    try:
+        year = int(year_str)
+    except ValueError as exc:
+        raise ValueError(
+            f"{label} year '{year_str}' is not a valid integer. Expected format: 'YYYY pp'."
+        ) from exc
+
+    return year, canonical_period(period_str)
+
+
+def _compact_period_label(canonical: str) -> str:
+    mapping = {
+        "term 1": "T1",
+        "term 2": "T2",
+        "term 3": "T3",
+        "semester 1": "S1",
+        "semester 2": "S2",
+        "summer term": "Summer",
+        "winter term": "Winter",
+    }
+    return mapping.get(canonical, canonical.title())
+
+
+def _format_year_period(year: int, canonical: str) -> str:
+    return f"{year} {_compact_period_label(canonical)}"
+
+
+def _available_intake_labels(intakes: dict[str, IntakeTemplate]) -> str:
+    labels: list[str] = []
+    for key in intakes:
+        try:
+            year, canonical = parse_year_period_value(key, label="Intake")
+        except ValueError:
+            labels.append(key)
+            continue
+        labels.append(_format_year_period(year, canonical))
+    return ", ".join(sorted(set(labels)))
+
+
+def resolve_intake_key(intakes: dict[str, IntakeTemplate], intake: str) -> str:
+    """Resolve user intake input to a concrete template key.
+
+    Supports normalized "YYYY pp" aliases (e.g., "2026 t1" -> "2026 Term 1").
+    """
+
+    if intake in intakes:
+        return intake
+
+    try:
+        requested_year_period = parse_year_period_value(intake, label="Intake")
+    except ValueError:
+        available = _available_intake_labels(intakes)
+        raise ValueError(
+            f"Intake '{intake}' not found in template config. Available: {available}"
+        )
+
+    matches: list[str] = []
+    for key in intakes:
+        try:
+            key_year_period = parse_year_period_value(key, label="Intake")
+        except ValueError:
+            continue
+        if key_year_period == requested_year_period:
+            matches.append(key)
+
+    if len(matches) == 1:
+        return matches[0]
+
+    available = _available_intake_labels(intakes)
+    if len(matches) > 1:
+        raise ValueError(
+            (
+                f"Intake '{intake}' is ambiguous after normalization. "
+                f"Available: {available}"
+            )
+        )
+    raise ValueError(
+        f"Intake '{intake}' not found in template config. Available: {available}"
+    )
+
+
+def _available_target_labels(slots: list[Slot]) -> str:
+    unique_targets = sorted(
+        {(slot.calendar_year, slot.canonical_period) for slot in slots},
+        key=lambda item: (item[0], period_rank(item[1], fallback=999) or 999, item[1]),
+    )
+    return ", ".join(_format_year_period(year, canonical) for year, canonical in unique_targets)
+
+
+def resolve_target_end_slot(slots: list[Slot], target_end: str) -> int:
+    """Resolve target end intake-style value to exact slot index.
+
+    Args:
+        slots: All slots in the expanded intake template.
+        target_end: Intake-style string like '2028 S1' (YYYY period).
+
+    Returns:
+        Exact slot_idx matching the specified calendar year and canonical period.
+
+    Raises:
+        ValueError: If target_end format is invalid or no matching slot exists.
+    """
+    try:
+        target_year, canonical_target = parse_year_period_value(
+            target_end, label="Target end"
+        )
+    except ValueError as exc:
+        available = _available_target_labels(slots)
+        raise ValueError(
+            (
+                f"{exc} "
+                f"Available targets: {available}"
+            )
+        ) from exc
+
+    matching = [
+        slot
+        for slot in slots
+        if slot.calendar_year == target_year and slot.canonical_period == canonical_target
+    ]
+
+    if not matching:
+        available = _available_target_labels(slots)
+        raise ValueError(
+            (
+                f"Target end '{target_end}' does not exist in intake template. "
+                f"Available targets: {available}"
+            )
+        )
+
+    if len(matching) > 1:
+        raise ValueError(
+            f"Target end '{target_end}' matched multiple slots; this should not occur."
+        )
+
+    return matching[0].slot_idx
 
 
 def extract_expr_courses(expr: RuleExpr) -> set[str]:
@@ -1115,6 +1273,7 @@ def evaluate_plan_cost(
     steering: SteeringConfig,
     intake: str,
     fixed_constraints: FixedConstraints | None = None,
+    target_end_slot_idx: int | None = None,
 ) -> CostDetails:
     """Evaluate the full planner objective for one assignment mapping.
 
@@ -1152,6 +1311,11 @@ def evaluate_plan_cost(
     uoc_by_slot: list[int] = []
     slot_delay_total = sum(slot_idx + 1 for slot_idx in assignments.values())
     used_slot_count = len(by_slot_counts)
+    post_target_period_count = 0
+    if target_end_slot_idx is not None:
+        post_target_period_count = sum(
+            1 for slot_idx in assignments.values() if slot_idx > target_end_slot_idx
+        )
     for slot in slots:
         count = by_slot_counts.get(slot.slot_idx, 0)
         if count > slot.max_slots:
@@ -1227,6 +1391,7 @@ def evaluate_plan_cost(
     cost += hint_penalty
     cost += soft_precedence_penalty
     cost += steering.cost.fixed_constraint_violation * fixed_constraint_violations
+    cost += steering.cost.post_target_period_penalty * post_target_period_count
 
     return CostDetails(
         total_cost=cost,
@@ -1245,6 +1410,7 @@ def evaluate_plan_cost(
         slot_delay_total=slot_delay_total,
         used_slot_count=used_slot_count,
         fixed_constraint_violations=fixed_constraint_violations,
+        post_target_period_count=post_target_period_count,
     )
 
 
@@ -1432,6 +1598,7 @@ def repair_assignments(
     intake: str,
     max_iters: int = 100,
     fixed_constraints: FixedConstraints | None = None,
+    target_end_slot_idx: int | None = None,
 ) -> tuple[dict[str, int], CostDetails]:
     """Apply deterministic local improvements before or during annealing.
 
@@ -1450,6 +1617,7 @@ def repair_assignments(
         steering,
         intake,
         fixed_constraints,
+        target_end_slot_idx,
     )
 
     fixed_codes: set[str] = (
@@ -1498,6 +1666,7 @@ def repair_assignments(
                     steering,
                     intake,
                     fixed_constraints,
+                    target_end_slot_idx,
                 )
 
                 best_tuple = (
@@ -1642,6 +1811,7 @@ def anneal(
     intake: str,
     rng: random.Random,
     fixed_constraints: FixedConstraints | None = None,
+    target_end_slot_idx: int | None = None,
 ) -> tuple[dict[str, int], CostDetails]:
     """Run one simulated annealing search from an initial repaired baseline."""
 
@@ -1656,6 +1826,7 @@ def anneal(
         steering,
         intake,
         fixed_constraints,
+        target_end_slot_idx,
     )
     best = dict(current)
     best_cost = current_cost
@@ -1715,6 +1886,7 @@ def anneal(
             intake,
             max_iters=8,
             fixed_constraints=fixed_constraints,
+            target_end_slot_idx=target_end_slot_idx,
         )
 
         delta = proposal_cost.total_cost - current_cost.total_cost
@@ -1898,6 +2070,18 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
     for message in preselected_constraints.diagnostics:
         print(f"Warning: {message}", file=stderr)
 
+    target_end_slot_idx: int | None = None
+    if command.target_end is not None:
+        target_end_slot_idx = resolve_target_end_slot(slots, command.target_end)
+        target_slot = slots[target_end_slot_idx]
+        LOGGER.info(
+            "target end '%s' resolved to slot %d (%s %s)",
+            command.target_end,
+            target_end_slot_idx,
+            target_slot.calendar_year,
+            target_slot.period,
+        )
+
     all_codes = sorted(catalogue.keys())
     feasible_counts = {
         code: len(
@@ -1967,6 +2151,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             steering,
             command.intake,
             fixed_constraints,
+            target_end_slot_idx,
         )
         LOGGER.info(
             "baseline: placed=%d unplaced=%d cost=%.1f violations=offer:%d prereq:%d required:%d overload:%d",
@@ -1989,6 +2174,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             steering,
             command.intake,
             fixed_constraints=fixed_constraints,
+            target_end_slot_idx=target_end_slot_idx,
         )
         LOGGER.info(
             "after repair: cost=%.1f violations=offer:%d prereq:%d required:%d overload:%d",
@@ -2014,6 +2200,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             command.intake,
             local_rng,
             fixed_constraints,
+            target_end_slot_idx,
         )
 
         LOGGER.info(
@@ -2048,6 +2235,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
                     f"required={details.required_failures}, unplaced={details.unplaced_count}, "
                     f"overload={details.overload_count}, summer={details.summer_count}, winter={details.winter_count}, "
                     f"used_slots={details.used_slot_count}, delay={details.slot_delay_total}, placeholders={details.placeholder_overlap_count}, "
+                    f"post_target={details.post_target_period_count}, "
                     f"soft_prec={details.soft_precedence_violations}/{details.soft_precedence_penalty:.1f}, "
                     f"hint={details.hint_penalty:.1f}, fixed={details.fixed_constraint_violations}"
                 ),

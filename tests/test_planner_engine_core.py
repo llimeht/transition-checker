@@ -8,6 +8,7 @@ from typing import cast
 import pytest
 
 from transitionchecker.planner_engine import (
+    CostConfig,
     CourseMeta,
     PartialPlanCourseRecord,
     SteeringConfig,
@@ -17,6 +18,7 @@ from transitionchecker.planner_engine import (
     evaluate_plan_cost,
     feasible_slots_for_course,
     path_or_exit,
+    resolve_target_end_slot,
     select_required_courses,
 )
 
@@ -55,6 +57,73 @@ def test_build_slots_happy_path() -> None:
 def test_build_slots_raises_for_unknown_intake() -> None:
     with pytest.raises(ValueError, match="Intake"):
         build_slots(_template_config(), "2099 T1")
+
+
+def test_build_slots_accepts_normalized_intake_alias() -> None:
+    template = cast(
+        TemplateConfig,
+        {
+            "intakes": {
+                "2026 Term 1": {
+                    "years": [
+                        {
+                            "enrol_year": "Year 1",
+                            "year": 2026,
+                            "periods": [
+                                {"period": "Term 1", "max_slots": 2},
+                            ],
+                        }
+                    ]
+                }
+            }
+        },
+    )
+    slots = build_slots(template, "2026 t1")
+    assert len(slots) == 1
+    assert slots[0].canonical_period == "term 1"
+
+
+def test_resolve_target_end_slot_matches_exact_year_and_period() -> None:
+    template = cast(
+        TemplateConfig,
+        {
+            "intakes": {
+                "2026 T1": {
+                    "years": [
+                        {
+                            "enrol_year": "Year 1",
+                            "year": 2026,
+                            "periods": [
+                                {"period": "Term 1", "max_slots": 2},
+                                {"period": "Term 2", "max_slots": 2},
+                            ],
+                        },
+                        {
+                            "enrol_year": "Year 2",
+                            "year": 2027,
+                            "periods": [
+                                {"period": "Term 1", "max_slots": 2},
+                                {"period": "Term 2", "max_slots": 2},
+                            ],
+                        },
+                    ]
+                }
+            }
+        },
+    )
+    slots = build_slots(template, "2026 T1")
+    # With intake format "YYYY period", exact match on both year and period.
+    resolved = resolve_target_end_slot(slots, "2027 Term 1")
+    # 2027 Term 1 should be slot 2 (after 2026 T1=0, 2026 T2=1)
+    assert resolved == 2
+    assert slots[resolved].calendar_year == 2027
+    assert slots[resolved].canonical_period == "term 1"
+
+
+def test_resolve_target_end_slot_reports_compact_available_targets() -> None:
+    slots = build_slots(_template_config(), "2026 T1")
+    with pytest.raises(ValueError, match="Available targets: 2026 T1, 2026 T2"):
+        resolve_target_end_slot(slots, "2026 S1")
 
 
 def test_feasible_slots_for_course_matches_canonical_periods() -> None:
@@ -232,3 +301,43 @@ def test_evaluate_plan_cost_counts_fixed_constraint_violations() -> None:
     assert obeys.fixed_constraint_violations == 0
     assert violates.fixed_constraint_violations >= 2
     assert violates.total_cost > obeys.total_cost
+
+
+def test_evaluate_plan_cost_penalizes_courses_after_target_end_slot() -> None:
+    slots = build_slots(_template_config(), "2026 T1")
+    rules = {"required": {"L1": ["TEST1001", "TEST1002"]}}
+    catalogue = {
+        "TEST1001": CourseMeta(title="A", uoc=6, prerequisites="", level="Level 1"),
+        "TEST1002": CourseMeta(title="B", uoc=6, prerequisites="", level="Level 1"),
+    }
+    offerings = {
+        "TEST1001": ["Term 1"],
+        "TEST1002": ["Term 2"],
+    }
+    steering = SteeringConfig(cost=CostConfig(post_target_period_penalty=120.0))
+
+    without_target = evaluate_plan_cost(
+        {"TEST1001": 0, "TEST1002": 1},
+        ["TEST1001", "TEST1002"],
+        slots,
+        offerings,
+        catalogue,
+        rules,
+        steering,
+        "2026 T1",
+    )
+    with_target = evaluate_plan_cost(
+        {"TEST1001": 0, "TEST1002": 1},
+        ["TEST1001", "TEST1002"],
+        slots,
+        offerings,
+        catalogue,
+        rules,
+        steering,
+        "2026 T1",
+        target_end_slot_idx=0,
+    )
+
+    assert without_target.post_target_period_count == 0
+    assert with_target.post_target_period_count == 1
+    assert abs(with_target.total_cost - (without_target.total_cost + 120.0)) < 1e-9

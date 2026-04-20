@@ -28,7 +28,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--rule", required=True, help="Path to degree rules JSON")
-    parser.add_argument("--intake", required=True, help="Intake key in template config")
+    parser.add_argument(
+        "--intake",
+        required=True,
+        help=(
+            "Intake in normalized YYYY pp format (e.g., '2026 T1'). "
+            "Aliases like '2026 term 1' are accepted and normalized."
+        ),
+    )
     parser.add_argument(
         "--offerings",
         default="plans/offerings.json",
@@ -48,6 +55,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--steering",
         default="templates/map_steering.json",
         help="Steering config JSON path (default: templates/map_steering.json)",
+    )
+    parser.add_argument(
+        "--target-end",
+        help=(
+            "Optional boundary in the same syntax as --intake (e.g. '2028 S1') to discourage finishing after. "
+            "Courses scheduled after the specified slot incur steering weight post_target_period_penalty. "
+            "Format: YYYY period (e.g., 2028 S1, 2027 T3). "
+            "If the target does not exist in the intake template, planner will exit with available valid targets."
+        ),
     )
     parser.add_argument(
         "--partial-plan",
@@ -102,6 +118,7 @@ def main() -> int:
         catalogue_path=Path(args.catalogue),
         template_config_path=Path(args.template_config),
         steering_path=Path(args.steering),
+        target_end=args.target_end,
         partial_plan_path=Path(args.partial_plan) if args.partial_plan else None,
         num_solutions=args.num_solutions,
         restarts=args.restarts,

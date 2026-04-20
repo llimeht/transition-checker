@@ -201,9 +201,14 @@ map-maker \
   --rule rules/CEICDH3707-2026-2029.json \
   --intake "2026 T1" \
   --steering templates/map_steering.json \
+  --target-end "2029 S2" \
   --output /tmp/plan.csv \
   -v
 ```
+
+`--target-end` is optional. Accepts a full intake-style boundary (e.g., `"2027 Term 3"` or `"2028 S1"`).
+The planner applies the steering weight `post_target_period_penalty` to each course scheduled
+*after* that exact slot.
 
 ### Use a partial plan as a basis for a full plan
 
@@ -253,6 +258,7 @@ The objective combines hard-leaning penalties and softer steering penalties, inc
 - unplaced courses
 - overload and seasonal penalties (i.e. avoid summer/winter)
 - slot delay / compactness (i.e. prioritise graduating quickly)
+- optional post-target penalty to discourage extending beyond a chosen end period
 - course-level hints into a particular year, implicitly based on the first digit of the course code or explicitly via steering.
 - soft precedence rules for preferred course sequencing
 

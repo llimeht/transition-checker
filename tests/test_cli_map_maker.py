@@ -23,6 +23,7 @@ def test_parse_args_defaults() -> None:
     assert args.catalogue == "plans/catalogue.json"
     assert args.template_config == "templates/template_configs.json"
     assert args.steering == "templates/map_steering.json"
+    assert args.target_end is None
     assert args.partial_plan is None
     assert args.num_solutions == 5
     assert args.restarts == 4
@@ -39,6 +40,7 @@ def test_main_builds_command_and_returns_runner_code(
         catalogue="plans/catalogue.json",
         template_config="templates/template_configs.json",
         steering="templates/map_steering.json",
+        target_end="2026 Term 2",
         partial_plan="plans/test_partial_plan.json",
         num_solutions=3,
         restarts=4,
@@ -64,6 +66,7 @@ def test_main_builds_command_and_returns_runner_code(
     cmd = captured["command"]
     assert cmd.rule_path == Path("rules/r.json")
     assert cmd.intake == "2026 T1"
+    assert cmd.target_end == "2026 Term 2"
     assert cmd.num_solutions == 3
     assert cmd.restarts == 4
     assert cmd.iterations == 50
@@ -85,6 +88,7 @@ def test_main_returns_1_when_runner_raises(
         catalogue="plans/catalogue.json",
         template_config="templates/template_configs.json",
         steering="templates/map_steering.json",
+        target_end=None,
         partial_plan=None,
         num_solutions=1,
         restarts=1,
