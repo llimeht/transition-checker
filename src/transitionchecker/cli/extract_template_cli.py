@@ -35,12 +35,12 @@ from transitionchecker.prereq_engine import (
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 
-METATDATA_SHEET_NAMES = {
+METATDATA_SHEET_NAMES = [
     "Cat",
     "Catalogue",
     "Course Catalogue",
     "Courses Master",
-}
+]
 
 TEMPLATE_SHEET_RE = re.compile(r"(\{.*\}|template|ABCDEF)", re.IGNORECASE)
 
