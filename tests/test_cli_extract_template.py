@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, cast
 
 import openpyxl
 import pytest
@@ -11,21 +12,58 @@ import pytest
 from transitionchecker.cli import extract_template_cli
 
 
+BASELINE_UPDATE_HINT = (
+    "If you need to update the baseline, run: "
+    "extract-template --catalogue-input tests/data/catalogue_prereq_fixture.json "
+    "--prereq-snapshot-output tests/data/prereq-snapshot-baseline.json"
+)
+
+
 class _FakeWorkbook:
     def close(self) -> None:
         return None
 
 
-def test_parse_args_requires_xlsx() -> None:
-    with pytest.raises(SystemExit) as exc:
-        extract_template_cli.parse_args([])
-    assert exc.value.code == 2
+def test_main_requires_xlsx_or_catalogue_input() -> None:
+    code = extract_template_cli.main([])
+    assert code == 1
 
 
 def test_main_returns_1_for_missing_workbook(tmp_path: Path) -> None:
     missing = tmp_path / "missing.xlsx"
     code = extract_template_cli.main([str(missing)])
     assert code == 1
+
+
+def test_main_writes_snapshot_from_catalogue_input(tmp_path: Path) -> None:
+    catalogue_in = tmp_path / "catalogue.json"
+    snapshot_out = tmp_path / "snapshot.json"
+    catalogue_in.write_text(
+        json.dumps(
+            {
+                "CEIC1000": {
+                    "title": "Course",
+                    "uoc": 6,
+                    "prerequisites": ".",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    code = extract_template_cli.main(
+        [
+            "--catalogue-input",
+            str(catalogue_in),
+            "--prereq-snapshot-output",
+            str(snapshot_out),
+        ]
+    )
+
+    assert code == 0
+    snapshot = json.loads(snapshot_out.read_text(encoding="utf-8"))
+    assert snapshot["meta"]["source_catalogue"] == str(catalogue_in)
+    assert snapshot["entries"][0]["course_code"] == "CEIC1000"
 
 
 def test_main_success_writes_outputs(
@@ -36,8 +74,6 @@ def test_main_success_writes_outputs(
 
     catalogue_out = tmp_path / "plans" / "catalogue.json"
     template_out = tmp_path / "templates" / "template_configs.json"
-
-    from typing import Any
 
     def fake_load_workbook(_path: Path, data_only: bool = True) -> _FakeWorkbook:
         return _FakeWorkbook()
@@ -83,3 +119,86 @@ def test_main_success_writes_outputs(
     templates = json.loads(template_out.read_text(encoding="utf-8"))
     assert "TEST1001" in catalogue
     assert "intakes" in templates
+
+
+def test_build_prerequisite_snapshot_is_deterministic() -> None:
+    data_dir = Path(__file__).parent / "data"
+    catalogue = json.loads(
+        (data_dir / "catalogue_prereq_fixture.json").read_text(encoding="utf-8")
+    )
+
+    snapshot = extract_template_cli.build_prerequisite_snapshot(
+        catalogue,
+        source_catalogue="tests/data/catalogue_prereq_fixture.json",
+        generated_at="2026-04-21T00:00:00+00:00",
+    )
+    expected = json.loads(
+        (data_dir / "prereq-snapshot-baseline.json").read_text(encoding="utf-8")
+    )
+
+    # generated_at and source_catalogue are intentionally variable and should
+    # not block semantic snapshot regression checks.
+    for obj in (snapshot, expected):
+        meta_obj = obj.get("meta", {})
+        if isinstance(meta_obj, dict):
+            meta = cast(dict[str, Any], meta_obj)
+            meta.pop("generated_at", None)
+            meta.pop("source_catalogue", None)
+
+    assert snapshot == expected, BASELINE_UPDATE_HINT
+
+
+def test_main_writes_prereq_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+
+    snapshot_out = tmp_path / "snapshots" / "prereq-snapshot.json"
+    catalogue_out = tmp_path / "plans" / "catalogue.json"
+    template_out = tmp_path / "templates" / "template_configs.json"
+
+    def fake_load_workbook(_path: Path, data_only: bool = True) -> _FakeWorkbook:
+        return _FakeWorkbook()
+
+    def fake_extract_catalogue(_wb: Any) -> dict[str, dict[str, Any]]:
+        return {
+            "TEST1001": {
+                "title": "T",
+                "uoc": 6,
+                "prerequisites": "CEIC1000",
+            }
+        }
+
+    def fake_extract_template_configs(_path: Path) -> dict[str, Any]:
+        return {"intakes": {"2026 T1": {"years": []}}}
+
+    monkeypatch.setattr(openpyxl, "load_workbook", fake_load_workbook)
+    monkeypatch.setattr(
+        extract_template_cli, "extract_catalogue", fake_extract_catalogue
+    )
+    monkeypatch.setattr(
+        extract_template_cli,
+        "extract_template_configs_from_workbook",
+        fake_extract_template_configs,
+    )
+
+    code = extract_template_cli.main(
+        [
+            str(excel),
+            "--catalogue-output",
+            str(catalogue_out),
+            "--template-output",
+            str(template_out),
+            "--prereq-snapshot-output",
+            str(snapshot_out),
+        ]
+    )
+
+    assert code == 0
+    assert snapshot_out.is_file()
+    snapshot = json.loads(snapshot_out.read_text(encoding="utf-8"))
+    assert snapshot["meta"]["entry_count"] == 1
+    assert snapshot["entries"][0]["course_code"] == "TEST1001"
+    assert snapshot["entries"][0]["prereq_expr"] == "CEIC1000"
+    assert snapshot["entries"][0]["error"] is None

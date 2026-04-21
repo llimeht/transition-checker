@@ -1,0 +1,184 @@
+{
+  "meta": {
+    "generated_at": "2026-04-21T00:40:40+00:00",
+    "source_catalogue": "tests/data/catalogue_prereq_fixture.json",
+    "entry_count": 10,
+    "parser": "parse_prerequisite_field"
+  },
+  "entries": [
+    {
+      "course_code": "CEIC2005",
+      "prerequisites": "CEIC2000. PLUS Corequisite: (MATH2089 or MATH2301)",
+      "prereq_expr": "CEIC2000",
+      "coreq_expr": {
+        "or": [
+          "MATH2089",
+          "MATH2301"
+        ]
+      },
+      "error": null
+    },
+    {
+      "course_code": "CEIC4001",
+      "prerequisites": "(CEIC3004 and CEIC3005) or (CEIC3005 and CEIC3006) or (CEIC3006 and CEIC3004)",
+      "prereq_expr": {
+        "or": [
+          {
+            "and": [
+              "CEIC3004",
+              "CEIC3005"
+            ]
+          },
+          {
+            "and": [
+              "CEIC3005",
+              "CEIC3006"
+            ]
+          },
+          {
+            "and": [
+              "CEIC3006",
+              "CEIC3004"
+            ]
+          }
+        ]
+      },
+      "coreq_expr": null,
+      "error": null
+    },
+    {
+      "course_code": "CEIC4007",
+      "prerequisites": "CEIC8104 OR CHEM2031 OR CEIC3005 OR DESN2000 OR FOOD3010. PLUS completion of 114 UoC",
+      "prereq_expr": {
+        "and": [
+          {
+            "or": [
+              "CEIC8104",
+              "CHEM2031",
+              "CEIC3005",
+              "DESN2000",
+              "FOOD3010"
+            ]
+          },
+          {
+            "uoc": 114
+          }
+        ]
+      },
+      "coreq_expr": null,
+      "error": null
+    },
+    {
+      "course_code": "CEIC8102",
+      "prerequisites": "CEIC3006 or ELEC3114 or CEICKSRPL48",
+      "prereq_expr": {
+        "or": [
+          "CEIC3006",
+          "ELEC3114",
+          "CEICKSRPL48"
+        ]
+      },
+      "coreq_expr": null,
+      "error": null
+    },
+    {
+      "course_code": "CHEM2041",
+      "prerequisites": "(CHEM1011 or CHEM1031 or CHEM1051 or CHEM1811 or DPST1031) and (CHEM1021 or CHEM1041 or CHEM1061 or CHEM1821 or DPST1032) and (MATH1031 or MATH1041 or MATH1131 or MATH1141 or MATH1151 or MATH1231 or MATH1241 or MATH1251 or DPST1013 or DPST1014).",
+      "prereq_expr": {
+        "and": [
+          {
+            "or": [
+              "CHEM1011",
+              "CHEM1031",
+              "CHEM1051",
+              "CHEM1811",
+              "DPST1031"
+            ]
+          },
+          {
+            "or": [
+              "CHEM1021",
+              "CHEM1041",
+              "CHEM1061",
+              "CHEM1821",
+              "DPST1032"
+            ]
+          },
+          {
+            "or": [
+              "MATH1031",
+              "MATH1041",
+              "MATH1131",
+              "MATH1141",
+              "MATH1151",
+              "MATH1231",
+              "MATH1241",
+              "MATH1251",
+              "DPST1013",
+              "DPST1014"
+            ]
+          }
+        ]
+      },
+      "coreq_expr": null,
+      "error": null
+    },
+    {
+      "course_code": "CHEN6701",
+      "prerequisites": "CEIC2005 AND (CEIC3004 OR CHEM2021)",
+      "prereq_expr": {
+        "and": [
+          "CEIC2005",
+          {
+            "or": [
+              "CEIC3004",
+              "CHEM2021"
+            ]
+          }
+        ]
+      },
+      "coreq_expr": null,
+      "error": null
+    },
+    {
+      "course_code": "FOOD3020",
+      "prerequisites": "FOOD1120, CHEM2921. PLUS Corequisite: FOOD3010",
+      "prereq_expr": {
+        "and": [
+          "FOOD1120",
+          "CHEM2921"
+        ]
+      },
+      "coreq_expr": "FOOD3010",
+      "error": null
+    },
+    {
+      "course_code": "TEST1000",
+      "prerequisites": ".",
+      "prereq_expr": null,
+      "coreq_expr": null,
+      "error": null
+    },
+    {
+      "course_code": "TEST2000",
+      "prerequisites": "TEST1000 PLUS COMPLETION OF 48 UOC",
+      "prereq_expr": {
+        "and": [
+          "TEST1000",
+          {
+            "uoc": 48
+          }
+        ]
+      },
+      "coreq_expr": null,
+      "error": null
+    },
+    {
+      "course_code": "TEST3000",
+      "prerequisites": "TEST2000 COREQ: TEST1131",
+      "prereq_expr": "TEST2000",
+      "coreq_expr": "TEST1131",
+      "error": null
+    }
+  ]
+}

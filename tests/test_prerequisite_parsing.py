@@ -27,10 +27,28 @@ class TestEmptyAndTrivialInputs:
         prereq, coreq, err = parse("   ")
         assert prereq is None and coreq is None and err is None
 
+    def test_na_only(self) -> None:
+        prereq, coreq, err = parse("N/A")
+        assert prereq is None and coreq is None and err is None
+
 
 class TestSingleCourse:
     def test_single_course(self) -> None:
         prereq, coreq, err = parse("CEIC1000")
+        assert err is None
+        assert prereq == "CEIC1000"
+        assert coreq is None
+
+    def test_single_course_prereq(self) -> None:
+        prereq, coreq, err = parse("Prerequisite: CEIC1000")
+        assert err is None
+        assert prereq == "CEIC1000"
+        assert coreq is None
+        prereq, coreq, err = parse("Prerequisites: CEIC1000")
+        assert err is None
+        assert prereq == "CEIC1000"
+        assert coreq is None
+        prereq, coreq, err = parse("Pre-requisite: CEIC1000")
         assert err is None
         assert prereq == "CEIC1000"
         assert coreq is None
@@ -44,6 +62,9 @@ class TestSingleCourse:
 class TestAndOrExpressions:
     def test_and_two_courses(self) -> None:
         prereq, _, err = parse("CEIC1000 AND CEIC1001")
+        assert err is None
+        assert prereq == {"and": ["CEIC1000", "CEIC1001"]}
+        prereq, _, err = parse("Prerequisites: CEIC1000 AND CEIC1001")
         assert err is None
         assert prereq == {"and": ["CEIC1000", "CEIC1001"]}
 
@@ -89,6 +110,11 @@ class TestUocTokens:
         prereq, _, err = parse("48 UOC AND CEIC2001")
         assert err is None
         assert prereq == {"and": [{"uoc": 48}, "CEIC2001"]}
+
+    def test_course_and_uoc(self) -> None:
+        prereq, _, err = parse("CEIC2001 AND 48 UOC")
+        assert err is None
+        assert prereq == {"and": ["CEIC2001", {"uoc": 48}]}
 
 
 class TestPlus:

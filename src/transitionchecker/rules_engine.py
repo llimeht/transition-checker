@@ -550,7 +550,7 @@ def _parse_prerequisite_field(
 
     result: tuple[RuleExpr | None, RuleExpr | None, str | None]
 
-    if not trimmed or trimmed in {".", "0", "NONE", "NIL", "N/A"}:
+    if not trimmed or trimmed in {".", "0", "NONE", "NIL", "N/A", "?"}:
         result = (None, None, None)
         _PREREQ_PARSE_CACHE[raw_text] = result
         return result

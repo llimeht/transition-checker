@@ -1,0 +1,52 @@
+{
+  "CEIC2005": {
+    "title": "Chemical Reaction Engineering",
+    "uoc": 6,
+    "prerequisites": "CEIC2000. PLUS Corequisite: (MATH2089 or MATH2301)"
+  },
+  "CEIC4001": {
+    "title": "Process Design Project",
+    "uoc": 12,
+    "prerequisites": "(CEIC3004 and CEIC3005) or (CEIC3005 and CEIC3006) or (CEIC3006 and CEIC3004)"
+  },
+  "CEIC4007": {
+    "title": "Product Design Project Thesis A",
+    "uoc": 6,
+    "prerequisites": "CEIC8104 OR CHEM2031 OR CEIC3005 OR DESN2000 OR FOOD3010. PLUS completion of 114 UoC"
+  },
+  "CEIC8102": {
+    "title": "Advanced Process Control",
+    "uoc": 6,
+    "prerequisites": "CEIC3006 or ELEC3114 or CEICKSRPL48"
+  },
+  "CHEM2041": {
+    "title": "Analytical Chemistry: Essential Methods",
+    "uoc": 6,
+    "prerequisites": "(CHEM1011 or CHEM1031 or CHEM1051 or CHEM1811 or DPST1031) and (CHEM1021 or CHEM1041 or CHEM1061 or CHEM1821 or DPST1032) and (MATH1031 or MATH1041 or MATH1131 or MATH1141 or MATH1151 or MATH1231 or MATH1241 or MATH1251 or DPST1013 or DPST1014)."
+  },
+  "CHEN6701": {
+    "title": "Advanced Reaction Engineering",
+    "uoc": 6,
+    "prerequisites": "CEIC2005 AND (CEIC3004 OR CHEM2021)"
+  },
+  "FOOD3020": {
+    "title": "Food Properties and Functions Laboratory",
+    "uoc": 6,
+    "prerequisites": "FOOD1120, CHEM2921. PLUS Corequisite: FOOD3010"
+  },
+  "TEST1000": {
+    "title": "Introductory Course",
+    "uoc": 6,
+    "prerequisites": "."
+  },
+  "TEST2000": {
+    "title": "Intermediate Course",
+    "uoc": 6,
+    "prerequisites": "TEST1000 PLUS COMPLETION OF 48 UOC"
+  },
+  "TEST3000": {
+    "title": "Advanced Course",
+    "uoc": 6,
+    "prerequisites": "TEST2000 COREQ: TEST1131"
+  }
+}

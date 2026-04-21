@@ -15,12 +15,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import math
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any, Generator, cast
 import warnings
 
 import openpyxl
@@ -39,6 +40,57 @@ METATDATA_SHEET_NAMES = {
 }
 
 TEMPLATE_SHEET_RE = re.compile(r"(\{.*\}|template|ABCDEF)", re.IGNORECASE)
+
+
+def build_prerequisite_snapshot(
+    catalogue: dict[str, dict[str, Any]],
+    source_catalogue: str,
+    generated_at: str | None = None,
+) -> dict[str, Any]:
+    """Build deterministic prerequisite parse snapshot data from catalogue rows."""
+    from transitionchecker.rules_engine import parse_prerequisite_field
+
+    timestamp = generated_at
+    if timestamp is None:
+        timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+    entries: list[dict[str, Any]] = []
+    for course_code in sorted(catalogue.keys()):
+        course = catalogue[course_code]
+        prereq = str(course.get("prerequisites", ""))
+        prereq_expr, coreq_expr, error = parse_prerequisite_field(prereq)
+        entries.append(
+            {
+                "course_code": str(course_code),
+                "prerequisites": prereq,
+                "prereq_expr": prereq_expr,
+                "coreq_expr": coreq_expr,
+                "error": error,
+            }
+        )
+
+    return {
+        "meta": {
+            "generated_at": timestamp,
+            "source_catalogue": source_catalogue,
+            "entry_count": len(entries),
+            "parser": "parse_prerequisite_field",
+        },
+        "entries": entries,
+    }
+
+
+def write_prerequisite_snapshot(
+    catalogue: dict[str, dict[str, Any]],
+    output_path: Path,
+    source_catalogue: str,
+) -> None:
+    """Write prerequisite parse snapshot JSON to disk."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot = build_prerequisite_snapshot(catalogue, source_catalogue)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(snapshot, f, indent=2)
+    print(f"Prerequisite snapshot written to {output_path}")
 
 
 def _period_rank(period: str) -> int:
@@ -343,7 +395,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "xlsx",
+        nargs="?",
         help="Path to the mapping workbook (.xlsx), for example: plans/CEIC/CEIC Program Sequence Mapping.xlsx",
+    )
+    parser.add_argument(
+        "--catalogue-input",
+        default=None,
+        help=(
+            "Existing catalogue JSON path to use as input for lint and/or "
+            "prerequisite snapshot export."
+        ),
     )
     parser.add_argument(
         "--catalogue-output",
@@ -365,35 +426,84 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Output file for lint results (CSV or JSON, determined by file extension)."
     )
+    parser.add_argument(
+        "--prereq-snapshot-output",
+        default=None,
+        help=(
+            "Write prerequisite parse snapshot JSON for the extracted catalogue; "
+            "includes raw prerequisite text and parser output per course."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    excel_path = Path(args.xlsx)
+    excel_path = Path(args.xlsx) if args.xlsx else None
     catalogue_file = Path(args.catalogue_output)
     template_file = Path(args.template_output)
     plans_dir = catalogue_file.parent
     templates_dir = template_file.parent
+    snapshot_file = Path(args.prereq_snapshot_output) if args.prereq_snapshot_output else None
+    catalogue_input = Path(args.catalogue_input) if args.catalogue_input else None
 
-    print(f"Opening workbook: {excel_path}")
-    if not excel_path.exists():
-        print(f"ERROR: Workbook not found at {excel_path}")
+    if excel_path is None and catalogue_input is None:
+        print("ERROR: Provide either xlsx workbook path or --catalogue-input.")
         return 1
 
-    plans_dir.mkdir(exist_ok=True)
-    templates_dir.mkdir(exist_ok=True)
-
-    try:
-        workbook = openpyxl.load_workbook(excel_path, data_only=True)
-        catalogue = extract_catalogue(workbook)
-        workbook.close()
-    except Exception as exc:
-        print(f"ERROR: Failed to extract catalogue: {exc}")
+    if catalogue_input is not None and not args.lint and snapshot_file is None:
+        print(
+            "ERROR: --catalogue-input requires --lint and/or --prereq-snapshot-output."
+        )
         return 1
+
+    catalogue: dict[str, dict[str, Any]]
+
+    if catalogue_input is not None:
+        if not catalogue_input.exists():
+            print(f"ERROR: Catalogue input not found at {catalogue_input}")
+            return 1
+        try:
+            with open(catalogue_input, "r", encoding="utf-8") as fh:
+                loaded = json.load(fh)
+            if not isinstance(loaded, dict):
+                raise ValueError("catalogue JSON root must be an object")
+            catalogue = cast(dict[str, dict[str, Any]], loaded)
+        except Exception as exc:
+            print(f"ERROR: Failed to read catalogue input: {exc}")
+            return 1
+    else:
+        assert excel_path is not None
+        print(f"Opening workbook: {excel_path}")
+        if not excel_path.exists():
+            print(f"ERROR: Workbook not found at {excel_path}")
+            return 1
+
+        plans_dir.mkdir(exist_ok=True)
+        templates_dir.mkdir(exist_ok=True)
+
+        try:
+            workbook = openpyxl.load_workbook(excel_path, data_only=True)
+            catalogue = extract_catalogue(workbook)
+            workbook.close()
+        except Exception as exc:
+            print(f"ERROR: Failed to extract catalogue: {exc}")
+            return 1
+
+    if snapshot_file is not None:
+        try:
+            source_catalogue = str(catalogue_input) if catalogue_input else str(catalogue_file)
+            write_prerequisite_snapshot(catalogue, snapshot_file, source_catalogue)
+        except Exception as exc:
+            print(f"ERROR: Failed to write prerequisite snapshot: {exc}")
+            return 1
 
     if args.lint:
         return lint_prerequisites(catalogue, args.lint_output)
+
+    if excel_path is None:
+        print("No workbook provided; skipping template extraction.")
+        return 0
 
     try:
         template_configs = extract_template_configs_from_workbook(excel_path)

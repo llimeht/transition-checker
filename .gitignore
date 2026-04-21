@@ -13,3 +13,4 @@ dist/
 .coverage
 build/
 coverage.json
+.~lock.*
