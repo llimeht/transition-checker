@@ -50,6 +50,12 @@ class TestEvaluateExpression:
     def test_uoc_not_satisfied(self) -> None:
         assert not evaluate_expression({"uoc": 120}, Counter(), 60)
 
+    def test_qualified_uoc_satisfied(self) -> None:
+        assert evaluate_expression({"uoc": 72}, Counter(), 120)
+
+    def test_qualified_uoc_not_satisfied(self) -> None:
+        assert not evaluate_expression({"uoc": 72}, Counter(), 60)
+
     def test_nested_and_or(self) -> None:
         # (A AND B) OR C
         expr: RuleExpr = {"or": [{"and": ["CEIC1000", "CEIC1001"]}, "CEIC1002"]}
@@ -76,6 +82,9 @@ class TestExpressionToText:
     def test_uoc(self) -> None:
         assert expression_to_text({"uoc": 120}) == "120 UOC"
 
+    def test_qualified_uoc(self) -> None:
+        assert expression_to_text({"uoc": 72}) == "72 UOC"
+
     def test_min_from_at_least(self) -> None:
         text = expression_to_text({"min": 1, "from": ["CEIC1000", "CEIC1001"]})
         assert "AT LEAST 1" in text
@@ -89,6 +98,10 @@ class TestDiagnoseExpression:
     def test_failing_leaf_mentions_course(self) -> None:
         text = diagnose_expression("CEIC1000", Counter(), 0)
         assert "CEIC1000" in text
+
+    def test_qualified_uoc_diagnosis_mentions_prefix(self) -> None:
+        text = diagnose_expression({"uoc": 72}, Counter(), 54)
+        assert "72" in text
 
     def test_passing_expression_returns_text(self) -> None:
         text = diagnose_expression("CEIC1000", Counter(["CEIC1000"]), 0)

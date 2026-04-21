@@ -87,6 +87,35 @@ class TestValidatePlanPrerequisites:
         failures, _unsupported = validate_plan_prerequisites(plan)
         assert failures == []
 
+    def test_generic_uoc_prereq_passes_with_any_prior_courses(self) -> None:
+        courses: list[dict[str, Any]] = []
+        for idx in range(12):
+            code = f"JURD7{idx:03d}" if idx % 2 == 0 else f"CEIC7{idx:03d}"
+            courses.append(
+                {
+                    "year": 2024,
+                    "period": "Term 1",
+                    "course_n": f"Course {idx + 1}",
+                    "code": code,
+                    "uoc": 6,
+                    "prerequisites": ".",
+                }
+            )
+        courses.append(
+            {
+                "year": 2024,
+                "period": "Term 2",
+                "course_n": "Course 13",
+                "code": "JURD7999",
+                "uoc": 6,
+                "prerequisites": "72 UOC of Science courses",
+            }
+        )
+
+        failures, unsupported = validate_plan_prerequisites({"courses": courses})
+        assert failures == []
+        assert unsupported == []
+
 
 class TestValidateRulesConfig:
     def test_valid_rules_accepted(self, rules_simple: dict[str, Any]) -> None:

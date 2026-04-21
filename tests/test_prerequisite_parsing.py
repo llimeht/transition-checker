@@ -116,6 +116,36 @@ class TestUocTokens:
         assert err is None
         assert prereq == {"and": ["CEIC2001", {"uoc": 48}]}
 
+    def test_qualified_uoc_expression(self) -> None:
+        prereq, _, err = parse("72 UOC of JURD courses")
+        assert err is None
+        assert prereq == {"uoc": 72}
+
+    def test_qualified_uoc_with_completion_of(self) -> None:
+        prereq, _, err = parse("Completion of 72 UOC of JURD courses")
+        assert err is None
+        assert prereq == {"uoc": 72}
+
+    def test_qualified_uoc_with_descriptive_group(self) -> None:
+        prereq, _, err = parse("48 UOC of Science courses.")
+        assert err is None
+        assert prereq == {"uoc": 48}
+
+    def test_qualified_uoc_with_trailing_completed(self) -> None:
+        prereq, _, err = parse("Prerequisite: 30UOC of Science courses completed")
+        assert err is None
+        assert prereq == {"uoc": 30}
+
+    def test_uoc_with_overall_suffix(self) -> None:
+        prereq, _, err = parse("Prerequisite: 24 units of credit overall")
+        assert err is None
+        assert prereq == {"uoc": 24}
+
+    def test_uoc_with_at_least_and_completed(self) -> None:
+        prereq, _, err = parse("At least 24 UOC completed")
+        assert err is None
+        assert prereq == {"uoc": 24}
+
 
 class TestPlus:
     def test_plus_combines_as_and(self) -> None:

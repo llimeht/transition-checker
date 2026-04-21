@@ -498,9 +498,7 @@ def validate_scheduled_prerequisites_detailed(
                 coreq_uoc = prior_uoc + group_uoc - current.uoc
 
                 if not evaluate_expression(coreq_expr, coreq_courses, coreq_uoc):
-                    diagnosis = diagnose_expression(
-                        coreq_expr, coreq_courses, coreq_uoc
-                    )
+                    diagnosis = diagnose_expression(coreq_expr, coreq_courses, coreq_uoc)
                     coreq_text = expression_to_text(coreq_expr)
                     failure_msg = f"[Corequisite] {course_label}: {coreq_text} - {diagnosis}"
                     failures.append(failure_msg)
@@ -774,6 +772,12 @@ def validate_canonical_expression(expr: RuleExpr, path: str = "<clause>") -> Non
         )
 
     keys = set(expr.keys())
+
+    if keys == {"uoc"}:
+        threshold = expr["uoc"]
+        if not isinstance(threshold, int) or threshold < 0:
+            raise RuleValidationError(f"{path}.uoc", "'uoc' must be a non-negative integer")
+        return
 
     if keys == {"min", "from"}:
         min_count = expr["min"]

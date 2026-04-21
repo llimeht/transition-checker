@@ -29,9 +29,14 @@ _PREREQ_PARSE_CACHE: dict[str, tuple[RuleExpr | None, RuleExpr | None, str | Non
 
 
 COURSE_TOKEN_RE = re.compile(r"[A-Z]{4}\d{4}")
+QUALIFIED_UOC_TOKEN_RE = re.compile(
+    r"(\d+)\s*UOC\s+OF\s+[A-Z][A-Z\s&/-]*\s+COURSES?",
+    re.IGNORECASE,
+)
 UOC_TOKEN_RE = re.compile(r"(\d+)\s*UOC", re.IGNORECASE)
 PREREQ_TOKEN_RE = re.compile(
-    r"\s*(\(|\)|AND|OR|\d+\s*UOC|[A-Z]{4}\d{4})\s*", re.IGNORECASE
+    r"\s*(\(|\)|AND|OR|\d+\s*UOC\s+OF\s+[A-Z][A-Z\s&/-]*\s+COURSES?|\d+\s*UOC|[A-Z]{4}\d{4})\s*",
+    re.IGNORECASE,
 )
 CO_REQUISITE_RE = re.compile(
     r"\b(?:CO-?REQ\w*)\b\s*:?",
@@ -112,6 +117,12 @@ def _parse_prerequisite_expression_single(
             token_idx += 1
             return token, None
 
+        qualified_uoc_match = QUALIFIED_UOC_TOKEN_RE.fullmatch(token)
+        if qualified_uoc_match:
+            token_idx += 1
+            # For now treat prefix-qualified UOC as a generic maturity threshold.
+            return {"uoc": int(qualified_uoc_match.group(1))}, None
+
         uoc_match = UOC_TOKEN_RE.fullmatch(token)
         if uoc_match:
             token_idx += 1
@@ -180,6 +191,15 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
         normalized_part = re.sub(r"(?i)\bCOMPLETION\s+OF\b", "", part).strip()
         # Drop handbook qualifier fragments like "or equivalent" that are not tokenized.
         normalized_part = re.sub(r"(?i)\b(?:OR|AND)\s+EQUIVALENT\b", "", normalized_part).strip()
+        # Treat maturity qualifiers as non-semantic for expression parsing.
+        normalized_part = re.sub(r"(?i)\bAT\s+LEAST\b", "", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)\bOVERALL\b", "", normalized_part).strip()
+        # Some catalogue rows append trailing completion qualifiers after a valid requirement.
+        normalized_part = re.sub(
+            r"(?i)\b(?:SUCCESSFULLY\s+)?COMPLETED\b\s*[,;:.+-]*$",
+            "",
+            normalized_part,
+        ).strip()
         expr, err = _parse_prerequisite_expression_single(normalized_part)
         if err:
             return None, err
