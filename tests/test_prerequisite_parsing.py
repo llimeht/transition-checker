@@ -63,6 +63,28 @@ class TestSingleCourse:
         assert err is None
         assert prereq == "JURD7152"
 
+    def test_students_should_have_completed_or_equivalent_courses(self) -> None:
+        prereq, _, err = parse(
+            "Students should have completed ACTL3142 or equivalent courses and achieved "
+            "an exemption level for that course (65 and above)."
+        )
+        assert err is None
+        assert prereq == "ACTL3142"
+
+    def test_enrolment_sentence_then_required_completed_course(self) -> None:
+        prereq, _, err = parse(
+            "Currently enrolled in program 8143 Master of Architecture or 8144 Master of "
+            "Architecture / Property and Development. Students are required to have completed "
+            "ARCH7111."
+        )
+        assert err is None
+        assert prereq == "ARCH7111"
+
+    def test_must_have_completed_single_course(self) -> None:
+        prereq, _, err = parse("Must have completed DART4101")
+        assert err is None
+        assert prereq == "DART4101"
+
 
 class TestAndOrExpressions:
     def test_and_two_courses(self) -> None:
@@ -160,6 +182,111 @@ class TestUocTokens:
         prereq, _, err = parse("Prerequisite: Completed 72 UOC")
         assert err is None
         assert prereq == {"uoc": 72}
+
+    def test_uoc_with_minimum_prefix_and_completed(self) -> None:
+        prereq, _, err = parse("Prerequisite: Minimum 48UOC completed")
+        assert err is None
+        assert prereq == {"uoc": 48}
+
+    def test_uoc_with_students_must_have_completed_and_enrolment_tail(self) -> None:
+        prereq, _, err = parse("Student must have completed 30 UoC in order to enrol.")
+        assert err is None
+        assert prereq == {"uoc": 30}
+
+    def test_uoc_with_completed_and_status_clauses(self) -> None:
+        prereq, _, err = parse(
+            "Completed at least 72 UoC and be enrolled in a Commerce Program; "
+            "be in good academic standing, and completed COMM1999"
+        )
+        assert err is None
+        assert prereq == {"and": [{"uoc": 72}, "COMM1999"]}
+
+    def test_uoc_with_students_must_have_completed_a_minimum_of(self) -> None:
+        prereq, _, err = parse("Prerequisite: Students must have completed a minimum of 48 UoC")
+        assert err is None
+        assert prereq == {"uoc": 48}
+
+    def test_course_and_minimum_uoc_completed(self) -> None:
+        prereq, _, err = parse("Prerequisite: BIOS1301 and minimum 48UOC completed.")
+        assert err is None
+        assert prereq == {"and": ["BIOS1301", {"uoc": 48}]}
+
+    def test_course_and_minimum_of_uoc_completed_to_enrol(self) -> None:
+        prereq, _, err = parse("Prerequisite: BIOS1101, Minimum of 48 UOC completed to enrol")
+        assert err is None
+        assert prereq == {"and": ["BIOS1101", {"uoc": 48}]}
+
+    def test_completed_minimum_uoc_with_parenthesized_including(self) -> None:
+        prereq, _, err = parse("Prerequisite: Completed a minimum of 108 UOC (including First Year core).")
+        assert err is None
+        assert prereq == {"uoc": 108}
+
+    def test_pre_label_minimum_uoc_and_wam(self) -> None:
+        prereq, _, err = parse("Pre: Minimum 48 UoC completed and 70 WAM")
+        assert err is None
+        assert prereq == {"uoc": 48}
+
+    def test_completion_of_uoc_and_third_year_core(self) -> None:
+        prereq, _, err = parse("Prerequisite: Completion of 126 UOC and completion of 3rd year core")
+        assert err is None
+        assert prereq == {"uoc": 126}
+
+    def test_successful_completion_of_uoc(self) -> None:
+        prereq, _, err = parse("Prerequisite: Successful completion of 96 UOC")
+        assert err is None
+        assert prereq == {"uoc": 96}
+
+    def test_successful_completion_at_least_uoc_in_program(self) -> None:
+        prereq, _, err = parse("Successful completion of at least 72 UOC in program")
+        assert err is None
+        assert prereq == {"uoc": 72}
+
+    def test_minimum_uoc_completed_at_unsw_prior_to_course(self) -> None:
+        prereq, _, err = parse("Minimum of 96UOC completed at UNSW prior to this course")
+        assert err is None
+        assert prereq == {"uoc": 96}
+
+    def test_successful_completion_and_minimum_wam(self) -> None:
+        prereq, _, err = parse("Successful completion of 96 UOC and minimum WAM 65%")
+        assert err is None
+        assert prereq == {"uoc": 96}
+
+    def test_pre_label_uoc_and_minimum_wam(self) -> None:
+        prereq, _, err = parse("Pre: 132 UOC and Minimum WAM of 80")
+        assert err is None
+        assert prereq == {"uoc": 132}
+
+    def test_uoc_in_group_wam_and_consent_required_tail(self) -> None:
+        prereq, _, err = parse(
+            "Prerequisite: 18 UOC in IEST courses and minimum WAM 65. "
+            "Consent required from Environmental Management Program Convenor."
+        )
+        assert err is None
+        assert prereq == {"uoc": 18}
+
+    def test_uoc_group_courses_without_in_of_and_school_consent_tail(self) -> None:
+        prereq, _, err = parse(
+            "Prerequisite: 24 UOC IEST courses and minimum WAM 75. School consent required."
+        )
+        assert err is None
+        assert prereq == {"uoc": 24}
+
+    def test_students_need_to_have_completed_minimum_uoc_to_undertake(self) -> None:
+        prereq, _, err = parse(
+            "Students need to have completed a minimum of 30 UoC to undertake this course."
+        )
+        assert err is None
+        assert prereq == {"uoc": 30}
+
+    def test_minimum_wam_then_completion_of_uoc(self) -> None:
+        prereq, _, err = parse("Minimum WAM of 70 and completion of 132UOC")
+        assert err is None
+        assert prereq == {"uoc": 132}
+
+    def test_uoc_overall_and_a_minimum_wam(self) -> None:
+        prereq, _, err = parse("Prerequisite: 48 units of credit overall, and a minimum WAM of 75")
+        assert err is None
+        assert prereq == {"uoc": 48}
 
 
 class TestPlus:

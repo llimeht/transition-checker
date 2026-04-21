@@ -53,6 +53,8 @@ def _canonicalize_prereq_text(text: str) -> str:
     canonical = canonical.replace("UNIT OF CREDITS", " UOC ")
     canonical = canonical.replace(";", " ")
     canonical = canonical.replace(".", " ")
+    canonical = re.sub(r"\bAND\s+AND\b", " AND ", canonical)
+    canonical = re.sub(r"\bOR\s+OR\b", " OR ", canonical)
     canonical = re.sub(r"\s+", " ", canonical).strip()
     return canonical
 
@@ -193,29 +195,104 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
             codes = COURSE_TOKEN_RE.findall(m.group(0))
             return (" AND " + " AND ".join(codes)) if codes else ""
 
-        normalized_part = re.sub(r"(?i),?\s*\bINCLUDING\b.*$", _expand_including, part).strip()
+        normalized_part = re.sub(r"(?i),?\s*\(?\s*\bINCLUDING\b.*$", _expand_including, part).strip()
         normalized_part = re.sub(
-            r"(?i)^\s*STUDENTS?\s+MUST\s+HAVE\s+(?:SUCCESSFULLY\s+)?COMPLETED\s+",
+            r"(?is)^\s*CURRENTLY\s+ENROLLED\s+IN\s+PROGRAM\b[^.]*\.\s*",
+            "",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)^\s*STUDENTS?\s+(?:MUST|SHOULD)\s+HAVE\s+(?:SUCCESSFULLY\s+)?COMPLETED\s+",
+            "",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)^\s*STUDENTS?\s+NEED\s+TO\s+HAVE\s+(?:SUCCESSFULLY\s+)?COMPLETED\s+",
+            "",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)^\s*(?:MUST|SHOULD)\s+HAVE\s+(?:SUCCESSFULLY\s+)?COMPLETED\s+",
+            "",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)^\s*STUDENTS?\s+ARE\s+REQUIRED\s+TO\s+HAVE\s+(?:SUCCESSFULLY\s+)?COMPLETED\s+",
             "",
             normalized_part,
         ).strip()
         normalized_part = re.sub(r"(?i)\bCOMPLETION\s+OF\b", "", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)^\s*SUCCESSFUL(?:LY)?\s+", "", normalized_part).strip()
+        normalized_part = re.sub(
+            r"(?i)^\s*(?:SUCCESSFULLY\s+)?COMPLETED\s+(?:AT\s+LEAST\s+)?(\d+\s*UOC)\b",
+            r"\1",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)\b(?:SUCCESSFULLY\s+)?COMPLETED\s+([A-Z]{4}\d{4})\b",
+            r"\1",
+            normalized_part,
+        ).strip()
+        # Drop handbook qualifier fragments like "or equivalent" that are not tokenized.
+        normalized_part = re.sub(r"(?i)\b(?:OR|AND)\s+EQUIVALENT(?:\s+COURSES?)?\b", "", normalized_part).strip()
+        # Normalize minimum-UOC variants.
+        normalized_part = re.sub(
+            r"(?i)\b(?:A\s+)?MINIMUM\s+OF\s+(\d+\s*UOC)\b",
+            r"\1",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)\bMINIMUM\s+(\d+\s*UOC)\b",
+            r"\1",
+            normalized_part,
+        ).strip()
         normalized_part = re.sub(
             r"(?i)^\s*(?:SUCCESSFULLY\s+)?COMPLETED\s+(\d+\s*UOC)\b",
             r"\1",
             normalized_part,
         ).strip()
-        # Drop handbook qualifier fragments like "or equivalent" that are not tokenized.
-        normalized_part = re.sub(r"(?i)\b(?:OR|AND)\s+EQUIVALENT\b", "", normalized_part).strip()
         # Normalize maturity variants like "24 UOC completed in XYZ courses".
         normalized_part = re.sub(
             r"(?i)(\d+\s*UOC)\s+COMPLETED\s+(?:IN|OF)\s+[A-Z][A-Z\s&/-]*\s+COURSES?",
             r"\1",
             normalized_part,
         ).strip()
+        normalized_part = re.sub(
+            r"(?i)(\d+\s*UOC)\s+[A-Z][A-Z\s&/-]*\s+COURSES?",
+            r"\1",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(r"(?i)(\d+\s*UOC)\s+IN\s+PROGRAM\b", r"\1", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)(\d+\s*UOC)\s+COMPLETED\b", r"\1", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)\bAT\s+UNSW\s+PRIOR\s+TO\s+THIS\s+COURSE\b", "", normalized_part).strip()
+        # Drop non-prerequisite enrolment/status clauses that often appear in prose.
+        normalized_part = re.sub(
+            r"(?i)\bAND\s+BE\s+ENROLLED\s+IN\b[^,;]*",
+            "",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(r"(?i)\bAND\s+\d+\s*WAM\b.*$", "", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)^\s*(?:A\s+)?MINIMUM\s+WAM(?:\s+OF)?\s+\d+%?\s+AND\s+", "", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)\bAND\s+(?:AND\s+)?(?:A\s+)?MINIMUM\s+WAM(?:\s+OF)?\s+\d+%?", "", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)^\s*(?:A\s+)?MINIMUM\s+WAM(?:\s+OF)?\s+\d+%?\s*[,;:.+-]*$", "", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)\bAND\s+\d+(?:ST|ND|RD|TH)\s+YEAR\s+CORE\b.*$", "", normalized_part).strip()
+        normalized_part = re.sub(
+            r"(?i)\bBE\s+IN\s+GOOD\s+ACADEMIC\s+STANDING\b",
+            "",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(r"(?i)\bIN\s+ORDER\s+TO\s+ENRO?L\b\s*[,;:.+-]*$", "", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)\bTO\s+ENRO?L\b\s*[,;:.+-]*$", "", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)\bTO\s+UNDERTAKE\s+THIS\s+COURSE\b\s*[,;:.+-]*$", "", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)\.?\s*(?:[A-Z]+\s+)?CONSENT\s+REQUIRED\b.*$", "", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)\bAND\s+AND\b", "AND", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)\bOR\s+OR\b", "OR", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)^\s*(?:AND|OR)\b\s*", "", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)\b(?:AND|OR)\s*$", "", normalized_part).strip()
         # Treat maturity qualifiers as non-semantic for expression parsing.
         normalized_part = re.sub(r"(?i)\bAT\s+LEAST\b", "", normalized_part).strip()
         normalized_part = re.sub(r"(?i)\bOVERALL\b", "", normalized_part).strip()
+        normalized_part = re.sub(r"[\s,;:.+-]+$", "", normalized_part).strip()
         # Some catalogue rows append trailing completion qualifiers after a valid requirement.
         normalized_part = re.sub(
             r"(?i)\b(?:SUCCESSFULLY\s+)?COMPLETED\b\s*[,;:.+-]*$",
@@ -225,8 +302,9 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
         completed_codes = COURSE_TOKEN_RE.findall(normalized_part)
         if (
             len(completed_codes) == 1
+            and not UOC_TOKEN_RE.search(normalized_part)
             and re.match(
-                r"(?i)^\s*(?:STUDENTS?\s+MUST\s+HAVE\s+)?(?:PREVIOUSLY\s+)?(?:SUCCESSFULLY\s+)?COMPLETED\b",
+                r"(?i)^\s*(?:(?:STUDENTS?\s+(?:MUST|SHOULD)\s+HAVE\s+)|(?:STUDENTS?\s+ARE\s+REQUIRED\s+TO\s+HAVE\s+)|(?:(?:MUST|SHOULD)\s+HAVE\s+))?(?:PREVIOUSLY\s+)?(?:SUCCESSFULLY\s+)?COMPLETED\b",
                 part,
             )
         ):
@@ -280,6 +358,7 @@ def parse_prerequisite_field(
         trimmed,
         flags=re.IGNORECASE,
     )
+    trimmed = re.sub(r"^\s*pre\s*:\s*", "", trimmed, flags=re.IGNORECASE)
     trimmed = re.sub(r"^\s*pre-?req(uisite)?s?\s*:?\s*", "", trimmed, flags=re.IGNORECASE)
     # Strip trailing punctuation and whitespace that may interfere with parsing.
     trimmed = re.sub(r"[\s,;:.+-]+$", "", trimmed)
