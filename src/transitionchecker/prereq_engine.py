@@ -30,12 +30,12 @@ _PREREQ_PARSE_CACHE: dict[str, tuple[RuleExpr | None, RuleExpr | None, str | Non
 
 COURSE_TOKEN_RE = re.compile(r"[A-Z]{4}\d{4}")
 QUALIFIED_UOC_TOKEN_RE = re.compile(
-    r"(\d+)\s*UOC\s+OF\s+[A-Z][A-Z\s&/-]*\s+COURSES?",
+    r"(\d+)\s*UOC\s+(?:OF|IN)\s+[A-Z][A-Z\s&/-]*\s+COURSES?",
     re.IGNORECASE,
 )
 UOC_TOKEN_RE = re.compile(r"(\d+)\s*UOC", re.IGNORECASE)
 PREREQ_TOKEN_RE = re.compile(
-    r"\s*(\(|\)|AND|OR|\d+\s*UOC\s+OF\s+[A-Z][A-Z\s&/-]*\s+COURSES?|\d+\s*UOC|[A-Z]{4}\d{4})\s*",
+    r"\s*(\(|\)|AND|OR|\d+\s*UOC\s+(?:OF|IN)\s+[A-Z][A-Z\s&/-]*\s+COURSES?|\d+\s*UOC|[A-Z]{4}\d{4})\s*",
     re.IGNORECASE,
 )
 CO_REQUISITE_RE = re.compile(
@@ -188,7 +188,13 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
     parsed_parts: list[RuleExpr] = []
 
     for part in plus_parts:
-        normalized_part = re.sub(r"(?i)\bCOMPLETION\s+OF\b", "", part).strip()
+        # Replace "including ..." with AND + any course codes found in that clause.
+        def _expand_including(m: re.Match) -> str:
+            codes = COURSE_TOKEN_RE.findall(m.group(0))
+            return (" AND " + " AND ".join(codes)) if codes else ""
+
+        normalized_part = re.sub(r"(?i),?\s*\bINCLUDING\b.*$", _expand_including, part).strip()
+        normalized_part = re.sub(r"(?i)\bCOMPLETION\s+OF\b", "", normalized_part).strip()
         # Drop handbook qualifier fragments like "or equivalent" that are not tokenized.
         normalized_part = re.sub(r"(?i)\b(?:OR|AND)\s+EQUIVALENT\b", "", normalized_part).strip()
         # Treat maturity qualifiers as non-semantic for expression parsing.
