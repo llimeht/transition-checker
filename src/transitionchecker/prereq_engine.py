@@ -223,7 +223,7 @@ def parse_prerequisite_field(
 
     result: tuple[RuleExpr | None, RuleExpr | None, str | None]
 
-    if not trimmed or trimmed in {".", "0", "NONE", "NIL", "N/A", "?"}:
+    if not trimmed or trimmed in {".", "0", "NONE", "NIL", "N/A", "?", "NIL PREREQUISITES", "NO PREREQUISITES"}:
         result = (None, None, None)
         _PREREQ_PARSE_CACHE[raw_text] = result
         return result
@@ -259,7 +259,7 @@ def parse_prerequisite_field(
 
 IGNORE_FAMILY_PATTERNS: dict[str, re.Pattern[str]] = {
     "program_enrolment": re.compile(
-        r"(?i)\b(enrol(?:ment|led)?\s+in|program\s+\d{3,4}|major\b|speciali[sz]ation\b)"
+        r"(?i)\b(enrol(?:ment|led)\s+in\b|program\s+\d{3,4}\b|major\b|speciali[sz]ation\b)"
     ),
     "wam_mark": re.compile(
         r"(?i)\b(wam\b|minimum\s+mark\b|\d+\+\s*wam\b|mark\s+of\s+\d+)"
@@ -273,7 +273,7 @@ IGNORE_FAMILY_PATTERNS: dict[str, re.Pattern[str]] = {
 }
 
 PARSEABLE_SIGNAL_RE = re.compile(
-    r"(?i)(\b[A-Z]{4}[A-Z0-9-]*\d[A-Z0-9-]*\b|\b\d+\s*UOC\b)"
+    r"(?i)(\b[A-Z]{4}\d{4}[A-Z0-9-]*\b|\b\d+\s*UOC\b)"
 )
 
 

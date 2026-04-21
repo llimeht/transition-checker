@@ -228,6 +228,18 @@ def test_classify_prerequisite_clause_families() -> None:
     assert classification is PrerequisiteClauseClassification.NON_IGNORABLE
     assert families == []
 
+    classification, families = classify_prerequisite_clause(
+        "Prerequisite: Enrolment in Accounting Co-op Major (ACCTB13554)"
+    )
+    assert classification is PrerequisiteClauseClassification.IGNORABLE
+    assert "program_enrolment" in families
+
+    classification, families = classify_prerequisite_clause(
+        "Students who have previously completed ACCT5906 should not enrol into this course."
+    )
+    assert classification is PrerequisiteClauseClassification.NON_IGNORABLE
+    assert families == []
+
 
 def test_lint_prerequisites_json_includes_classification(tmp_path: Path) -> None:
     catalogue = {
@@ -241,7 +253,7 @@ def test_lint_prerequisites_json_includes_classification(tmp_path: Path) -> None
     assert code == 1
     rows = json.loads(out.read_text(encoding="utf-8"))
     by_code = {row["course_code"]: row for row in rows}
-    assert by_code["A"]["classification"] == "ignorable"
+    assert by_code["A"]["classification"] == PrerequisiteClauseClassification.IGNORABLE.value
     assert "program_enrolment" in by_code["A"]["matched_families"]
-    assert by_code["B"]["classification"] == "mixed"
+    assert by_code["B"]["classification"] == PrerequisiteClauseClassification.MIXED.value
     assert "wam_mark" in by_code["B"]["matched_families"]
