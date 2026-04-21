@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Validate degree rule expressions and check plan prerequisite compliance."""
+"""Validate degree rules and schedule-aware prerequisite compliance."""
 
 import json
 import logging
@@ -12,18 +12,20 @@ from pathlib import Path
 from typing import Any, NotRequired, TextIO, TypedDict, cast
 
 from transitionchecker.core import period_rank
+from transitionchecker.prereq_engine import (
+    parse_prerequisite_field,
+)
 
 
 CourseCode = str
 RuleExpr = CourseCode | dict[str, Any]
 
 
-_PREREQ_PARSE_CACHE: dict[str, tuple[RuleExpr | None, RuleExpr | None, str | None]] = {}
 _REQUIRED_VALIDATION_CACHE: set[int] = set()
 
 
 class PlanCourseRecord(TypedDict, total=False):
-    """Subset of plan JSON course fields needed by rule/prerequisite checks."""
+    """Subset of plan JSON course fields needed for rule and schedule checks."""
 
     code: str
     year: int
@@ -63,7 +65,7 @@ class ClauseMeta(TypedDict, total=False):
 
 @dataclass(frozen=True)
 class ScheduledPlanCourse:
-    """Normalized and sortable in-plan course record used for validation."""
+    """Normalized in-plan course record used for chronological validation."""
 
     index: int
     code: str
@@ -97,6 +99,7 @@ class RulesCommand:
 
 
 _CLAUSE_META_KEY = "_required_clause_meta"
+_MISSING_UOC_ATOM_RE = re.compile(r"\d+\s*uoc", re.IGNORECASE)
 
 
 def _make_warning(
@@ -289,17 +292,6 @@ def _extract_clause_metadata(raw_config: dict[str, Any]) -> list[ValidationWarni
     return warnings
 
 
-COURSE_TOKEN_RE = re.compile(r"[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?")
-UOC_TOKEN_RE = re.compile(r"(\d+)\s*UOC", re.IGNORECASE)
-PREREQ_TOKEN_RE = re.compile(
-    r"\s*(\(|\)|AND|OR|\d+\s*UOC|[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?)\s*", re.IGNORECASE
-)
-CO_REQUISITE_RE = re.compile(
-    r"\b(?:CO-?REQ\w*)\b\s*:?",
-    re.IGNORECASE,
-)
-
-
 def _parse_int_like(value: Any, field_path: str) -> int:
     """Parse integer-like values used in plan and rules payloads.
 
@@ -344,295 +336,6 @@ def _course_rank(course_n: str) -> int:
     return int(match.group(1))
 
 
-def _canonicalize_prereq_text(text: str) -> str:
-    """Normalize prerequisite text for token-based expression parsing."""
-    canonical = text.upper()
-    canonical = canonical.replace("&", " AND ")
-    canonical = canonical.replace(",", " AND ")
-    canonical = canonical.replace("UNITS OF CREDIT", " UOC ")
-    canonical = canonical.replace("UNIT OF CREDITS", " UOC ")   # yes, really.
-    canonical = canonical.replace(";", " ")
-    canonical = canonical.replace(".", " ")
-    canonical = re.sub(r"\s+", " ", canonical).strip()
-    return canonical
-
-
-def _and_expressions(expressions: list[RuleExpr]) -> RuleExpr:
-    """Combine expressions with flattened ``and`` semantics."""
-    if len(expressions) == 1:
-        return expressions[0]
-
-    children: list[RuleExpr] = []
-    for expr in expressions:
-        if isinstance(expr, dict) and list(expr.keys()) == ["and"]:
-            children.extend(cast(list[RuleExpr], expr["and"]))
-        else:
-            children.append(expr)
-    return {"and": children}
-
-
-def _parse_prerequisite_expression_single(
-    text: str,
-) -> tuple[RuleExpr | None, str | None]:
-    """Parse one prerequisite expression segment.
-
-    Args:
-        text: Prerequisite text segment without PLUS splitting.
-
-    Returns:
-        Tuple of parsed expression and parse error message.
-    """
-    canonical = _canonicalize_prereq_text(text)
-    if not canonical:
-        return None, None
-
-    tokens: list[str] = []
-    position = 0
-    while position < len(canonical):
-        match = PREREQ_TOKEN_RE.match(canonical, position)
-        if not match:
-            snippet = canonical[position : position + 40].strip()
-            if not snippet:
-                break
-            return None, f"unrecognized token near '{snippet}'"
-        token = match.group(1).upper()
-        tokens.append(token)
-        position = match.end()
-
-    if not tokens:
-        return None, None
-
-    token_idx = 0
-
-    def parse_primary() -> tuple[RuleExpr | None, str | None]:
-        nonlocal token_idx
-        if token_idx >= len(tokens):
-            return None, "unexpected end of expression"
-
-        token = tokens[token_idx]
-        if token == "(":
-            token_idx += 1
-            inner, err = parse_or()
-            if err:
-                return None, err
-            if token_idx >= len(tokens) or tokens[token_idx] != ")":
-                return None, "missing closing ')'"
-            token_idx += 1
-            return inner, None
-
-        if COURSE_TOKEN_RE.fullmatch(token):
-            token_idx += 1
-            return token, None
-
-        uoc_match = UOC_TOKEN_RE.fullmatch(token)
-        if uoc_match:
-            token_idx += 1
-            return {"uoc": int(uoc_match.group(1))}, None
-
-        return None, f"unexpected token '{token}'"
-
-    def fold_operator(op: str, left: RuleExpr, right: RuleExpr) -> RuleExpr:
-        children: list[RuleExpr] = []
-        if isinstance(left, dict) and list(left.keys()) == [op]:
-            children.extend(cast(list[RuleExpr], left[op]))
-        else:
-            children.append(left)
-        if isinstance(right, dict) and list(right.keys()) == [op]:
-            children.extend(cast(list[RuleExpr], right[op]))
-        else:
-            children.append(right)
-        return {op: children}
-
-    def parse_and() -> tuple[RuleExpr | None, str | None]:
-        nonlocal token_idx
-        left, err = parse_primary()
-        if err:
-            return None, err
-        while token_idx < len(tokens) and tokens[token_idx] == "AND":
-            token_idx += 1
-            right, right_err = parse_primary()
-            if right_err:
-                return None, right_err
-            left = fold_operator("and", cast(RuleExpr, left), cast(RuleExpr, right))
-        return left, None
-
-    def parse_or() -> tuple[RuleExpr | None, str | None]:
-        nonlocal token_idx
-        left, err = parse_and()
-        if err:
-            return None, err
-        while token_idx < len(tokens) and tokens[token_idx] == "OR":
-            token_idx += 1
-            right, right_err = parse_and()
-            if right_err:
-                return None, right_err
-            left = fold_operator("or", cast(RuleExpr, left), cast(RuleExpr, right))
-        return left, None
-
-    expr, parse_err = parse_or()
-    if parse_err:
-        return None, parse_err
-    if token_idx != len(tokens):
-        return None, f"unexpected trailing token '{tokens[token_idx]}'"
-    return expr, None
-
-
-def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | None]:
-    """Parse prerequisite text with support for PLUS conjunctions.
-
-    Args:
-        text: Raw prerequisite text.
-
-    Returns:
-        Tuple of parsed expression and parse error message.
-    """
-    raw = text.strip()
-    if not raw:
-        return None, None
-
-    plus_parts = [
-        part.strip() for part in re.split(r"(?i)\bPLUS\b", raw) if part.strip()
-    ]
-    parsed_parts: list[RuleExpr] = []
-
-    for part in plus_parts:
-        normalized_part = re.sub(r"(?i)\bCOMPLETION\s+OF\b", "", part).strip()
-        expr, err = _parse_prerequisite_expression_single(normalized_part)
-        if err:
-            return None, err
-        if expr is not None:
-            parsed_parts.append(expr)
-
-    if not parsed_parts:
-        return None, None
-
-    return _and_expressions(parsed_parts), None
-
-
-def _split_prerequisite_parts(raw_text: str) -> tuple[str, str | None]:
-    """Split raw prerequisite text into prerequisite and corequisite sections.
-
-    Args:
-        raw_text: Original prerequisite field text.
-
-    Returns:
-        Tuple of (prerequisite_text, corequisite_text_or_none).
-    """
-    coreq_match = CO_REQUISITE_RE.search(raw_text)
-    if not coreq_match:
-        return raw_text, None
-
-    prereq_part = raw_text[: coreq_match.start()]
-    prereq_part = re.sub(r"(?i)\bPLUS\s*$", "", prereq_part).strip()
-
-    coreq_part = raw_text[coreq_match.end() :]
-    coreq_part = re.sub(r"^[\s:;,.+-]+", "", coreq_part).strip()
-
-    return prereq_part, coreq_part if coreq_part else None
-
-
-def _parse_prerequisite_field(
-    raw_text: str,
-) -> tuple[RuleExpr | None, RuleExpr | None, str | None]:
-    """Parse a plan prerequisite field into prerequisite/corequisite expressions.
-
-    Returns:
-        Tuple ``(prereq_expr, coreq_expr, error_message)`` where expressions are
-        ``None`` when absent. ``error_message`` is populated for unsupported
-        formats that cannot be parsed safely.
-    """
-    cached = _PREREQ_PARSE_CACHE.get(raw_text)
-    if cached is not None:
-        return cached
-
-    trimmed = raw_text.strip()
-    trimmed = re.sub(r"^pre-?req(uisite)?s?:?\s*", "", trimmed, flags=re.IGNORECASE)
-
-    result: tuple[RuleExpr | None, RuleExpr | None, str | None]
-
-    if not trimmed or trimmed in {".", "0", "NONE", "NIL", "N/A", "?"}:
-        result = (None, None, None)
-        _PREREQ_PARSE_CACHE[raw_text] = result
-        return result
-
-    prereq_text, coreq_text = _split_prerequisite_parts(trimmed)
-
-    prereq_expr: RuleExpr | None = None
-    coreq_expr: RuleExpr | None = None
-
-    prereq_expr, prereq_error = _parse_prerequisite_expression(prereq_text)
-    if prereq_error:
-        result = (None, None, f"prerequisite parse error: {prereq_error}")
-        _PREREQ_PARSE_CACHE[raw_text] = result
-        return result
-
-    if coreq_text:
-        coreq_expr, coreq_error = _parse_prerequisite_expression(coreq_text)
-        if coreq_error:
-            result = (None, None, f"corequisite parse error: {coreq_error}")
-            _PREREQ_PARSE_CACHE[raw_text] = result
-            return result
-        if coreq_expr is None:
-            result = (
-                None,
-                None,
-                "corequisite text exists but no course code expression was parsed",
-            )
-            _PREREQ_PARSE_CACHE[raw_text] = result
-            return result
-
-    result = (prereq_expr, coreq_expr, None)
-    _PREREQ_PARSE_CACHE[raw_text] = result
-    return result
-
-
-def parse_prerequisite_field(
-    raw_text: str,
-) -> tuple[RuleExpr | None, RuleExpr | None, str | None]:
-    """Public wrapper for parsing prerequisite/corequisite text.
-
-    The supported grammar is intentionally small and token-based:
-
-    - Course tokens: ``[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?``
-        (for example ``CEIC2001``, ``GENE-XXXX``).
-    - UOC tokens: ``<integer> UOC`` (case-insensitive).
-    - Boolean operators: ``AND`` and ``OR`` (case-insensitive), with
-        precedence ``AND`` before ``OR``.
-    - Grouping: ``(`` and ``)``.
-    - ``PLUS`` splits a field into independent segments that are combined by
-        ``AND``.
-    - The phrase ``COMPLETION OF`` is ignored when parsing each segment.
-    - ``COREQ*``/``CO-REQ*`` markers split prerequisite and corequisite parts.
-
-    Input normalization also treats ``&`` and ``,`` as ``AND``, and strips
-    ``;`` and ``.`` as separators. Empty values (including ``.``, ``0``) are
-    treated as no prerequisite.
-
-    Expressions outside this grammar are reported as unsupported by returning
-    an error message in the third tuple value.
-    """
-    return _parse_prerequisite_field(raw_text)
-
-
-def validate_scheduled_prerequisites(
-    courses: list[ScheduledPlanCourse],
-) -> tuple[list[str], list[str]]:
-    """Validate prerequisite and corequisite expressions for scheduled courses.
-
-    This is the reusable core used by ``validate_plan_prerequisites`` and can be
-    called by generators/search code that already has normalized scheduled rows.
-
-    Returns:
-        A tuple ``(failures, unsupported)`` where:
-        - ``failures`` contains unmet prerequisite/corequisite diagnostics.
-        - ``unsupported`` contains expressions that could not be parsed.
-    """
-    failures, unsupported, _findings, _warnings = validate_scheduled_prerequisites_detailed(
-        courses
-    )
-    return failures, unsupported
-
-
 def _expr_oneof_label(expr: RuleExpr) -> str:
     if not isinstance(expr, dict) or "or" not in expr:
         return "oneof"
@@ -670,11 +373,24 @@ def _collect_missing_atoms(
     return [expression_to_text(expr)]
 
 
+def validate_scheduled_prerequisites(
+    courses: list[ScheduledPlanCourse],
+) -> tuple[list[str], list[str]]:
+    """Validate prerequisite/corequisite expressions against scheduled plan order.
+
+    Courses in the same teaching period do not satisfy prerequisites for one
+    another, but they may satisfy corequisites.
+    """
+    failures, unsupported, _findings, _warnings = validate_scheduled_prerequisites_detailed(
+        courses
+    )
+    return failures, unsupported
+
+
 def validate_scheduled_prerequisites_detailed(
     courses: list[ScheduledPlanCourse],
 ) -> tuple[list[str], list[str], list[ValidationFinding], list[ValidationWarning]]:
-    """Validate prerequisites and return both legacy strings and structured findings."""
-
+    """Validate scheduled prerequisites and return diagnostics plus findings."""
     failures: list[str] = []
     unsupported: list[str] = []
     findings: list[ValidationFinding] = []
@@ -703,7 +419,7 @@ def validate_scheduled_prerequisites_detailed(
         oneof_index_by_course: dict[tuple[str, str], int] = {}
 
         for current in group_courses:
-            prereq_expr, coreq_expr, unsupported_reason = _parse_prerequisite_field(
+            prereq_expr, coreq_expr, unsupported_reason = parse_prerequisite_field(
                 current.prerequisites
             )
             course_label = f"{current.code} ({current.year} {current.period})"
@@ -765,7 +481,7 @@ def validate_scheduled_prerequisites_detailed(
                             "kind": "prereq",
                             "message": (
                                 f"{course_label}: missing {atom} (has {prior_uoc}uoc)"
-                                if UOC_TOKEN_RE.fullmatch(atom)
+                                if _MISSING_UOC_ATOM_RE.fullmatch(atom)
                                 else f"{course_label}: missing {atom}"
                             ),
                             "overrideable": True,
@@ -814,7 +530,7 @@ def validate_scheduled_prerequisites_detailed(
                                 "kind": "coreq",
                                 "message": (
                                     f"{course_label}: missing {atom} (has {coreq_uoc}uoc)"
-                                    if UOC_TOKEN_RE.fullmatch(atom)
+                                    if _MISSING_UOC_ATOM_RE.fullmatch(atom)
                                     else f"{course_label}: missing {atom}"
                                 ),
                                 "overrideable": True,
@@ -836,7 +552,8 @@ def extract_scheduled_courses(plan_data: dict[str, Any]) -> list[ScheduledPlanCo
         plan_data: Parsed plan JSON object.
 
     Returns:
-        List of normalized scheduled course records.
+        List of normalized scheduled course records sorted by year, period, and
+        within-period course order.
     """
     courses_value = plan_data.get("courses")
     if not isinstance(courses_value, list):
@@ -922,7 +639,7 @@ def validate_plan_prerequisites(
 def validate_plan_prerequisites_detailed(
     plan_data: dict[str, Any],
 ) -> tuple[list[str], list[str], list[ValidationFinding], list[ValidationWarning]]:
-    """Detailed prerequisite validation with structured findings/warnings."""
+    """Detailed schedule-aware prerequisite validation with structured output."""
 
     courses = extract_scheduled_courses(plan_data)
     return validate_scheduled_prerequisites_detailed(courses)

@@ -1,8 +1,8 @@
-"""Tests for parse_prerequisite_field in rules_engine."""
+"""Tests for parse_prerequisite_field in prereq_engine."""
 
 from __future__ import annotations
 
-from transitionchecker.rules_engine import parse_prerequisite_field
+from transitionchecker.prereq_engine import parse_prerequisite_field
 
 
 def parse(text: str) -> tuple[object | None, object | None, str | None]:

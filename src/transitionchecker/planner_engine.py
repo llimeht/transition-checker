@@ -16,10 +16,10 @@ from transitionchecker.rules_engine import (
     ScheduledPlanCourse,
     evaluate_expression,
     evaluate_required,
-    parse_prerequisite_field,
     validate_scheduled_prerequisites,
     validate_rules_config,
 )
+from transitionchecker.prereq_engine import parse_prerequisite_field
 from transitionchecker.core import (
     canonical_period as _canonical_period,
     is_nonstandard_period as _is_nonstandard_period,

@@ -15,7 +15,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
 import math
 import re
@@ -27,6 +26,10 @@ import warnings
 import openpyxl
 import pandas as pd
 from transitionchecker.core import period_rank
+from transitionchecker.prereq_engine import (
+    build_prerequisite_snapshot,
+    classify_prerequisite_clause,
+)
 
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
@@ -40,44 +43,6 @@ METATDATA_SHEET_NAMES = {
 }
 
 TEMPLATE_SHEET_RE = re.compile(r"(\{.*\}|template|ABCDEF)", re.IGNORECASE)
-
-
-def build_prerequisite_snapshot(
-    catalogue: dict[str, dict[str, Any]],
-    source_catalogue: str,
-    generated_at: str | None = None,
-) -> dict[str, Any]:
-    """Build deterministic prerequisite parse snapshot data from catalogue rows."""
-    from transitionchecker.rules_engine import parse_prerequisite_field
-
-    timestamp = generated_at
-    if timestamp is None:
-        timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-
-    entries: list[dict[str, Any]] = []
-    for course_code in sorted(catalogue.keys()):
-        course = catalogue[course_code]
-        prereq = str(course.get("prerequisites", ""))
-        prereq_expr, coreq_expr, error = parse_prerequisite_field(prereq)
-        entries.append(
-            {
-                "course_code": str(course_code),
-                "prerequisites": prereq,
-                "prereq_expr": prereq_expr,
-                "coreq_expr": coreq_expr,
-                "error": error,
-            }
-        )
-
-    return {
-        "meta": {
-            "generated_at": timestamp,
-            "source_catalogue": source_catalogue,
-            "entry_count": len(entries),
-            "parser": "parse_prerequisite_field",
-        },
-        "entries": entries,
-    }
 
 
 def write_prerequisite_snapshot(
@@ -343,23 +308,35 @@ def extract_template_configs_from_workbook(excel_path: Path) -> dict[str, Any]:
 
 def lint_prerequisites(catalogue: dict[str, dict[str, Any]], output: str | None = None) -> int:
     """Lint prerequisites in the catalogue and report unrecognized ones."""
-    from transitionchecker.rules_engine import parse_prerequisite_field
+    from transitionchecker.prereq_engine import parse_prerequisite_field
     lint_results: list[dict[str, str]] = []
     for course_code, course in catalogue.items():
         prereq = str(course.get("prerequisites", ""))
         _, _, error = parse_prerequisite_field(prereq)
         if error:
+            classification, matched_families = classify_prerequisite_clause(prereq)
             lint_results.append({
                 "course_code": str(course_code),
                 "prerequisites": prereq,
-                "error": str(error)
+                "error": str(error),
+                "classification": classification,
+                "matched_families": ",".join(matched_families),
             })
     if output:
         out_path = Path(output)
         if out_path.suffix.lower() == ".csv":
             import csv
             with open(out_path, "w", encoding="utf-8", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=["course_code", "prerequisites", "error"])
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=[
+                        "course_code",
+                        "prerequisites",
+                        "error",
+                        "classification",
+                        "matched_families",
+                    ],
+                )
                 writer.writeheader()
                 writer.writerows(lint_results)
             print(f"Lint results written to {out_path} (CSV)")
@@ -375,7 +352,10 @@ def lint_prerequisites(catalogue: dict[str, dict[str, Any]], output: str | None 
         if lint_results:
             print("\n=== LINT: Unrecognized Prerequisites ===")
             for entry in lint_results:
-                print(f"{entry['course_code']}: '{entry['prerequisites']}' -> {entry['error']}")
+                print(
+                    f"{entry['course_code']}: '{entry['prerequisites']}' -> {entry['error']} "
+                    f"[{entry['classification']}]"
+                )
         else:
             print("No unrecognized prerequisites found.")
     # Exit with nonzero code if any errors found

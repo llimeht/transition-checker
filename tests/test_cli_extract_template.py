@@ -1,4 +1,4 @@
-"""Behavior tests for extract_template CLI."""
+"""Behavior tests for extract-template CLI flows and related prereq helpers."""
 
 from __future__ import annotations
 
@@ -10,6 +10,10 @@ import openpyxl
 import pytest
 
 from transitionchecker.cli import extract_template_cli
+from transitionchecker.prereq_engine import (
+    build_prerequisite_snapshot,
+    classify_prerequisite_clause,
+)
 
 
 BASELINE_UPDATE_HINT = (
@@ -127,7 +131,7 @@ def test_build_prerequisite_snapshot_is_deterministic() -> None:
         (data_dir / "catalogue_prereq_fixture.json").read_text(encoding="utf-8")
     )
 
-    snapshot = extract_template_cli.build_prerequisite_snapshot(
+    snapshot = build_prerequisite_snapshot(
         catalogue,
         source_catalogue="tests/data/catalogue_prereq_fixture.json",
         generated_at="2026-04-21T00:00:00+00:00",
@@ -202,3 +206,41 @@ def test_main_writes_prereq_snapshot(
     assert snapshot["entries"][0]["course_code"] == "TEST1001"
     assert snapshot["entries"][0]["prereq_expr"] == "CEIC1000"
     assert snapshot["entries"][0]["error"] is None
+
+
+def test_classify_prerequisite_clause_families() -> None:
+    classification, families = classify_prerequisite_clause(
+        "Must be enrolled in program 4501"
+    )
+    assert classification == "ignorable"
+    assert "program_enrolment" in families
+
+    classification, families = classify_prerequisite_clause(
+        "(CEIC2001 OR CEIC2002) and 65+ WAM"
+    )
+    assert classification == "mixed"
+    assert "wam_mark" in families
+
+    classification, families = classify_prerequisite_clause(
+        "CEIC2001 AND CEIC2002"
+    )
+    assert classification == "non_ignorable"
+    assert families == []
+
+
+def test_lint_prerequisites_json_includes_classification(tmp_path: Path) -> None:
+    catalogue = {
+        "A": {"prerequisites": "Must be enrolled in program 4501"},
+        "B": {"prerequisites": "CEIC2001 and 65+ WAM"},
+    }
+    out = tmp_path / "lint.json"
+
+    code = extract_template_cli.lint_prerequisites(catalogue, str(out))
+
+    assert code == 1
+    rows = json.loads(out.read_text(encoding="utf-8"))
+    by_code = {row["course_code"]: row for row in rows}
+    assert by_code["A"]["classification"] == "ignorable"
+    assert "program_enrolment" in by_code["A"]["matched_families"]
+    assert by_code["B"]["classification"] == "mixed"
+    assert "wam_mark" in by_code["B"]["matched_families"]
