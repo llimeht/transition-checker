@@ -85,6 +85,13 @@ class TestSingleCourse:
         assert err is None
         assert prereq == "DART4101"
 
+    def test_pre_requisite_label_with_course_title(self) -> None:
+        prereq, _, err = parse(
+            "Pre requisite: ZEIT3750 Naval Architecture Practice, Ship Hydrostatics and Stability"
+        )
+        assert err is None
+        assert prereq == "ZEIT3750"
+
 
 class TestAndOrExpressions:
     def test_and_two_courses(self) -> None:
@@ -278,6 +285,26 @@ class TestUocTokens:
         assert err is None
         assert prereq == {"uoc": 30}
 
+    def test_uoc_and_course_with_trailing_course_title(self) -> None:
+        prereq, _, err = parse(
+            "Prerequisite: Students must have completed 60 UOC and BENV7020 Research Design."
+        )
+        assert err is None
+        assert prereq == {"and": [{"uoc": 60}, "BENV7020"]}
+
+    def test_two_courses_with_titles_and_conjunction_in_title(self) -> None:
+        prereq, _, err = parse(
+            "Prerequisites: ZSPS1111 Introduction to Information Technology and Networking, and "
+            "ZSPS1337 Introduction to Cyber Security"
+        )
+        assert err is None
+        assert prereq == {"and": ["ZSPS1111", "ZSPS1337"]}
+
+    def test_single_course_with_title_ending_in_digit(self) -> None:
+        prereq, _, err = parse("Prerequisite: ZSPS2119 Cyber Security Industry Project 1")
+        assert err is None
+        assert prereq == "ZSPS2119"
+
     def test_minimum_wam_then_completion_of_uoc(self) -> None:
         prereq, _, err = parse("Minimum WAM of 70 and completion of 132UOC")
         assert err is None
@@ -315,6 +342,21 @@ class TestCorequisiteSplit:
         # prereq section is empty
         assert prereq is None
         assert coreq == "CEIC1000"
+
+    def test_pre_or_corequisite_treated_as_coreq(self) -> None:
+        prereq, coreq, err = parse("Pre or Corequisite: MARK5700 or MARK5800")
+        assert err is None
+        assert prereq is None
+        assert coreq == {"or": ["MARK5700", "MARK5800"]}
+
+    def test_coreq_must_be_enrolled_in_courses_same_term(self) -> None:
+        prereq, coreq, err = parse(
+            "Corequisite: Student must be enrolled in JURD7161 Torts and JURD7114 "
+            "Foundations Enrichment 2 in the same term"
+        )
+        assert err is None
+        assert prereq is None
+        assert coreq == {"and": ["JURD7161", "JURD7114"]}
 
 
 class TestInvalidInputs:

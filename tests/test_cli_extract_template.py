@@ -246,7 +246,7 @@ def test_classify_prerequisite_clause_families() -> None:
 def test_lint_prerequisites_json_includes_classification(tmp_path: Path) -> None:
     catalogue = {
         "A": {"prerequisites": "Must be enrolled in program 4501"},
-        "B": {"prerequisites": "CEIC2001 and 65+ WAM"},
+        "B": {"prerequisites": "(CEIC2001 OR CEIC2002) and 65+ WAM"},
     }
     out = tmp_path / "lint.json"
 

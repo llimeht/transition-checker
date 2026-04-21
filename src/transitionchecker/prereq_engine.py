@@ -179,7 +179,22 @@ def _parse_prerequisite_expression_single(
 
 
 def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | None]:
-    """Parse prerequisite text, treating ``PLUS`` as an ``AND`` separator."""
+    """Parse prerequisite text in dark and disturbing ways
+
+    What can I say... I recommend that you don't look at this function.
+
+    The goggles will not save your eyesight.
+
+    It is a fragile tangle of regexes and heuristics that evolved organically to handle the
+    horribly messy set of real-world catalogue prerequisite text in the handbook, many of
+    which are ambiguous, malformed, or even just wrong.
+
+    It is not intended to be a robust general-purpose parser. It should be replaced with a
+    proper grammar-based parser with a decent data source.... hahahaha.
+
+    For now it serves its purpose of extracting structured expressions from the most common
+    prerequisite/corequisite formats while classifying unsupported clauses for lint triage.
+    """
     raw = text.strip()
     if not raw:
         return None, None
@@ -218,6 +233,11 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
         ).strip()
         normalized_part = re.sub(
             r"(?i)^\s*STUDENTS?\s+ARE\s+REQUIRED\s+TO\s+HAVE\s+(?:SUCCESSFULLY\s+)?COMPLETED\s+",
+            "",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)^\s*STUDENTS?\s+MUST\s+BE\s+ENROLLED\s+IN\s+",
             "",
             normalized_part,
         ).strip()
@@ -284,7 +304,18 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
         normalized_part = re.sub(r"(?i)\bIN\s+ORDER\s+TO\s+ENRO?L\b\s*[,;:.+-]*$", "", normalized_part).strip()
         normalized_part = re.sub(r"(?i)\bTO\s+ENRO?L\b\s*[,;:.+-]*$", "", normalized_part).strip()
         normalized_part = re.sub(r"(?i)\bTO\s+UNDERTAKE\s+THIS\s+COURSE\b\s*[,;:.+-]*$", "", normalized_part).strip()
+        normalized_part = re.sub(r"(?i)\bIN\s+THE\s+SAME\s+TERM\b\s*[,;:.+-]*$", "", normalized_part).strip()
         normalized_part = re.sub(r"(?i)\.?\s*(?:[A-Z]+\s+)?CONSENT\s+REQUIRED\b.*$", "", normalized_part).strip()
+        # Drop trailing course-title text after explicit course codes.
+        normalized_part = re.sub(
+            r"(?i)\b([A-Z]{4}\d{4})\b"
+            r"(?:\s+(?!(?:AND|OR|UOC)\b|[A-Z]{4}\d{4}\b)[A-Z][A-Z0-9'/-]*"
+            r"(?:\s+(?!(?:AND|OR|UOC)\b|[A-Z]{4}\d{4}\b)[A-Z0-9][A-Z0-9'/-]*|"
+            r"\s+(?:AND|OR)\s+(?!(?:[A-Z]{4}\d{4}\b|UOC\b|\d+\b))[A-Z][A-Z0-9'/-]*)*)"
+            r"(?=(?:\s*,?\s+(?:AND|OR)\s+(?:[A-Z]{4}\d{4}\b|\d+\s*UOC\b)|[\s,;:.+-]*$))",
+            r"\1",
+            normalized_part,
+        ).strip()
         normalized_part = re.sub(r"(?i)\bAND\s+AND\b", "AND", normalized_part).strip()
         normalized_part = re.sub(r"(?i)\bOR\s+OR\b", "OR", normalized_part).strip()
         normalized_part = re.sub(r"(?i)^\s*(?:AND|OR)\b\s*", "", normalized_part).strip()
@@ -300,6 +331,12 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
             normalized_part,
         ).strip()
         completed_codes = COURSE_TOKEN_RE.findall(normalized_part)
+        if (
+            len(completed_codes) == 1
+            and not UOC_TOKEN_RE.search(normalized_part)
+            and re.match(r"(?i)^\s*[A-Z]{4}\d{4}\b", normalized_part)
+        ):
+            normalized_part = completed_codes[0]
         if (
             len(completed_codes) == 1
             and not UOC_TOKEN_RE.search(normalized_part)
@@ -350,6 +387,13 @@ def parse_prerequisite_field(
         return cached
 
     trimmed = raw_text.strip()
+    # Catalogue variant "Pre or Corequisite:" is semantically a corequisite-only label.
+    trimmed = re.sub(
+        r"^\s*pre\s+or\s+co-?req(uisite)?s?\s*:\s*",
+        "Corequisite: ",
+        trimmed,
+        flags=re.IGNORECASE,
+    )
     # Strip labels: "Prerequisite or Corequisite:" first, then just "Prerequisite:".
     # Do NOT strip corequisite labels—the split function needs them to identify corequisite parts.
     trimmed = re.sub(
@@ -358,6 +402,7 @@ def parse_prerequisite_field(
         trimmed,
         flags=re.IGNORECASE,
     )
+    trimmed = re.sub(r"^\s*pre(?:\s+|-)?req(?:uisite)?s?\s*:\s*", "", trimmed, flags=re.IGNORECASE)
     trimmed = re.sub(r"^\s*pre\s*:\s*", "", trimmed, flags=re.IGNORECASE)
     trimmed = re.sub(r"^\s*pre-?req(uisite)?s?\s*:?\s*", "", trimmed, flags=re.IGNORECASE)
     # Strip trailing punctuation and whitespace that may interfere with parsing.
