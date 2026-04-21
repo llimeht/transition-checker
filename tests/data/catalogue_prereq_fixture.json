@@ -17,7 +17,7 @@
   "CEIC8102": {
     "title": "Advanced Process Control",
     "uoc": 6,
-    "prerequisites": "CEIC3006 or ELEC3114 or CEICKSRPL48"
+    "prerequisites": "CEIC3006 or ELEC3114"
   },
   "CHEM2041": {
     "title": "Analytical Chemistry: Essential Methods",
@@ -53,5 +53,10 @@
     "title": "Dummy Course",
     "uoc": 6,
     "prerequisites": "Nil Prerequisites"
+  },
+  "TEST4001": {
+    "title": "Dummy Course",
+    "uoc": 6,
+    "prerequisites": "TEST1001 or equivalent"
   }
 }

@@ -13,6 +13,7 @@ from transitionchecker.cli import extract_template_cli
 from transitionchecker.prereq_engine import (
     build_prerequisite_snapshot,
     classify_prerequisite_clause,
+    parse_prerequisite_field,
     salvage_mixed_prerequisite_clause,
     PrerequisiteClauseClassification,
 )
@@ -279,10 +280,53 @@ def test_salvage_mixed_prerequisite_clause_success() -> None:
 
 def test_salvage_mixed_prerequisite_clause_failure() -> None:
     salvaged, salvaged_expr, salvage_error = salvage_mixed_prerequisite_clause(
-        "CEIC2001 and approval from the School",
+        "approval from the School",
         ["application_approval"],
     )
 
     assert salvaged is False
     assert salvaged_expr is None
     assert salvage_error is not None
+
+
+def test_salvage_mixed_program_enrolment_with_program_title() -> None:
+    salvaged, salvaged_expr, salvage_error = salvage_mixed_prerequisite_clause(
+        "Prerequisites: EXPT4152 and Enrolment in Program 3897 Applied Exercise Science/Clinical Exercise Physiology",
+        ["program_enrolment"],
+    )
+
+    assert salvaged is True
+    assert salvaged_expr == "EXPT4152"
+    assert salvage_error is None
+
+
+def test_salvage_mixed_language_placement_approval() -> None:
+    salvaged, salvaged_expr, salvage_error = salvage_mixed_prerequisite_clause(
+        "Prerequisite: ARTS1631 or language placement approval",
+        ["application_approval"],
+    )
+
+    assert salvaged is True
+    assert salvaged_expr == "ARTS1631"
+    assert salvage_error is None
+
+
+def test_salvage_mixed_program_major_clause_with_dangling_comma() -> None:
+    salvaged, salvaged_expr, salvage_error = salvage_mixed_prerequisite_clause(
+        "Prerequisite: ACTL2102 or (MATH2901 AND MATHE1, MATHM1 or MATHT1 major)",
+        ["program_enrolment"],
+    )
+
+    assert salvaged is True
+    assert salvaged_expr == {"or": ["ACTL2102", "MATH2901"]}
+    assert salvage_error is None
+
+
+def test_parse_prerequisite_field_ignores_or_equivalent() -> None:
+    prereq_expr, coreq_expr, error = parse_prerequisite_field(
+        "Prerequisite: ACCT5997 or equivalent"
+    )
+
+    assert prereq_expr == "ACCT5997"
+    assert coreq_expr is None
+    assert error is None

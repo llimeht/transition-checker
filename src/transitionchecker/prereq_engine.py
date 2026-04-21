@@ -28,10 +28,10 @@ class PrerequisiteClauseClassification(str, Enum):
 _PREREQ_PARSE_CACHE: dict[str, tuple[RuleExpr | None, RuleExpr | None, str | None]] = {}
 
 
-COURSE_TOKEN_RE = re.compile(r"[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?")
+COURSE_TOKEN_RE = re.compile(r"[A-Z]{4}\d{4}")
 UOC_TOKEN_RE = re.compile(r"(\d+)\s*UOC", re.IGNORECASE)
 PREREQ_TOKEN_RE = re.compile(
-    r"\s*(\(|\)|AND|OR|\d+\s*UOC|[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?)\s*", re.IGNORECASE
+    r"\s*(\(|\)|AND|OR|\d+\s*UOC|[A-Z]{4}\d{4})\s*", re.IGNORECASE
 )
 CO_REQUISITE_RE = re.compile(
     r"\b(?:CO-?REQ\w*)\b\s*:?",
@@ -178,6 +178,8 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
 
     for part in plus_parts:
         normalized_part = re.sub(r"(?i)\bCOMPLETION\s+OF\b", "", part).strip()
+        # Drop handbook qualifier fragments like "or equivalent" that are not tokenized.
+        normalized_part = re.sub(r"(?i)\b(?:OR|AND)\s+EQUIVALENT\b", "", normalized_part).strip()
         expr, err = _parse_prerequisite_expression_single(normalized_part)
         if err:
             return None, err
@@ -288,7 +290,7 @@ IGNORE_FAMILY_PATTERNS: dict[str, re.Pattern[str]] = {
 }
 
 PARSEABLE_SIGNAL_RE = re.compile(
-    r"(?i)(\b[A-Z]{4}\d{4}[A-Z0-9-]*\b|(?:at\s+least|minimum)?\s*\d+\s*\+?\s*UOC\b)"
+    r"(?i)(\b[A-Z]{4}\d{4}\b|(?:at\s+least|minimum)?\s*\d+\s*\+?\s*UOC\b)"
 )
 
 SALVAGE_STRIP_PATTERNS: dict[str, list[re.Pattern[str]]] = {
@@ -297,10 +299,16 @@ SALVAGE_STRIP_PATTERNS: dict[str, list[re.Pattern[str]]] = {
         re.compile(r"(?i)\bin\s+program\s+\d{3,4}(?:\s+or\s+\d{3,4})*"),
         re.compile(r"(?i)\bprogram\s+\d{3,4}(?:\s+or\s+\d{3,4})*"),
         re.compile(r"(?i)\b(?:single|double)\s+degree(?:s)?\b"),
+        re.compile(r"(?i)\b[A-Z]{4}\d[A-Z]\b"),
+        re.compile(r"(?i)\b[A-Z]{5}\d\b"),
+        re.compile(r"(?i)\b[A-Z]{6}\b"),
+        re.compile(r"(?i)\b[A-Z]{4}\b"),
         re.compile(r"(?i)\b[ A-Z0-9-]+\s+major\b"),
         re.compile(r"(?i)\b[ A-Z0-9-]+\s+speciali[sz]ation\b"),
     ],
     "application_approval": [
+        re.compile(r"(?i)\blanguage\s+placement\s+approval\b[^,;.)]*"),
+        re.compile(r"(?i)\bplacement\s+approval\b[^,;.)]*"),
         re.compile(r"(?i)\b(?:approval|permission|consent)\b[^,;.)]*"),
         re.compile(r"(?i)\bby\s+(?:consent|invitation)\b[^,;.)]*"),
         re.compile(r"(?i)\bapplication\s+only\b[^,;.)]*"),
@@ -361,9 +369,15 @@ def salvage_mixed_prerequisite_clause(
 
     for family in matched_families:
         pattern = IGNORE_FAMILY_PATTERNS.get(family)
-        if pattern is None:
+        if family in {"program_enrolment", "application_approval"}:
+            for salvage_pattern in SALVAGE_STRIP_PATTERNS.get(family, []):
+                stripped = salvage_pattern.sub(" ", stripped)
+            if pattern is not None:
+                stripped = pattern.sub(" ", stripped)
             continue
-        stripped = pattern.sub(" ", stripped)
+
+        if pattern is not None:
+            stripped = pattern.sub(" ", stripped)
         for salvage_pattern in SALVAGE_STRIP_PATTERNS.get(family, []):
             stripped = salvage_pattern.sub(" ", stripped)
 
@@ -378,6 +392,8 @@ def salvage_mixed_prerequisite_clause(
     stripped = re.sub(r"(?i),\s*(AND|OR)$", "", stripped)
     # Remove trailing AND/OR even with trailing junk punctuation: " and ." or " and," etc.
     stripped = re.sub(r"(?i)\s+(AND|OR)[\s,;:.+-]*$", "", stripped)
+    stripped = re.sub(r",\s*\)", ")", stripped)
+    stripped = re.sub(r"(?i)\b(AND|OR)\s*\)", ")", stripped)
     stripped = re.sub(r"\(\s*\)", " ", stripped)
     stripped = re.sub(r"^[\s,;:.+-]+|[\s,;:.+-]+$", "", stripped)
     stripped = re.sub(r"\s+", " ", stripped).strip()

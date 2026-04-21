@@ -2,7 +2,7 @@
   "meta": {
     "generated_at": "2026-04-21T00:40:40+00:00",
     "source_catalogue": "tests/data/catalogue_prereq_fixture.json",
-    "entry_count": 11,
+    "entry_count": 12,
     "parser": "parse_prerequisite_field"
   },
   "entries": [
@@ -70,12 +70,11 @@
     },
     {
       "course_code": "CEIC8102",
-      "prerequisites": "CEIC3006 or ELEC3114 or CEICKSRPL48",
+      "prerequisites": "CEIC3006 or ELEC3114",
       "prereq_expr": {
         "or": [
           "CEIC3006",
-          "ELEC3114",
-          "CEICKSRPL48"
+          "ELEC3114"
         ]
       },
       "coreq_expr": null,
@@ -184,6 +183,13 @@
       "course_code": "TEST4000",
       "prerequisites": "Nil Prerequisites",
       "prereq_expr": null,
+      "coreq_expr": null,
+      "error": null
+    },
+    {
+      "course_code": "TEST4001",
+      "prerequisites": "TEST1001 or equivalent",
+      "prereq_expr": "TEST1001",
       "coreq_expr": null,
       "error": null
     }
