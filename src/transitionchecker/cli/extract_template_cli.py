@@ -409,12 +409,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--catalogue-output",
         default="plans/catalogue.json",
-        help="Output path for catalogue JSON (default: plans/catalogue.json)",
+        help="Output path for catalogue JSON (default: plans/catalogue.json, use NONE to suppress)",
     )
     parser.add_argument(
         "--template-output",
         default="templates/template_configs.json",
-        help="Output path for template JSON (default: templates/template_configs.json)",
+        help="Output path for template JSON (default: templates/template_configs.json, use NONE to suppress)",
     )
     parser.add_argument(
         "--lint",
@@ -505,22 +505,35 @@ def main(argv: list[str] | None = None) -> int:
         print("No workbook provided; skipping template extraction.")
         return 0
 
-    try:
-        template_configs = extract_template_configs_from_workbook(excel_path)
-    except Exception as exc:
-        print(f"ERROR: Failed to extract template configs: {exc}")
-        return 1
+    export_templates = template_file.name != "NONE"
+    export_catalogue = catalogue_file.name != "NONE"
 
-    with open(catalogue_file, "w", encoding="utf-8") as fh:
-        json.dump(catalogue, fh, indent=2)
-    with open(template_file, "w", encoding="utf-8") as fh:
-        json.dump(template_configs, fh, indent=2)
+    reporting: list[str] = []
+
+    if export_templates:
+        try:
+            template_configs = extract_template_configs_from_workbook(excel_path)
+        except Exception as exc:
+            print(f"ERROR: Failed to extract template configs: {exc}")
+            return 1
+        with open(template_file, "w", encoding="utf-8") as fh:
+            json.dump(template_configs, fh, indent=2)
+        reporting.extend([
+            f"Template config file: {template_file}",
+            f"Intakes in template config: {len(template_configs.get('intakes', {}))}",
+        ])
+
+    if export_catalogue:
+        with open(catalogue_file, "w", encoding="utf-8") as fh:
+            json.dump(catalogue, fh, indent=2)
+            reporting.extend([
+                    f"Catalogue file: {catalogue_file}",
+                    f"Catalogue entries: {len(catalogue)}"
+            ])
 
     print("\n=== COMPLETE ===")
-    print(f"Catalogue file: {catalogue_file}")
-    print(f"Template config file: {template_file}")
-    print(f"Catalogue entries: {len(catalogue)}")
-    print(f"Intakes in template config: {len(template_configs.get('intakes', {}))}")
+    print("\n".join(reporting))
+
     return 0
 
 
