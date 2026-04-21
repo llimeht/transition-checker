@@ -175,6 +175,21 @@ class TestUocTokens:
         assert err is None
         assert prereq == {"uoc": 24}
 
+    def test_uoc_in_level_maths_courses(self) -> None:
+        prereq, _, err = parse("Prerequisite: 12 units of credit in Level 2 Maths courses.")
+        assert err is None
+        assert prereq == {"uoc": 12}
+
+    def test_uoc_in_level_courses(self) -> None:
+        prereq, _, err = parse("Prerequisite: 36 Units of Credit in Level 1 courses")
+        assert err is None
+        assert prereq == {"uoc": 36}
+
+    def test_uoc_completed_in_descriptive_group(self) -> None:
+        prereq, _, err = parse("Prerequisite: 96 units of credit completed in Built Environment")
+        assert err is None
+        assert prereq == {"uoc": 96}
+
     def test_uoc_with_at_least_and_completed(self) -> None:
         prereq, _, err = parse("At least 24 UOC completed")
         assert err is None
@@ -212,6 +227,11 @@ class TestUocTokens:
         prereq, _, err = parse("Prerequisite: Students must have completed a minimum of 48 UoC")
         assert err is None
         assert prereq == {"uoc": 48}
+
+    def test_uoc_with_completion_of_a_minimum(self) -> None:
+        prereq, _, err = parse("Prerequisite: Completion of a minimum 90 Units of Credit")
+        assert err is None
+        assert prereq == {"uoc": 90}
 
     def test_course_and_minimum_uoc_completed(self) -> None:
         prereq, _, err = parse("Prerequisite: BIOS1301 and minimum 48UOC completed.")
@@ -314,6 +334,29 @@ class TestUocTokens:
         prereq, _, err = parse("Prerequisite: 48 units of credit overall, and a minimum WAM of 75")
         assert err is None
         assert prereq == {"uoc": 48}
+
+    def test_course_and_uoc_with_parenthesized_enrolment_program_clause(self) -> None:
+        prereq, _, err = parse(
+            "Prerequisite: MGMT5050 AND (enrolment in program 8404 or 8417 or 8371) "
+            "AND completion of 42 units of credit."
+        )
+        assert err is None
+        assert prereq == {"and": ["MGMT5050", {"uoc": 42}]}
+
+    def test_course_and_uoc_with_enrolment_program_clause_no_parentheses(self) -> None:
+        prereq, _, err = parse(
+            "Prerequisite: MGMT5050 AND enrolment in program 8404 or 8417 or 8371 "
+            "AND completion of 42 units of credit."
+        )
+        assert err is None
+        assert prereq == {"and": ["MGMT5050", {"uoc": 42}]}
+
+    def test_program_enrolment_only_clause_is_removed_from_expression(self) -> None:
+        prereq, _, err = parse(
+            "Prerequisite: MGMT5050 AND (enrolment in program 8404, 8417 and 8371)"
+        )
+        assert err is None
+        assert prereq == "MGMT5050"
 
 
 class TestPlus:

@@ -50,7 +50,7 @@ def _canonicalize_prereq_text(text: str) -> str:
     canonical = canonical.replace("&", " AND ")
     canonical = canonical.replace(",", " AND ")
     canonical = canonical.replace("UNITS OF CREDIT", " UOC ")
-    canonical = canonical.replace("UNIT OF CREDITS", " UOC ")
+    canonical = canonical.replace("UNIT OF CREDITS", " UOC ")  # sad but true
     canonical = canonical.replace(";", " ")
     canonical = canonical.replace(".", " ")
     canonical = re.sub(r"\bAND\s+AND\b", " AND ", canonical)
@@ -249,6 +249,11 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
             normalized_part,
         ).strip()
         normalized_part = re.sub(
+            r"(?i)\bunits?\s+of\s+credits?\b",
+            "UOC",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
             r"(?i)\b(?:SUCCESSFULLY\s+)?COMPLETED\s+([A-Z]{4}\d{4})\b",
             r"\1",
             normalized_part,
@@ -262,7 +267,7 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
             normalized_part,
         ).strip()
         normalized_part = re.sub(
-            r"(?i)\bMINIMUM\s+(\d+\s*UOC)\b",
+            r"(?i)\b(?:A\s+)?MINIMUM\s+(\d+\s*UOC)\b",
             r"\1",
             normalized_part,
         ).strip()
@@ -278,6 +283,16 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
             normalized_part,
         ).strip()
         normalized_part = re.sub(
+            r"(?i)(\d+\s*UOC)\s+COMPLETED\s+IN\s+[A-Z][A-Z0-9\s&/-]*",
+            r"\1",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)(\d+\s*UOC)\s+IN\s+LEVEL\s+\d+(?:\s+[A-Z0-9][A-Z0-9\s&/-]*)?\s+COURSES?",
+            r"\1",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
             r"(?i)(\d+\s*UOC)\s+[A-Z][A-Z\s&/-]*\s+COURSES?",
             r"\1",
             normalized_part,
@@ -286,10 +301,16 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
         normalized_part = re.sub(r"(?i)(\d+\s*UOC)\s+COMPLETED\b", r"\1", normalized_part).strip()
         # Strip program-list enrolment clauses: "in program 8281, 8282 ..." (comma- or or/and-separated).
         normalized_part = re.sub(
+            r"(?i)\b(?:OR\s+|AND\s+)?ENROL(?:MENT|LED)?\s+IN\s+PROGRAM\s+\d{3,4}(?:(?:\s*,\s*|\s+(?:OR|AND)\s+)\d{3,4})*",
+            "",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
             r"(?i)\b(?:OR\s+|AND\s+)?IN\s+PROGRAM\s+\d{3,4}(?:(?:\s*,\s*|\s+(?:OR|AND)\s+)\d{3,4})*",
             "",
             normalized_part,
         ).strip()
+        normalized_part = re.sub(r"\(\s*\)", " ", normalized_part).strip()
         normalized_part = re.sub(r"(?i)\bAT\s+UNSW\s+PRIOR\s+TO\s+THIS\s+COURSE\b", "", normalized_part).strip()
         # Drop non-prerequisite enrolment/status clauses that often appear in prose.
         normalized_part = re.sub(
