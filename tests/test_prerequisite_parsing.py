@@ -58,6 +58,11 @@ class TestSingleCourse:
         assert err is None
         assert prereq == "CEIC1000"
 
+    def test_students_must_have_completed_with_course_title(self) -> None:
+        prereq, _, err = parse("Students must have completed JURD7152 Introduction to Law & Justice.")
+        assert err is None
+        assert prereq == "JURD7152"
+
 
 class TestAndOrExpressions:
     def test_and_two_courses(self) -> None:
@@ -146,6 +151,16 @@ class TestUocTokens:
         assert err is None
         assert prereq == {"uoc": 24}
 
+    def test_uoc_completed_in_course_group(self) -> None:
+        prereq, _, err = parse("24UOC completed in Juris Doctor courses.")
+        assert err is None
+        assert prereq == {"uoc": 24}
+
+    def test_uoc_with_leading_completed(self) -> None:
+        prereq, _, err = parse("Prerequisite: Completed 72 UOC")
+        assert err is None
+        assert prereq == {"uoc": 72}
+
 
 class TestPlus:
     def test_plus_combines_as_and(self) -> None:
@@ -178,6 +193,14 @@ class TestCorequisiteSplit:
 class TestInvalidInputs:
     def test_unrecognized_token_returns_error(self) -> None:
         _, _, err = parse("CEIC1000 XYZZY CEIC1001")
+        assert err is not None
+
+    def test_advisory_completed_sentence_remains_error(self) -> None:
+        prereq, coreq, err = parse(
+            "Students who have previously completed ACCT5906 should not enrol into this course."
+        )
+        assert prereq is None
+        assert coreq is None
         assert err is not None
 
     def test_result_is_cached(self) -> None:

@@ -142,19 +142,6 @@ def _parse_prerequisite_expression_single(
             children.append(right)
         return {op: children}
 
-    def parse_and() -> tuple[RuleExpr | None, str | None]:
-        nonlocal token_idx
-        left, err = parse_primary()
-        if err:
-            return None, err
-        while token_idx < len(tokens) and tokens[token_idx] == "AND":
-            token_idx += 1
-            right, right_err = parse_primary()
-            if right_err:
-                return None, right_err
-            left = fold_operator("and", cast(RuleExpr, left), cast(RuleExpr, right))
-        return left, None
-
     def parse_or() -> tuple[RuleExpr | None, str | None]:
         nonlocal token_idx
         left, err = parse_and()
@@ -166,6 +153,19 @@ def _parse_prerequisite_expression_single(
             if right_err:
                 return None, right_err
             left = fold_operator("or", cast(RuleExpr, left), cast(RuleExpr, right))
+        return left, None
+
+    def parse_and() -> tuple[RuleExpr | None, str | None]:
+        nonlocal token_idx
+        left, err = parse_primary()
+        if err:
+            return None, err
+        while token_idx < len(tokens) and tokens[token_idx] == "AND":
+            token_idx += 1
+            right, right_err = parse_primary()
+            if right_err:
+                return None, right_err
+            left = fold_operator("and", cast(RuleExpr, left), cast(RuleExpr, right))
         return left, None
 
     expr, parse_err = parse_or()
@@ -189,14 +189,30 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
 
     for part in plus_parts:
         # Replace "including ..." with AND + any course codes found in that clause.
-        def _expand_including(m: re.Match) -> str:
+        def _expand_including(m: re.Match[str]) -> str:
             codes = COURSE_TOKEN_RE.findall(m.group(0))
             return (" AND " + " AND ".join(codes)) if codes else ""
 
         normalized_part = re.sub(r"(?i),?\s*\bINCLUDING\b.*$", _expand_including, part).strip()
+        normalized_part = re.sub(
+            r"(?i)^\s*STUDENTS?\s+MUST\s+HAVE\s+(?:SUCCESSFULLY\s+)?COMPLETED\s+",
+            "",
+            normalized_part,
+        ).strip()
         normalized_part = re.sub(r"(?i)\bCOMPLETION\s+OF\b", "", normalized_part).strip()
+        normalized_part = re.sub(
+            r"(?i)^\s*(?:SUCCESSFULLY\s+)?COMPLETED\s+(\d+\s*UOC)\b",
+            r"\1",
+            normalized_part,
+        ).strip()
         # Drop handbook qualifier fragments like "or equivalent" that are not tokenized.
         normalized_part = re.sub(r"(?i)\b(?:OR|AND)\s+EQUIVALENT\b", "", normalized_part).strip()
+        # Normalize maturity variants like "24 UOC completed in XYZ courses".
+        normalized_part = re.sub(
+            r"(?i)(\d+\s*UOC)\s+COMPLETED\s+(?:IN|OF)\s+[A-Z][A-Z\s&/-]*\s+COURSES?",
+            r"\1",
+            normalized_part,
+        ).strip()
         # Treat maturity qualifiers as non-semantic for expression parsing.
         normalized_part = re.sub(r"(?i)\bAT\s+LEAST\b", "", normalized_part).strip()
         normalized_part = re.sub(r"(?i)\bOVERALL\b", "", normalized_part).strip()
@@ -206,6 +222,15 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
             "",
             normalized_part,
         ).strip()
+        completed_codes = COURSE_TOKEN_RE.findall(normalized_part)
+        if (
+            len(completed_codes) == 1
+            and re.match(
+                r"(?i)^\s*(?:STUDENTS?\s+MUST\s+HAVE\s+)?(?:PREVIOUSLY\s+)?(?:SUCCESSFULLY\s+)?COMPLETED\b",
+                part,
+            )
+        ):
+            normalized_part = completed_codes[0]
         expr, err = _parse_prerequisite_expression_single(normalized_part)
         if err:
             return None, err
