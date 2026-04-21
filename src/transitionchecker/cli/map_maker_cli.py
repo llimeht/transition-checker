@@ -1,4 +1,3 @@
-
 """Generate multiple candidate degree plans and export them to CSV.
 
 The planner combines four inputs:

@@ -48,5 +48,10 @@
     "title": "Advanced Course",
     "uoc": 6,
     "prerequisites": "TEST2000 COREQ: TEST1131"
+  },
+  "TEST4000": {
+    "title": "Dummy Course",
+    "uoc": 6,
+    "prerequisites": "Nil Prerequisites"
   }
 }

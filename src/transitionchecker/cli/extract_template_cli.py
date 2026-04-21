@@ -29,6 +29,8 @@ from transitionchecker.core import period_rank
 from transitionchecker.prereq_engine import (
     build_prerequisite_snapshot,
     classify_prerequisite_clause,
+    PrerequisiteClauseClassification,
+    salvage_mixed_prerequisite_clause,
 )
 
 
@@ -309,18 +311,33 @@ def extract_template_configs_from_workbook(excel_path: Path) -> dict[str, Any]:
 def lint_prerequisites(catalogue: dict[str, dict[str, Any]], output: str | None = None) -> int:
     """Lint prerequisites in the catalogue and report unrecognized ones."""
     from transitionchecker.prereq_engine import parse_prerequisite_field
-    lint_results: list[dict[str, str]] = []
+    lint_results: list[dict[str, Any]] = []
     for course_code, course in catalogue.items():
         prereq = str(course.get("prerequisites", ""))
         _, _, error = parse_prerequisite_field(prereq)
         if error:
             classification, matched_families = classify_prerequisite_clause(prereq)
+            salvaged = False
+            salvaged_expr: str = ""
+            salvage_error: str = ""
+            if classification is PrerequisiteClauseClassification.MIXED:
+                salvaged, salvage_expr_obj, salvage_error_obj = salvage_mixed_prerequisite_clause(
+                    prereq,
+                    matched_families,
+                )
+                if salvage_expr_obj is not None:
+                    salvaged_expr = json.dumps(salvage_expr_obj, sort_keys=True)
+                if salvage_error_obj is not None:
+                    salvage_error = salvage_error_obj
             lint_results.append({
                 "course_code": str(course_code),
                 "prerequisites": prereq,
                 "error": str(error),
                 "classification": classification.value,
                 "matched_families": ",".join(matched_families),
+                "salvaged": salvaged,
+                "salvaged_expr": salvaged_expr,
+                "salvage_error": salvage_error,
             })
     if output:
         out_path = Path(output)
@@ -335,6 +352,9 @@ def lint_prerequisites(catalogue: dict[str, dict[str, Any]], output: str | None 
                         "error",
                         "classification",
                         "matched_families",
+                        "salvaged",
+                        "salvaged_expr",
+                        "salvage_error",
                     ],
                 )
                 writer.writeheader()

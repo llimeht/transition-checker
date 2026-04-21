@@ -13,6 +13,7 @@ from transitionchecker.cli import extract_template_cli
 from transitionchecker.prereq_engine import (
     build_prerequisite_snapshot,
     classify_prerequisite_clause,
+    salvage_mixed_prerequisite_clause,
     PrerequisiteClauseClassification,
 )
 
@@ -257,3 +258,31 @@ def test_lint_prerequisites_json_includes_classification(tmp_path: Path) -> None
     assert "program_enrolment" in by_code["A"]["matched_families"]
     assert by_code["B"]["classification"] == PrerequisiteClauseClassification.MIXED.value
     assert "wam_mark" in by_code["B"]["matched_families"]
+    assert by_code["A"]["salvaged"] is False
+    assert by_code["A"]["salvaged_expr"] == ""
+    assert by_code["A"]["salvage_error"] == ""
+    assert by_code["B"]["salvaged"] is True
+    assert by_code["B"]["salvaged_expr"]
+    assert by_code["B"]["salvage_error"] == ""
+
+
+def test_salvage_mixed_prerequisite_clause_success() -> None:
+    salvaged, salvaged_expr, salvage_error = salvage_mixed_prerequisite_clause(
+        "(CEIC2001 OR CEIC2002) and 65+ WAM",
+        ["wam_mark"],
+    )
+
+    assert salvaged is True
+    assert salvaged_expr is not None
+    assert salvage_error is None
+
+
+def test_salvage_mixed_prerequisite_clause_failure() -> None:
+    salvaged, salvaged_expr, salvage_error = salvage_mixed_prerequisite_clause(
+        "CEIC2001 and approval from the School",
+        ["application_approval"],
+    )
+
+    assert salvaged is False
+    assert salvaged_expr is None
+    assert salvage_error is not None

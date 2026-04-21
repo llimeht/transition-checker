@@ -2,7 +2,7 @@
   "meta": {
     "generated_at": "2026-04-21T00:40:40+00:00",
     "source_catalogue": "tests/data/catalogue_prereq_fixture.json",
-    "entry_count": 10,
+    "entry_count": 11,
     "parser": "parse_prerequisite_field"
   },
   "entries": [
@@ -178,6 +178,13 @@
       "prerequisites": "TEST2000 COREQ: TEST1131",
       "prereq_expr": "TEST2000",
       "coreq_expr": "TEST1131",
+      "error": null
+    },
+    {
+      "course_code": "TEST4000",
+      "prerequisites": "Nil Prerequisites",
+      "prereq_expr": null,
+      "coreq_expr": null,
       "error": null
     }
   ]

@@ -219,11 +219,24 @@ def parse_prerequisite_field(
         return cached
 
     trimmed = raw_text.strip()
-    trimmed = re.sub(r"^pre-?req(uisite)?s?:?\s*", "", trimmed, flags=re.IGNORECASE)
+    # Strip labels: "Prerequisite or Corequisite:" first, then just "Prerequisite:".
+    # Do NOT strip corequisite labels—the split function needs them to identify corequisite parts.
+    trimmed = re.sub(
+        r"^\s*pre-?req(uisite)?s?\s+or\s+co-?req(uisite)?s?\s*:?\s*",
+        "",
+        trimmed,
+        flags=re.IGNORECASE,
+    )
+    trimmed = re.sub(r"^\s*pre-?req(uisite)?s?\s*:?\s*", "", trimmed, flags=re.IGNORECASE)
 
     result: tuple[RuleExpr | None, RuleExpr | None, str | None]
 
-    if not trimmed or trimmed in {".", "0", "NONE", "NIL", "N/A", "?", "NIL PREREQUISITES", "NO PREREQUISITES"}:
+    # Normalize and check for empty prerequisites (case-insensitive).
+    trimmed_upper = trimmed.upper().strip()
+    if not trimmed or trimmed_upper in {
+        ".", "0", "NONE", "NIL", "N/A", "?",
+        "NIL PREREQUISITES", "NO PREREQUISITES",
+    }:
         result = (None, None, None)
         _PREREQ_PARSE_CACHE[raw_text] = result
         return result
@@ -276,6 +289,31 @@ PARSEABLE_SIGNAL_RE = re.compile(
     r"(?i)(\b[A-Z]{4}\d{4}[A-Z0-9-]*\b|\b\d+\s*UOC\b)"
 )
 
+SALVAGE_STRIP_PATTERNS: dict[str, list[re.Pattern[str]]] = {
+    "program_enrolment": [
+        re.compile(r"(?i)\benrol(?:ment|led)?\s+in\b[^,;.)]*"),
+        re.compile(r"(?i)\bin\s+program\s+\d{3,4}(?:\s+or\s+\d{3,4})*"),
+        re.compile(r"(?i)\bprogram\s+\d{3,4}(?:\s+or\s+\d{3,4})*"),
+        re.compile(r"(?i)\b(?:single|double)\s+degree(?:s)?\b"),
+        re.compile(r"(?i)\b[ A-Z0-9-]+\s+major\b"),
+        re.compile(r"(?i)\b[ A-Z0-9-]+\s+speciali[sz]ation\b"),
+    ],
+    "application_approval": [
+        re.compile(r"(?i)\b(?:approval|permission|consent)\b[^,;.)]*"),
+        re.compile(r"(?i)\bby\s+(?:consent|invitation)\b[^,;.)]*"),
+        re.compile(r"(?i)\bapplication\s+only\b[^,;.)]*"),
+    ],
+    "wam_mark": [
+        re.compile(r"(?i)\b\d+\+\s*wam\b"),
+        re.compile(r"(?i)\bminimum\s+mark\b[^,;.)]*"),
+        re.compile(r"(?i)\bmark\s+of\s+\d+\b"),
+    ],
+    "cohort_timing": [
+        re.compile(r"(?i)\b(?:honours|final\s+term|final\s+year)\b[^,;.)]*"),
+        re.compile(r"(?i)\bat\s+level\s+\d\b"),
+    ],
+}
+
 
 def classify_prerequisite_clause(
     text: str,
@@ -300,6 +338,43 @@ def classify_prerequisite_clause(
     if PARSEABLE_SIGNAL_RE.search(stripped):
         return PrerequisiteClauseClassification.MIXED, matched_families
     return PrerequisiteClauseClassification.IGNORABLE, matched_families
+
+
+def salvage_mixed_prerequisite_clause(
+    text: str,
+    matched_families: list[str],
+) -> tuple[bool, RuleExpr | None, str | None]:
+    """Try to salvage parseable expression from a mixed clause.
+
+    Returns ``(salvaged, salvaged_expr, salvage_error)``.
+    """
+    stripped = text
+
+    for family in matched_families:
+        pattern = IGNORE_FAMILY_PATTERNS.get(family)
+        if pattern is None:
+            continue
+        stripped = pattern.sub(" ", stripped)
+        for salvage_pattern in SALVAGE_STRIP_PATTERNS.get(family, []):
+            stripped = salvage_pattern.sub(" ", stripped)
+
+    # Clean obvious connector/punctuation debris left after family stripping.
+    stripped = re.sub(r"(?i)\b(AND|OR)\b\s*$", "", stripped)
+    stripped = re.sub(r"(?i)^\s*(AND|OR)\b\s*", "", stripped)
+    stripped = re.sub(r"(?i),\s*(AND|OR)\b", r" \1", stripped)
+    stripped = re.sub(r"(?i)\(\s*(AND|OR)\b", "(", stripped)
+    stripped = re.sub(r"(?i)\b(AND|OR)\s*\)", ")", stripped)
+    stripped = re.sub(r"(?i)\b(AND|OR)\s+(AND|OR)\b", r"\1", stripped)
+    stripped = re.sub(r"\(\s*\)", " ", stripped)
+    stripped = re.sub(r"^[\s,;:.+-]+|[\s,;:.+-]+$", "", stripped)
+    stripped = re.sub(r"\s+", " ", stripped).strip()
+
+    expr, _coreq_expr, err = parse_prerequisite_field(stripped)
+    if err:
+        return False, None, err
+    if expr is None:
+        return False, None, "no parseable prerequisite expression remained"
+    return True, expr, None
 
 
 def build_prerequisite_snapshot(
