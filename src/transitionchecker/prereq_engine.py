@@ -228,6 +228,8 @@ def parse_prerequisite_field(
         flags=re.IGNORECASE,
     )
     trimmed = re.sub(r"^\s*pre-?req(uisite)?s?\s*:?\s*", "", trimmed, flags=re.IGNORECASE)
+    # Strip trailing punctuation and whitespace that may interfere with parsing.
+    trimmed = re.sub(r"[\s,;:.+-]+$", "", trimmed)
 
     result: tuple[RuleExpr | None, RuleExpr | None, str | None]
 
@@ -286,7 +288,7 @@ IGNORE_FAMILY_PATTERNS: dict[str, re.Pattern[str]] = {
 }
 
 PARSEABLE_SIGNAL_RE = re.compile(
-    r"(?i)(\b[A-Z]{4}\d{4}[A-Z0-9-]*\b|\b\d+\s*UOC\b)"
+    r"(?i)(\b[A-Z]{4}\d{4}[A-Z0-9-]*\b|(?:at\s+least|minimum)?\s*\d+\s*\+?\s*UOC\b)"
 )
 
 SALVAGE_STRIP_PATTERNS: dict[str, list[re.Pattern[str]]] = {
@@ -350,6 +352,13 @@ def salvage_mixed_prerequisite_clause(
     """
     stripped = text
 
+    # Remove descriptive qualifiers and compound unit requirement phrasing
+    # before family stripping so the parser sees cleaner input.
+    stripped = re.sub(r"(?i)\b(?:units?\s+of\s+credit)\b", "UOC", stripped)
+    stripped = re.sub(r"(?i)\s+overall\b", "", stripped)
+    stripped = re.sub(r"(?i)\s+including\s+", " and ", stripped)  # Rewrite "including" as "and"
+    stripped = re.sub(r"(?i),\s*including\s+", " and ", stripped)
+
     for family in matched_families:
         pattern = IGNORE_FAMILY_PATTERNS.get(family)
         if pattern is None:
@@ -365,6 +374,10 @@ def salvage_mixed_prerequisite_clause(
     stripped = re.sub(r"(?i)\(\s*(AND|OR)\b", "(", stripped)
     stripped = re.sub(r"(?i)\b(AND|OR)\s*\)", ")", stripped)
     stripped = re.sub(r"(?i)\b(AND|OR)\s+(AND|OR)\b", r"\1", stripped)
+    # Strip trailing commas before connectors: ", and" → "and", then remove trailing "and"/"or"
+    stripped = re.sub(r"(?i),\s*(AND|OR)$", "", stripped)
+    # Remove trailing AND/OR even with trailing junk punctuation: " and ." or " and," etc.
+    stripped = re.sub(r"(?i)\s+(AND|OR)[\s,;:.+-]*$", "", stripped)
     stripped = re.sub(r"\(\s*\)", " ", stripped)
     stripped = re.sub(r"^[\s,;:.+-]+|[\s,;:.+-]+$", "", stripped)
     stripped = re.sub(r"\s+", " ", stripped).strip()
