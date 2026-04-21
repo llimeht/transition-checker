@@ -349,6 +349,14 @@ class TestCorequisiteSplit:
         assert prereq is None
         assert coreq == {"or": ["MARK5700", "MARK5800"]}
 
+    def test_pre_or_coreq_with_comma_separated_program_list(self) -> None:
+        prereq, coreq, err = parse(
+            "Pre or Corequisite: MARK5700 or MARK5800 OR in program 8281, 8282, 8291, 8234, 8224"
+        )
+        assert err is None
+        assert prereq is None
+        assert coreq == {"or": ["MARK5700", "MARK5800"]}
+
     def test_coreq_must_be_enrolled_in_courses_same_term(self) -> None:
         prereq, coreq, err = parse(
             "Corequisite: Student must be enrolled in JURD7161 Torts and JURD7114 "

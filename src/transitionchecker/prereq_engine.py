@@ -284,6 +284,12 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
         ).strip()
         normalized_part = re.sub(r"(?i)(\d+\s*UOC)\s+IN\s+PROGRAM\b", r"\1", normalized_part).strip()
         normalized_part = re.sub(r"(?i)(\d+\s*UOC)\s+COMPLETED\b", r"\1", normalized_part).strip()
+        # Strip program-list enrolment clauses: "in program 8281, 8282 ..." (comma- or or/and-separated).
+        normalized_part = re.sub(
+            r"(?i)\b(?:OR\s+|AND\s+)?IN\s+PROGRAM\s+\d{3,4}(?:(?:\s*,\s*|\s+(?:OR|AND)\s+)\d{3,4})*",
+            "",
+            normalized_part,
+        ).strip()
         normalized_part = re.sub(r"(?i)\bAT\s+UNSW\s+PRIOR\s+TO\s+THIS\s+COURSE\b", "", normalized_part).strip()
         # Drop non-prerequisite enrolment/status clauses that often appear in prose.
         normalized_part = re.sub(
@@ -471,8 +477,8 @@ PARSEABLE_SIGNAL_RE = re.compile(
 SALVAGE_STRIP_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     "program_enrolment": [
         re.compile(r"(?i)\benrol(?:ment|led)?\s+in\b[^,;.)]*"),
-        re.compile(r"(?i)\bin\s+program\s+\d{3,4}(?:\s+or\s+\d{3,4})*"),
-        re.compile(r"(?i)\bprogram\s+\d{3,4}(?:\s+or\s+\d{3,4})*"),
+        re.compile(r"(?i)\bin\s+program\s+\d{3,4}(?:(?:\s*,\s*|\s+(?:or|and)\s+)\d{3,4})*"),
+        re.compile(r"(?i)\bprogram\s+\d{3,4}(?:(?:\s*,\s*|\s+(?:or|and)\s+)\d{3,4})*"),
         re.compile(r"(?i)\b(?:single|double)\s+degree(?:s)?\b"),
         re.compile(r"(?i)\b[A-Z]{4}\d[A-Z]\b"),
         re.compile(r"(?i)\b[A-Z]{5}\d\b"),
