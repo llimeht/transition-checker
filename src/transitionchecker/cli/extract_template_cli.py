@@ -319,7 +319,7 @@ def lint_prerequisites(catalogue: dict[str, dict[str, Any]], output: str | None 
                 "course_code": str(course_code),
                 "prerequisites": prereq,
                 "error": str(error),
-                "classification": classification,
+                "classification": classification.value,
                 "matched_families": ",".join(matched_families),
             })
     if output:

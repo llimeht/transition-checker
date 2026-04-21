@@ -13,6 +13,7 @@ from transitionchecker.cli import extract_template_cli
 from transitionchecker.prereq_engine import (
     build_prerequisite_snapshot,
     classify_prerequisite_clause,
+    PrerequisiteClauseClassification,
 )
 
 
@@ -212,19 +213,19 @@ def test_classify_prerequisite_clause_families() -> None:
     classification, families = classify_prerequisite_clause(
         "Must be enrolled in program 4501"
     )
-    assert classification == "ignorable"
+    assert classification is PrerequisiteClauseClassification.IGNORABLE
     assert "program_enrolment" in families
 
     classification, families = classify_prerequisite_clause(
         "(CEIC2001 OR CEIC2002) and 65+ WAM"
     )
-    assert classification == "mixed"
+    assert classification is PrerequisiteClauseClassification.MIXED
     assert "wam_mark" in families
 
     classification, families = classify_prerequisite_clause(
         "CEIC2001 AND CEIC2002"
     )
-    assert classification == "non_ignorable"
+    assert classification is PrerequisiteClauseClassification.NON_IGNORABLE
     assert families == []
 
 

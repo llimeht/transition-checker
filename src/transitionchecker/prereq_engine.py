@@ -9,11 +9,20 @@ Schedule-aware validation belongs in ``rules_engine``.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import Enum
 import re
 from typing import Any, cast
 
 
 RuleExpr = str | dict[str, Any]
+
+
+class PrerequisiteClauseClassification(str, Enum):
+    """Closed set of lint classifications for unsupported prerequisite text."""
+
+    IGNORABLE = "ignorable"
+    MIXED = "mixed"
+    NON_IGNORABLE = "non_ignorable"
 
 
 _PREREQ_PARSE_CACHE: dict[str, tuple[RuleExpr | None, RuleExpr | None, str | None]] = {}
@@ -268,11 +277,13 @@ PARSEABLE_SIGNAL_RE = re.compile(
 )
 
 
-def classify_prerequisite_clause(text: str) -> tuple[str, list[str]]:
+def classify_prerequisite_clause(
+    text: str,
+) -> tuple[PrerequisiteClauseClassification, list[str]]:
     """Classify unsupported prerequisite text for lint triage.
 
-    Returns one of ``ignorable``, ``mixed``, or ``non_ignorable`` plus the
-    matched ignore-family names that drove the classification.
+    Returns a classification enum plus the matched ignore-family names that
+    drove the result.
     """
     matched_families = [
         family
@@ -280,15 +291,15 @@ def classify_prerequisite_clause(text: str) -> tuple[str, list[str]]:
         if pattern.search(text)
     ]
     if not matched_families:
-        return "non_ignorable", []
+        return PrerequisiteClauseClassification.NON_IGNORABLE, []
 
     stripped = text
     for family in matched_families:
         stripped = IGNORE_FAMILY_PATTERNS[family].sub(" ", stripped)
 
     if PARSEABLE_SIGNAL_RE.search(stripped):
-        return "mixed", matched_families
-    return "ignorable", matched_families
+        return PrerequisiteClauseClassification.MIXED, matched_families
+    return PrerequisiteClauseClassification.IGNORABLE, matched_families
 
 
 def build_prerequisite_snapshot(
