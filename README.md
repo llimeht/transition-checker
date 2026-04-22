@@ -182,6 +182,45 @@ and can be edited/deleted by hand.
 The above override was created in `plans/CEIC/CEICDH3707_2025_T2.degree_rules_overrides.json`
 
 
+### Override an prerequisite information in the catalogue
+
+Some handbook prerequisite strings are so ambiguous or malformed that the parser cannot handle them at all.
+Where the *intent* is clear enough to express as a valid prerequisite expression, you can add a catalogue override instead of trying to patch the parser.
+You may also want to change prerequisite information in catalogue from what is currently approved based on changes that you know will be made.
+
+Overrides are stored in `catalogue_overrides.json` beside `catalogue.json` and are merged in automatically whenever the catalogue is loaded by the validation tools.
+
+Add (or update) an override for one course:
+
+```bash
+add-override plans/catalogue.json \
+  --course TEST3000 \
+  --prereq "Prerequisite: TEST2000. Corequisite: TEST2010" \
+  --reason "Change TEST2010 to be a corequisite to make for easier sequencing."
+```
+
+The tool validates that the supplied `--prereq` text parses correctly before writing.
+If the text cannot be parsed, the command exits with error (exits 1) and prints the parse error.
+Use `--force` to write an unparseable override anyway (an auditing warning is printed).
+
+The `date` field is stamped automatically with today's ISO date. The resulting file looks like:
+
+```json
+{
+  "TEST3000": {
+    "date": "2026-04-22",
+    "prerequisites": "Prerequisite: TEST2000. Corequisite: TEST2010",
+    "reason": "CHange TEST2010 …"
+  }
+}
+```
+
+To remove an override, delete the relevant entry from `catalogue_overrides.json` by hand.
+
+Note that the linter (`extract-template --lint`) always sees the raw handbook text even when overrides are present.
+
+
+
 ### Obtain course metadata from the UNSW Handbook
 
 This downloads handbook course pages, extracts the embedded JSON payload from each

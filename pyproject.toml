@@ -16,6 +16,7 @@ dependencies = [
 [tool.setuptools]
 py-modules = [
     "add_offerings",
+    "add_override",
     "degree_rules",
     "offering_checker",
     "mapping_checker",
@@ -32,6 +33,7 @@ include = ["transitionchecker*"]
 
 [project.scripts]
 add-offerings    = "transitionchecker.cli.add_offerings_cli:main"
+add-override     = "transitionchecker.cli.add_override_cli:main"
 degree-rules      = "transitionchecker.cli.degree_rules_cli:main"
 offering-checker  = "transitionchecker.cli.offering_checker_cli:main"
 mapping-checker   = "transitionchecker.cli.mapping_checker_cli:main"

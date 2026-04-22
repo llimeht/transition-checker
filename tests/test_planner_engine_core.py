@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -13,10 +13,13 @@ from transitionchecker.planner_engine import (
     PartialPlanCourseRecord,
     SteeringConfig,
     TemplateConfig,
+    apply_catalogue_overrides,
     build_slots,
     derive_fixed_constraints,
     evaluate_plan_cost,
     feasible_slots_for_course,
+    load_catalogue,
+    load_catalogue_overrides,
     path_or_exit,
     resolve_target_end_slot,
     select_required_courses,
@@ -341,3 +344,140 @@ def test_evaluate_plan_cost_penalizes_courses_after_target_end_slot() -> None:
     assert without_target.post_target_period_count == 0
     assert with_target.post_target_period_count == 1
     assert abs(with_target.total_cost - (without_target.total_cost + 120.0)) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Catalogue override tests
+# ---------------------------------------------------------------------------
+
+
+def test_apply_catalogue_overrides_patches_prerequisite() -> None:
+    raw: dict[str, dict[str, Any]] = {
+        "CEIC3000": {"title": "Some Course", "uoc": 6, "prerequisites": "enrolled in program 4501"}
+    }
+    overrides = {
+        "CEIC3000": {
+            "prerequisites": "CEIC2000 AND CEIC2010",
+            "reason": "handbook text ambiguous",
+            "date": "2026-04-22",
+        }
+    }
+    result = apply_catalogue_overrides(raw, overrides)
+    assert result["CEIC3000"]["prerequisites"] == "CEIC2000 AND CEIC2010"
+    # metadata keys must not be leaked into the catalogue entry
+    assert "reason" not in result["CEIC3000"]
+    assert "date" not in result["CEIC3000"]
+    # other fields preserved
+    assert result["CEIC3000"]["title"] == "Some Course"
+
+
+def test_apply_catalogue_overrides_does_not_mutate_raw() -> None:
+    raw = {"CEIC3000": {"prerequisites": "original"}}
+    overrides = {"CEIC3000": {"prerequisites": "CEIC2000", "reason": "test", "date": "2026-04-22"}}
+    result = apply_catalogue_overrides(raw, overrides)
+    assert raw["CEIC3000"]["prerequisites"] == "original"
+    assert result["CEIC3000"]["prerequisites"] == "CEIC2000"
+
+
+def test_apply_catalogue_overrides_adds_course_not_in_raw() -> None:
+    raw: dict[str, dict[str, object]] = {}
+    overrides = {"CEIC9999": {"prerequisites": "CEIC1000", "reason": "new", "date": "2026-04-22"}}
+    result = apply_catalogue_overrides(raw, overrides)
+    assert result["CEIC9999"]["prerequisites"] == "CEIC1000"
+
+
+def test_apply_catalogue_overrides_empty_overrides_returns_same() -> None:
+    raw = {"CEIC3000": {"prerequisites": "original"}}
+    result = apply_catalogue_overrides(raw, {})
+    assert result is raw
+
+
+def test_load_catalogue_overrides_absent_file_returns_empty(tmp_path: Path) -> None:
+    result = load_catalogue_overrides(tmp_path / "nonexistent_overrides.json")
+    assert result == {}
+
+
+def test_load_catalogue_overrides_reads_and_normalizes(tmp_path: Path) -> None:
+    import json
+
+    overrides_file = tmp_path / "catalogue_overrides.json"
+    overrides_file.write_text(
+        json.dumps(
+            {
+                "ceic3000": {
+                    "prerequisites": "CEIC2000",
+                    "reason": "test",
+                    "date": "2026-04-22",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = load_catalogue_overrides(overrides_file)
+    # course code must be normalized to uppercase
+    assert "CEIC3000" in result
+    assert result["CEIC3000"]["prerequisites"] == "CEIC2000"
+
+
+def test_load_catalogue_applies_overrides_by_default(tmp_path: Path) -> None:
+    import json
+
+    catalogue_file = tmp_path / "catalogue.json"
+    catalogue_file.write_text(
+        json.dumps({"CEIC3000": {"title": "C", "uoc": 6, "prerequisites": "enrolled in program"}}),
+        encoding="utf-8",
+    )
+    overrides_file = tmp_path / "catalogue_overrides.json"
+    overrides_file.write_text(
+        json.dumps(
+            {
+                "CEIC3000": {
+                    "prerequisites": "CEIC2000",
+                    "reason": "test override",
+                    "date": "2026-04-22",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    catalogue = load_catalogue(catalogue_file)
+    assert catalogue["CEIC3000"].prerequisites == "CEIC2000"
+
+
+def test_load_catalogue_apply_overrides_false_ignores_file(tmp_path: Path) -> None:
+    import json
+
+    catalogue_file = tmp_path / "catalogue.json"
+    catalogue_file.write_text(
+        json.dumps({"CEIC3000": {"title": "C", "uoc": 6, "prerequisites": "enrolled in program"}}),
+        encoding="utf-8",
+    )
+    overrides_file = tmp_path / "catalogue_overrides.json"
+    overrides_file.write_text(
+        json.dumps(
+            {
+                "CEIC3000": {
+                    "prerequisites": "CEIC2000",
+                    "reason": "test",
+                    "date": "2026-04-22",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    catalogue = load_catalogue(catalogue_file, apply_overrides=False)
+    # original, unparseable handbook text is preserved
+    assert catalogue["CEIC3000"].prerequisites == "enrolled in program"
+
+
+def test_load_catalogue_no_overrides_file_is_silent(tmp_path: Path) -> None:
+    import json
+
+    catalogue_file = tmp_path / "catalogue.json"
+    catalogue_file.write_text(
+        json.dumps({"CEIC3000": {"title": "C", "uoc": 6, "prerequisites": "CEIC1000"}}),
+        encoding="utf-8",
+    )
+    # No overrides file present — must not raise
+    catalogue = load_catalogue(catalogue_file)
+    assert catalogue["CEIC3000"].prerequisites == "CEIC1000"

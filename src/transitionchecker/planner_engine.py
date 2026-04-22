@@ -319,23 +319,85 @@ def load_rules(path: Path) -> dict[str, Any]:
     return validate_rules_config(cast(dict[str, Any], raw))
 
 
-def load_catalogue(path: Path) -> dict[CourseCode, CourseMeta]:
-    """Load the course catalogue used for UoC, level, and prerequisite data."""
+# Keys that are metadata-only in the overrides file and must not be merged
+# into catalogue entries.
+_OVERRIDE_METADATA_KEYS: frozenset[str] = frozenset({"reason", "date"})
+
+
+def load_catalogue_overrides(path: Path) -> dict[str, dict[str, Any]]:
+    """Load catalogue overrides from *path*, returning ``{}`` if the file is absent.
+
+    The file is a JSON object keyed by course code.  Each value is a dict of
+    catalogue fields to override (e.g. ``prerequisites``) plus optional
+    metadata keys ``reason`` and ``date`` which are ignored during merging.
+    """
+    if not path.exists():
+        return {}
+    raw = read_json(path)
+    if not isinstance(raw, dict):
+        raise ValueError(f"Catalogue overrides file must contain an object: {path}")
+    result: dict[str, dict[str, Any]] = {}
+    for code, payload in cast(dict[object, object], raw).items():
+        if not isinstance(code, str) or not isinstance(payload, dict):
+            continue
+        result[normalize_course_code(code)] = cast(dict[str, Any], payload)
+    return result
+
+
+def apply_catalogue_overrides(
+    raw: dict[str, dict[str, Any]],
+    overrides: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Return a new catalogue dict with *overrides* merged in.
+
+    Only non-metadata keys (i.e. not ``reason`` or ``date``) from each override
+    entry are applied.  ``raw`` is not mutated.
+    """
+    if not overrides:
+        return raw
+    result = dict(raw)
+    for code, override_entry in overrides.items():
+        base = dict(result.get(code, {}))
+        for key, value in override_entry.items():
+            if key not in _OVERRIDE_METADATA_KEYS:
+                base[key] = value
+        result[code] = base
+    return result
+
+
+def load_catalogue(
+    path: Path,
+    *,
+    apply_overrides: bool = True,
+) -> dict[CourseCode, CourseMeta]:
+    """Load the course catalogue used for UoC, level, and prerequisite data.
+
+    When *apply_overrides* is ``True`` (the default), a sibling file named
+    ``catalogue_overrides.json`` is automatically discovered and merged in
+    before the catalogue entries are parsed.  The linter passes
+    ``apply_overrides=False`` so that it sees the raw handbook text.
+    """
 
     raw = read_json(path)
     if not isinstance(raw, dict):
         raise ValueError(f"Catalogue file must contain an object: {path}")
 
+    raw_catalogue = cast(dict[str, dict[str, Any]], raw)
+
+    if apply_overrides:
+        overrides_path = path.parent / "catalogue_overrides.json"
+        raw_catalogue = apply_catalogue_overrides(
+            raw_catalogue,
+            load_catalogue_overrides(overrides_path),
+        )
+
     result: dict[CourseCode, CourseMeta] = {}
-    for code, payload in cast(dict[object, object], raw).items():
-        if not isinstance(code, str) or not isinstance(payload, dict):
-            continue
+    for code, payload in raw_catalogue.items():
         normalized_code = normalize_course_code(code)
-        entry = cast(dict[str, Any], payload)
-        title = entry.get("title")
-        prerequisites = entry.get("prerequisites")
-        level = entry.get("level")
-        uoc_raw = entry.get("uoc", 6)
+        title = payload.get("title")
+        prerequisites = payload.get("prerequisites")
+        level = payload.get("level")
+        uoc_raw = payload.get("uoc", 6)
 
         uoc = 6
         if isinstance(uoc_raw, int):
