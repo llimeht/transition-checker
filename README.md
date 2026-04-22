@@ -38,6 +38,276 @@ pip install -e .
 All the examples below assume that the package has been installed; the entry point scripts are used.
 
 
+
+## Checking enrolment plans
+
+### Perform validation of all plans in a spreadsheet
+
+This will extract all plans from the spreadsheet and validate them against degree rules, prereq rules, and intended teaching period offerings.
+
+```bash
+plan-validate 'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
+```
+
+### Check offering violations for a single plan
+
+Validate that every course in a plan is offered in its scheduled teaching period.
+
+```bash
+offering-checker plans/CEIC/CEICDH3707_2026_T1.json
+```
+
+Looks for `offerings.json` in the same directory as the plan first; falls back to `plans/offerings.json` in the repository root. Exit code is 0 if no violations, 1 if violations found, 2 on input errors.
+
+Use `--result-json` to get machine-readable output:
+
+```bash
+offering-checker plans/CEIC/CEICDH3707_2026_T1.json --result-json
+```
+
+### Validate the degree rules only
+
+Validate the degree rules to make sure they appear to be syntactically correct.
+
+```bash
+degree-rules rules/CEICDH3707-2026-2029.json -v
+```
+
+### Validate a plan against rules and prerequisites
+
+Validate an enrolment plan, checking the academic rules for the program+stream, and the prerequisite sequencing.
+
+```bash
+degree-rules \
+    rules/TESTAH1234-2020-2025.json \
+    --plan plans/TEST/TESTAH1234_2025_T2.json
+```
+
+If rule violations are found, these can be overridden so that the plan is ACCEPTED
+(which is treated as a PASS) for all subsequent tests.
+Each rule violation that is reported by `degree-rules` (or via `plan-validate`) includes
+a short-code that describes the rule. For example:
+
+```bash
+degree-rules \
+    rules/TESTAH1234-2020-2025.json \
+    --plan plans/TEST/TESTAH1234_2025_T2.json
+```
+```
+Plan has 1 prerequisite/corequisite violation(s):
+  [prereq:TEST4000>96uoc] TEST4000 (2027 Term 1): missing 96uoc (has 84uoc)
+```
+
+And you can then make a permanent override of this error with `--add-override` if you've made
+the academic decision that this is OK for the students, justifed for this transition,
+and will be handled via advice/individual approvals, rather than a rule change in the handbook:
+
+```bash
+degree-rules \
+    rules/TESTAH1234-2020-2025.json \
+    --plan plans/TEST/TESTAH1234_2025_T2.json
+    --add-override 'prereq:TEST4000>96uoc'
+```
+```
+Plan status: ACCEPTED
+```
+
+The overrides are stored next to the plans (with `degree_rules_overrides` included in the filename)
+and can be edited/deleted by hand.
+The above override was created in `plans/TEST/TESTAH1234_2025_T2.degree_rules_overrides.json`
+
+
+## Making enrolment plans
+
+With degree rules, prereq information, and offerings, the tool actually has enough information
+to try to make progression plans, including across the calendar transition.
+
+### Generate one or more plan options
+
+```bash
+map-maker \
+  --rule rules/CEICDH3707-2026-2029.json \
+  --intake "2026 T1" \
+  --num-solutions 4 \
+  --restarts 12 \
+  --iterations 200 \
+  --output plans/CEIC/options.csv \
+  -v
+```
+
+Copy whichever version of this plan you like back into the planning spreadsheet.
+
+### Use steering hints to tune a plan
+
+```bash
+map-maker \
+  --rule rules/CEICDH3707-2026-2029.json \
+  --intake "2026 T1" \
+  --steering templates/map_steering.json \
+  --target-end "2029 S2" \
+  --output /tmp/plan.csv \
+  -v
+```
+
+`--target-end` is an optional indication of when the plan should try to ensure that a student
+has completed the plan.
+Accepts a full intake-style boundary (e.g., `"2027 Term 3"` or `"2028 S1"`).
+The planner applies the steering weight `post_target_period_penalty` to each course scheduled
+*after* that exact slot; setting this option will cause the planner to use Summer/Winter terms
+rather than allowing the enrolment to spill into additional regular teaching periods.
+
+### Use a partial plan as a basis for a full plan
+
+Build the partial plan (say, for up to 2027 based on previously published enrolment sequences)
+in the Excel file with the plans.
+
+Export all the plans (including the partial plan):
+
+```bash
+mapping-checker \
+  --output-dir plans/CEIC/ \
+  'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
+```
+
+Complete the partial plan:
+
+```bash
+map-maker \
+  --rule rules/CEICDH3707-2020-2025.json \
+  --intake "2025 T3" \
+  --steering templates/map_steering.json \
+  --output /tmp/plan.csv \
+  -v
+```
+
+Copy whichever version of this plan you like back into the spreadsheet.
+
+### Steering configuration to `tune map-maker` behaviour
+
+The optional steering file can influence plan shape without changing the rule set.
+
+Typical uses:
+
+- prefer a year or period for a course
+- prefer one branch of an `or` clause
+- encourage one course to appear before another
+
+Example branch preference:
+
+```json
+{
+  "branch_preferences": [
+    {
+      "courses": ["CHEM1811", "CHEM1821"],
+      "weight": -50.0
+    }
+  ]
+}
+```
+
+Interpretation:
+
+- negative weight: prefer that branch
+- positive weight: avoid that branch
+
+### Search Tuning Notes
+
+The most important planner controls are:
+
+- `--restarts`: number of independent baseline attempts; restarts will fill the baseline plan in different ways based on some jitter parameters.
+- `--iterations`: number of permitted course optimisation moves per restart
+- `--patience`: early-stop threshold when a restart stops improving (defaults to 25% of the iterations)
+- `--ruin-fraction`: how large ruin-and-recreate moves are
+
+Practical guidance:
+
+- increase `--restarts` when you want more diversity
+- increase `--iterations` when each restart should search more deeply
+- reduce `--patience` when long runs stall too often
+
+### How `map-maker` Works
+
+Planning is split into four stages:
+
+1. Resolve the rules file into the concrete course set to schedule.
+   - `or` and `min/from` clauses are resolved heuristically.
+   - Steering can bias branch selection.
+2. Build a baseline assignment with `greedy_place()`.
+3. Improve obvious defects with `repair_assignments()`.
+4. Explore alternatives with simulated annealing using:
+   - ruin-and-recreate moves
+   - shift moves
+   - swap moves
+
+The objective combines hard-leaning penalties and softer steering penalties, including:
+
+- offering violations (i.e. course is not actually offered)
+- prerequisite violations
+- failed required clauses
+- unplaced courses
+- overload and seasonal penalties (i.e. avoid summer/winter)
+- slot delay / compactness (i.e. prioritise graduating quickly)
+- optional post-target penalty to discourage extending beyond a chosen end period
+- course-level hints into a particular year, implicitly based on the first digit of the course code or explicitly via steering.
+- soft precedence rules for preferred course sequencing
+
+
+## Data, data sources, and data curation
+
+### Manage the offerings list
+
+Canonicalise and sort an offerings file in place:
+
+```bash
+add-offerings plans/offerings.json --validate
+```
+
+Add one or more teaching periods for a course (creates the entry if absent):
+
+```bash
+add-offerings plans/offerings.json --schedule CEIC2001 T1 T3
+```
+
+Periods are accepted in any alias form (`T1`, `term 1`, `S2`, `semester 2`, `summer`, etc.) and stored in canonical display form. Unknown period names cause a non-zero exit and leave the file unchanged.
+
+
+### Override an prerequisite information in the catalogue
+
+Some handbook prerequisite strings are so ambiguous or malformed that the parser cannot handle them at all.
+Where the *intent* is clear enough to express as a valid prerequisite expression, you can add a catalogue override instead of trying to patch the parser.
+You may also want to change prerequisite information in catalogue from what is currently approved based on changes that you know will be made.
+
+Overrides are stored in `catalogue_overrides.json` beside `catalogue.json` and are merged in automatically whenever the catalogue is loaded by the validation tools.
+
+Add (or update) an override for one course:
+
+```bash
+add-override plans/catalogue.json \
+  --course TEST3000 \
+  --prereq "Prerequisite: TEST2000. Corequisite: TEST2010" \
+  --reason "Change TEST2010 to be a corequisite to make for easier sequencing."
+```
+
+The tool validates that the supplied `--prereq` text parses correctly before writing.
+If the text cannot be parsed, the command exits with error (exits 1) and prints the parse error.
+Use `--force` to write an unparseable override anyway (an auditing warning is printed).
+
+The `date` field is stamped automatically with today's ISO date. The resulting file looks like:
+
+```json
+{
+  "TEST3000": {
+    "date": "2026-04-22",
+    "prerequisites": "Prerequisite: TEST2000. Corequisite: TEST2010",
+    "reason": "Change TEST2010 …"
+  }
+}
+```
+
+To remove an override, delete the relevant entry from `catalogue_overrides.json` by hand.
+
+Note that the linter (`extract-template --lint`) always sees the raw handbook text even when overrides are present.
+
 ### Prerequisite Field Syntax
 
 Plan and catalogue `prerequisites` fields are parsed with a strict token-based
@@ -90,135 +360,27 @@ unsupported include:
  (We believe that some of these maturity requirements also cannot be implemented by UNSW's own systems.)
 
 
-## Common Commands
+### Validating syntax and interpretation of prereq fields
 
-### Perform validation of all plans in a spreadsheet
-
-This will extract all plans from the spreadsheet and validate them against degree rules, prereq rules, and intended teaching period offerings.
+There are two tools to use to look at the prereq parser performance
 
 ```bash
-plan-validate 'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
+extract-template 'plans/CEIC/CEIC Program Sequence Mapping.xlsx' \
+  --lint --lint-output catalogue-prereq-lint.json
 ```
 
-### Check offering violations for a single plan
-
-Validate that every course in a plan is offered in its scheduled teaching period.
+Extract all prerequisite strings from the catalogue and the current parser result for each one.
+This can be kept as a baseline and compared in future parser-change work.
 
 ```bash
-offering-checker plans/CEIC/CEICDH3707_2026_T1.json
+extract-template 'plans/CEIC/CEIC Program Sequence Mapping.xlsx' \
+  --prereq-snapshot-output plans/prereq-snapshot-baseline.json
 ```
 
-Looks for `offerings.json` in the same directory as the plan first; falls back to `plans/offerings.json` in the repository root. Exit code is 0 if no violations, 1 if violations found, 2 on input errors.
+The snapshot contains:
 
-Use `--result-json` to get machine-readable output:
-
-```bash
-offering-checker plans/CEIC/CEICDH3707_2026_T1.json --result-json
-```
-
-### Manage the offerings list
-
-Canonicalise and sort an offerings file in place:
-
-```bash
-add-offerings plans/offerings.json --validate
-```
-
-Add one or more teaching periods for a course (creates the entry if absent):
-
-```bash
-add-offerings plans/offerings.json --schedule CEIC2001 T1 T3
-```
-
-Periods are accepted in any alias form (`T1`, `term 1`, `S2`, `semester 2`, `summer`, etc.) and stored in canonical display form. Unknown period names cause a non-zero exit and leave the file unchanged.
-
-### Validate rules only
-
-Validate the degree rules to make sure they appear to be syntactically correct.
-
-```bash
-degree-rules rules/CEICDH3707-2026-2029.json -v
-```
-
-### Validate a plan against rules and prerequisites
-
-Validate an enrolment plan, checking the academic rules for the program+stream, and the prerequisite sequencing.
-
-```bash
-degree-rules \
-  rules/CEICDH3707-2026-2029.json \
-  --plan plans/CEIC/CEICDH3707_2026_T1.json
-```
-
-If rule violations are found, these can be overridden so that the plan is ACCEPTED
-(which is treated as a PASS) for all subsequent tests.
-Each rule violation that is reported by `degree-rules` (or via `plan-validate`) includes
-a short-code that describes the rule. For example:
-
-```bash
-degree-rules \
-    rules/CEICDH3707-2020-2025.json \
-    --plan plans/CEIC/CEICDH3707_2025_T2.json
-```
-```
-Plan has 1 prerequisite/corequisite violation(s):
-  [prereq:CEICEEEE>96uoc] CEICEEEE (2027 Term 1): missing 96uoc (has 84uoc)
-```
-
-And you can then override this error:
-
-```bash
-degree-rules \
-    rules/CEICDH3707-2020-2025.json \
-    --plan plans/CEIC/CEICDH3707_2025_T2.json \
-    --add-override 'prereq:CEICEEEE>96uoc'
-```
-```
-Plan status: ACCEPTED
-```
-
-The overrides are stored next to the plans (with `degree_rules_overrides` included in the filename)
-and can be edited/deleted by hand.
-The above override was created in `plans/CEIC/CEICDH3707_2025_T2.degree_rules_overrides.json`
-
-
-### Override an prerequisite information in the catalogue
-
-Some handbook prerequisite strings are so ambiguous or malformed that the parser cannot handle them at all.
-Where the *intent* is clear enough to express as a valid prerequisite expression, you can add a catalogue override instead of trying to patch the parser.
-You may also want to change prerequisite information in catalogue from what is currently approved based on changes that you know will be made.
-
-Overrides are stored in `catalogue_overrides.json` beside `catalogue.json` and are merged in automatically whenever the catalogue is loaded by the validation tools.
-
-Add (or update) an override for one course:
-
-```bash
-add-override plans/catalogue.json \
-  --course TEST3000 \
-  --prereq "Prerequisite: TEST2000. Corequisite: TEST2010" \
-  --reason "Change TEST2010 to be a corequisite to make for easier sequencing."
-```
-
-The tool validates that the supplied `--prereq` text parses correctly before writing.
-If the text cannot be parsed, the command exits with error (exits 1) and prints the parse error.
-Use `--force` to write an unparseable override anyway (an auditing warning is printed).
-
-The `date` field is stamped automatically with today's ISO date. The resulting file looks like:
-
-```json
-{
-  "TEST3000": {
-    "date": "2026-04-22",
-    "prerequisites": "Prerequisite: TEST2000. Corequisite: TEST2010",
-    "reason": "CHange TEST2010 …"
-  }
-}
-```
-
-To remove an override, delete the relevant entry from `catalogue_overrides.json` by hand.
-
-Note that the linter (`extract-template --lint`) always sees the raw handbook text even when overrides are present.
-
+- metadata (source catalogue path, generation timestamp, entry count, parser marker)
+- one entry per course with raw `prerequisites`, parsed `prereq_expr`, parsed `coreq_expr`, and parser `error`, and some `salvage` keys that show partial parser recovery information and classification.
 
 
 ### Obtain course metadata from the UNSW Handbook
@@ -238,133 +400,7 @@ The importer uses `requests` for fetching and currently targets
 course handbook URLs of the form `https://www.handbook.unsw.edu.au/<career>/courses/<year>/<course>`.
 Use `--career undergraduate` or `--career postgraduate` depending on which handbook path the course lives under.
 
-### Generate one or more plan options
-
-```bash
-map-maker \
-  --rule rules/CEICDH3707-2026-2029.json \
-  --intake "2026 T1" \
-  --num-solutions 4 \
-  --restarts 12 \
-  --iterations 200 \
-  --output plans/CEIC/options.csv \
-  -v
-```
-
-Copy whichever version of this plan you like back into the planning spreadsheet.
-
-### Use steering hints to tune a plan
-
-```bash
-map-maker \
-  --rule rules/CEICDH3707-2026-2029.json \
-  --intake "2026 T1" \
-  --steering templates/map_steering.json \
-  --target-end "2029 S2" \
-  --output /tmp/plan.csv \
-  -v
-```
-
-`--target-end` is optional. Accepts a full intake-style boundary (e.g., `"2027 Term 3"` or `"2028 S1"`).
-The planner applies the steering weight `post_target_period_penalty` to each course scheduled
-*after* that exact slot.
-
-### Use a partial plan as a basis for a full plan
-
-Build the partial plan (say, for up to 2027 based on previously published enrolment sequences)
-in the Excel file with the plans.
-
-Export all the plans (including the partial plan):
-
-```bash
-mapping-checker \
-  --output-dir plans/CEIC/ \
-  'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
-```
-
-Complete the partial plan:
-
-```bash
-map-maker \
-  --rule rules/CEICDH3707-2020-2025.json \
-  --intake "2025 T3" \
-  --steering templates/map_steering.json \
-  --output /tmp/plan.csv \
-  -v
-```
-
-Copy whichever version of this plan you like back into the spreadsheet.
-
-## Details for `map-maker`
-
-### Steering Configuration
-
-The optional steering file can influence plan shape without changing the rule set.
-
-Typical uses:
-
-- prefer a year or period for a course
-- prefer one branch of an `or` clause
-- encourage one course to appear before another
-
-Example branch preference:
-
-```json
-{
-  "branch_preferences": [
-    {
-      "courses": ["CHEM1811", "CHEM1821"],
-      "weight": -50.0
-    }
-  ]
-}
-```
-
-Interpretation:
-
-- negative weight: prefer that branch
-- positive weight: avoid that branch
-
-### Search Tuning Notes
-
-The most important planner controls are:
-
-- `--restarts`: number of independent baseline attempts; restarts will fill the baseline plan in different ways based on some jitter parameters.
-- `--iterations`: number of permitted course optimisation moves per restart
-- `--patience`: early-stop threshold when a restart stops improving (defaults to 25% of the iterations)
-- `--ruin-fraction`: how large ruin-and-recreate moves are
-
-Practical guidance:
-
-- increase `--restarts` when you want more diversity
-- increase `--iterations` when each restart should search more deeply
-- reduce `--patience` when long runs stall too often
-
-## How `map-maker` Works
-
-Planning is split into four stages:
-
-1. Resolve the rules file into the concrete course set to schedule.
-   - `or` and `min/from` clauses are resolved heuristically.
-   - Steering can bias branch selection.
-2. Build a baseline assignment with `greedy_place()`.
-3. Improve obvious defects with `repair_assignments()`.
-4. Explore alternatives with simulated annealing using:
-   - ruin-and-recreate moves
-   - shift moves
-   - swap moves
-
-The objective combines hard-leaning penalties and softer steering penalties, including:
-
-- offering violations (i.e. course is not actually offered)
-- prerequisite violations
-- failed required clauses
-- unplaced courses
-- overload and seasonal penalties (i.e. avoid summer/winter)
-- slot delay / compactness (i.e. prioritise graduating quickly)
-- optional post-target penalty to discourage extending beyond a chosen end period
-- course-level hints into a particular year, implicitly based on the first digit of the course code or explicitly via steering.
-- soft precedence rules for preferred course sequencing
+(Note that the main spreadsheets now contain direct dumps of all fields from the STU054 report that should already contain this information and this tool is now of limited use.)
 
 
 ## Contributing
