@@ -222,6 +222,11 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
             normalized_part,
         ).strip()
         normalized_part = re.sub(
+            r"(?i)^\s*.*?\bSTUDENTS?\s+MUST\s+HAVE\s+(?:SUCCESSFULLY\s+)?COMPLETED\s+",
+            "",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
             r"(?i)^\s*STUDENTS?\s+NEED\s+TO\s+HAVE\s+(?:SUCCESSFULLY\s+)?COMPLETED\s+",
             "",
             normalized_part,
@@ -238,6 +243,11 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
         ).strip()
         normalized_part = re.sub(
             r"(?i)^\s*STUDENTS?\s+MUST\s+BE\s+ENROLLED\s+IN\s+",
+            "",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)^\s*(?:MUST|SHOULD)\s+BE\s+ENROLLED\s+IN\s+",
             "",
             normalized_part,
         ).strip()
@@ -289,6 +299,11 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
         ).strip()
         normalized_part = re.sub(
             r"(?i)(\d+\s*UOC)\s+IN\s+LEVEL\s+\d+(?:\s+[A-Z0-9][A-Z0-9\s&/-]*)?\s+COURSES?",
+            r"\1",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)(\d+\s*UOC)\s+OF\s+ANY\s+[A-Z]{4}(?:(?:\s*,\s*|\s+(?:AND|OR)\s+)[A-Z]{4})+",
             r"\1",
             normalized_part,
         ).strip()
@@ -497,14 +512,19 @@ PARSEABLE_SIGNAL_RE = re.compile(
 
 SALVAGE_STRIP_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     "program_enrolment": [
+        re.compile(r"(?i)\benrol(?:ment|led)?\s+in\b[^.]*\.\s*"),
+        re.compile(r"(?i)\b(?:must\s+be\s+|be\s+)?enrol(?:ment|led)?\s+in\b.*?(?=\b(?:and|or)\s+(?:have\s+)?completed\b)"),
+        re.compile(r"(?i)\benrol(?:ment|led)?\s+in\b.*?(?=\b(?:and|or)\s+completion\s+of\b)"),
+        re.compile(r"(?i)\benrol(?:ment|led)?\s+in\b.*?(?=\b(?:and|or)\s+completed\b)"),
+        re.compile(r"(?i)\benrol(?:ment|led)?\s+in\b.*?(?=\b(?:and|or)\s+(?:either\s+)?[A-Z]{4}\d{4}\b)"),
         re.compile(r"(?i)\benrol(?:ment|led)?\s+in\b[^,;.)]*"),
         re.compile(r"(?i)\bin\s+program\s+\d{3,4}(?:(?:\s*,\s*|\s+(?:or|and)\s+)\d{3,4})*"),
         re.compile(r"(?i)\bprogram\s+\d{3,4}(?:(?:\s*,\s*|\s+(?:or|and)\s+)\d{3,4})*"),
         re.compile(r"(?i)\b(?:single|double)\s+degree(?:s)?\b"),
-        re.compile(r"(?i)\b[A-Z]{4}\d[A-Z]\b"),
-        re.compile(r"(?i)\b[A-Z]{5}\d\b"),
-        re.compile(r"(?i)\b[A-Z]{6}\b"),
-        re.compile(r"(?i)\b[A-Z]{4}\b"),
+        re.compile(r"\b[A-Z]{4}\d[A-Z]\b"),
+        re.compile(r"\b[A-Z]{5}\d\b"),
+        re.compile(r"\b[A-Z]{6}\b"),
+        re.compile(r"\b[A-Z]{4}\b"),
         re.compile(r"(?i)\b[ A-Z0-9-]+\s+major\b"),
         re.compile(r"(?i)\b[ A-Z0-9-]+\s+speciali[sz]ation\b"),
     ],
@@ -584,6 +604,7 @@ def salvage_mixed_prerequisite_clause(
             stripped = salvage_pattern.sub(" ", stripped)
 
     # Clean obvious connector/punctuation debris left after family stripping.
+    stripped = re.sub(r"(?i)(\d+\s*UOC)\s+OF\s+ANY\b", r"\1", stripped)
     stripped = re.sub(r"(?i)\b(AND|OR)\b\s*$", "", stripped)
     stripped = re.sub(r"(?i)^\s*(AND|OR)\b\s*", "", stripped)
     stripped = re.sub(r"(?i),\s*(AND|OR)\b", r" \1", stripped)

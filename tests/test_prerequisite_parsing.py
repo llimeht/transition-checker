@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from transitionchecker.prereq_engine import parse_prerequisite_field
+from transitionchecker.prereq_engine import parse_prerequisite_field, salvage_mixed_prerequisite_clause
 
 
 def parse(text: str) -> tuple[object | None, object | None, str | None]:
     """Convenience wrapper returning (prereq_expr, coreq_expr, error)."""
     return parse_prerequisite_field(text)
+
+
+def salvage(text: str, matched_families: list[str]) -> tuple[bool, object | None, str | None]:
+    """Convenience wrapper for mixed-clause salvage tests."""
+    return salvage_mixed_prerequisite_clause(text, matched_families)
 
 
 class TestEmptyAndTrivialInputs:
@@ -428,3 +433,45 @@ class TestInvalidInputs:
         result1 = parse("CEIC1000 AND CEIC1001")
         result2 = parse("CEIC1000 AND CEIC1001")
         assert result1 == result2
+
+
+class TestMixedClauseSalvage:
+    def test_salvage_program_enrolment_sentence_with_following_uoc_and_courses(self) -> None:
+        salvaged, expr, err = salvage(
+            "Prerequisite: Enrolment in a postgraduate Education, Educational Leadership "
+            "program, or Master of Teaching (Secondary). Master of Teaching (Secondary) "
+            "students must have completed 48 UOC including EDST6760, EDST5112 and EDST5133.",
+            ["program_enrolment"],
+        )
+        assert salvaged is True
+        assert err is None
+        assert expr == {"and": [{"uoc": 48}, "EDST6760", "EDST5112", "EDST5133"]}
+
+    def test_salvage_program_enrolment_with_uoc_of_any_code_groups(self) -> None:
+        salvaged, expr, err = salvage(
+            "Prerequisite: 6 UOC of any DPGE, DPST, DPBS and enrolled in a UNSW Diploma program",
+            ["program_enrolment"],
+        )
+        assert salvaged is True
+        assert err is None
+        assert expr == {"uoc": 6}
+
+    def test_salvage_program_enrolment_with_following_completion_requirement(self) -> None:
+        salvaged, expr, err = salvage(
+            "Prerequisite: Enrolment in ACCTKS CPAA Specialisation AND completion of 36 UOC in Program 8415, "
+            "OR Enrolment in 5415",
+            ["program_enrolment"],
+        )
+        assert salvaged is True
+        assert err is None
+        assert expr == {"uoc": 36}
+
+    def test_salvage_program_enrolment_with_following_course_requirement(self) -> None:
+        salvaged, expr, err = salvage(
+            "Prerequisite: Enrolment in program 3896 Exercise Science/Physiotherapy and Exercise Physiology "
+            "AND SOMS1912",
+            ["program_enrolment"],
+        )
+        assert salvaged is True
+        assert err is None
+        assert expr == "SOMS1912"
