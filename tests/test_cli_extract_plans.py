@@ -1,4 +1,4 @@
-"""Behavior tests for mapping_checker CLI."""
+"""Behavior tests for extract_plans CLI."""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from transitionchecker.cli import mapping_checker_cli
+from transitionchecker.cli import extract_plans_cli
 
 
 def test_requires_excel_file_argument() -> None:
     with pytest.raises(SystemExit) as exc:
-        mapping_checker_cli.main([])
+        extract_plans_cli.main([])
     assert exc.value.code == 2
 
 
@@ -41,8 +41,8 @@ def test_main_runs_export_flow_and_writes_offerings(
         plan = pd.DataFrame([{"Code": "TEST1001", "Period": "Term 1"}])
         return iter([("2026 T1", plan)])
 
-    monkeypatch.setattr(mapping_checker_cli, "iter_sheets", fake_iter_sheets)
-    monkeypatch.setattr(mapping_checker_cli, "iter_plans", fake_iter_plans)
+    monkeypatch.setattr(extract_plans_cli, "iter_sheets", fake_iter_sheets)
+    monkeypatch.setattr(extract_plans_cli, "iter_plans", fake_iter_plans)
 
     def fake_course_terms(_plan: pd.DataFrame) -> dict[str, set[str]]:
         return {"TEST1001": {"Term 1"}}
@@ -67,18 +67,18 @@ def test_main_runs_export_flow_and_writes_offerings(
     ) -> Path:
         return out_dir / "mapping_offerings.csv"
 
-    monkeypatch.setattr(mapping_checker_cli, "course_terms", fake_course_terms)
-    monkeypatch.setattr(mapping_checker_cli, "export_plan", fake_export_plan)
+    monkeypatch.setattr(extract_plans_cli, "course_terms", fake_course_terms)
+    monkeypatch.setattr(extract_plans_cli, "export_plan", fake_export_plan)
     monkeypatch.setattr(
-        mapping_checker_cli, "summarise_offerings", fake_summarise_offerings
+        extract_plans_cli, "summarise_offerings", fake_summarise_offerings
     )
     monkeypatch.setattr(
-        mapping_checker_cli, "write_offerings_file", fake_write_offerings_file
+        extract_plans_cli, "write_offerings_file", fake_write_offerings_file
     )
     monkeypatch.setattr(
-        mapping_checker_cli, "write_offerings_csv", fake_write_offerings_csv
+        extract_plans_cli, "write_offerings_csv", fake_write_offerings_csv
     )
 
-    code = mapping_checker_cli.main([str(excel), "--output-dir", str(out_dir)])
+    code = extract_plans_cli.main([str(excel), "--output-dir", str(out_dir)])
     assert code == 0
     assert out_dir.is_dir()

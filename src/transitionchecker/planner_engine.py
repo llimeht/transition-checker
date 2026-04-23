@@ -162,7 +162,7 @@ class CostDetails:
 
 @dataclass(frozen=True)
 class PartialPlanCourseRecord:
-    """One fixed course row extracted from an existing mapping-checker plan file."""
+    """One fixed course row extracted from an existing extract-plans plan file."""
 
     code: str
     year: int | None

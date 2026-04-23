@@ -250,7 +250,7 @@ def export_plan(
 
 
 def _build_cli_parser() -> argparse.ArgumentParser:
-    """Construct CLI argument parser for the mapping export command.
+    """Construct CLI argument parser for the plan extraction command.
 
     Returns:
         Configured ArgumentParser instance.
@@ -262,7 +262,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Example: \n"
-            "  mapping-checker 'plans/CEIC/CEIC Program Sequence Mapping.xlsx' "
+            "  extract-plans 'plans/CEIC/CEIC Program Sequence Mapping.xlsx' "
             "--output-dir plans/CEIC -v"
         ),
     )

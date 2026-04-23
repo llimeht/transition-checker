@@ -6,10 +6,10 @@ import sys
 from pathlib import Path
 
 try:
-    from transitionchecker.cli.mapping_checker_cli import main as _main
+    from transitionchecker.cli.extract_plans_cli import main as _main
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
-    from transitionchecker.cli.mapping_checker_cli import main as _main
+    from transitionchecker.cli.extract_plans_cli import main as _main
 
 
 def main(argv: list[str] | None = None) -> int:

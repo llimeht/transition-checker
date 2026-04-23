@@ -94,7 +94,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--partial-plan",
         help=(
-            "Optional existing mapping-checker plan JSON used as a fixed partial map. "
+            "Optional existing extract-plans plan JSON used as a fixed partial map. "
             "Courses present in that plan are treated as fixed, and remaining capacity in "
             "those periods remains empty."
         ),

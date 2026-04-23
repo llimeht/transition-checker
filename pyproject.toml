@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "degreeplanner"
-version = "0.1.0"
+version = "0.3.0"
 requires-python = ">=3.11"
 license = { text = "BSD-3-Clause" }
 dependencies = [
@@ -19,7 +19,7 @@ py-modules = [
     "add_override",
     "degree_rules",
     "offering_checker",
-    "mapping_checker",
+    "extract_plans",
     "map_maker",
     "validate",
     "extract_template",
@@ -36,7 +36,7 @@ add-offerings    = "transitionchecker.cli.add_offerings_cli:main"
 add-override     = "transitionchecker.cli.add_override_cli:main"
 degree-rules      = "transitionchecker.cli.degree_rules_cli:main"
 offering-checker  = "transitionchecker.cli.offering_checker_cli:main"
-mapping-checker   = "transitionchecker.cli.mapping_checker_cli:main"
+extract-plans     = "transitionchecker.cli.extract_plans_cli:main"
 map-maker         = "transitionchecker.cli.map_maker_cli:main"
 plan-validate     = "transitionchecker.cli.validate_cli:main"
 extract-template  = "transitionchecker.cli.extract_template_cli:main"

@@ -167,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
     export_result = run_cmd(
         [
             sys.executable,
-            str(project_root / "mapping_checker.py"),
+            str(project_root / "extract_plans.py"),
             str(excel_file),
             "--output-dir",
             str(output_dir),

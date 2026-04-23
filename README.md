@@ -5,7 +5,7 @@ Utilities for validating degree rules, extracting planning templates, and genera
 The repository currently has three main workflows:
 
 1. Extract and validate enrolment transition plans:
-    - Extract enrolment and transition plans from standardised Excel sheets (`mapping-checker`), noting the required semester offerings of courses.
+    - Extract enrolment and transition plans from standardised Excel sheets (`extract-plans`), noting the required semester offerings of courses.
     - Validate that plans will satisfy the degree rules and prerequisite rules with `degree-rules`
     - Validate that plans will satisfy actual intended semester offerings with `offering-checker`
 
@@ -24,7 +24,7 @@ The repository currently has three main workflows:
 - Input files:
     - standardised transition planning spreadsheet (e.g. `CEIC Program Sequence Mapping.xlsx`, fetched from canonical location on SharePoint); stored in `plans/<SCHOOL>/`
     - degree rules for each specialisation of interest (e.g. `CEICAH3707.json`); stored in `rules/`; where rules have changed over time, they can be `<stream><program>-<YYYY>-<YYYY>.json` like `CEICDH3707-2020-2025.json` to indicate the start and stop handbook years.
-    - offerings list in `plans/offerings.json`; this can be copied from the output of `mapping-checker` with some manual checking that the courses are indeed in the intended teaching periods. Use `add-offerings` to maintain and normalise this file.
+    - offerings list in `plans/offerings.json`; this can be copied from the output of `extract-plans` with some manual checking that the courses are indeed in the intended teaching periods. Use `add-offerings` to maintain and normalise this file.
 )
 
 Example setup:
@@ -164,7 +164,7 @@ in the Excel file with the plans.
 Export all the plans (including the partial plan):
 
 ```bash
-mapping-checker \
+extract-plans \
   --output-dir plans/CEIC/ \
   'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
 ```
