@@ -15,8 +15,10 @@ import warnings
 
 import pandas as pd
 from transitionchecker.core.mapping_workbook import (
+    ProgramSheetHeader,
     iter_plans,
-    iter_program_sheets as iter_sheets,
+    iter_program_sheets,
+    extract_program_sheet_header,
 )
 from transitionchecker.utils.logging import configure_logging
 
@@ -37,6 +39,9 @@ class PlanCourse(TypedDict):
 class PlanExport(TypedDict):
     sheet: str
     intake: str
+    program: str
+    career: str
+    uoc: int
     courses: list[PlanCourse]
 
 
@@ -192,12 +197,15 @@ def _to_int(val: Any, default: int | None = None) -> int:
     return int(str(val).strip())
 
 
-def plan_to_dict(sheet_name: str, intake: str, plan: pd.DataFrame) -> PlanExport:
+def plan_to_dict(
+    sheet_name: str, intake: str, header: ProgramSheetHeader, plan: pd.DataFrame
+) -> PlanExport:
     """Serialize one plan DataFrame to JSON-ready structure.
 
     Args:
         sheet_name: Name of the source worksheet.
         intake: Intake identifier extracted from the sheet.
+        header: Header information extracted from the sheet.
         plan: Plan rows for one intake.
 
     Returns:
@@ -222,24 +230,36 @@ def plan_to_dict(sheet_name: str, intake: str, plan: pd.DataFrame) -> PlanExport
             )
         except (ValueError, KeyError) as e:
             raise ValueError(f"{sheet_name} intake {intake}, row {idx}: {e}") from e
-    return {"sheet": sheet_name, "intake": intake, "courses": courses}
+    return {
+        "sheet": sheet_name,
+        "program": header.get("program", ""),
+        "career": header.get("career", ""),
+        "uoc": int(header.get("uoc", 0)),
+        "intake": intake,
+        "courses": courses,
+    }
 
 
 def export_plan(
-    sheet_name: str, intake: str, plan: pd.DataFrame, output_dir: Path
+    sheet_name: str,
+    intake: str,
+    header: ProgramSheetHeader,
+    plan: pd.DataFrame,
+    output_dir: Path,
 ) -> Path | None:
     """Write one intake plan JSON file.
 
     Args:
         sheet_name: Name of the source worksheet.
         intake: Intake identifier extracted from the sheet.
+        header: Header information extracted from the sheet.
         plan: Plan rows for one intake.
         output_dir: Destination directory for exported plan files.
 
     Returns:
         Generated file path, or None when the plan has no course rows.
     """
-    plan_dict = plan_to_dict(sheet_name, intake, plan)
+    plan_dict = plan_to_dict(sheet_name, intake, header, plan)
     if not plan_dict["courses"]:
         return None
     safe_name = f"{sheet_name}_{intake}".replace(" ", "_")
@@ -313,13 +333,14 @@ def main(argv: list[str] | None = None) -> int:
 
     offerings: list[dict[str, set[str]]] = []
 
-    for sheet_name, df in iter_sheets(dfs):
+    for sheet_name, df in iter_program_sheets(dfs):
         logger.info(f"Processing sheet: {sheet_name}")
+        header = extract_program_sheet_header(df)
         for intake, plan in iter_plans(df):
             logger.info(f"  Intake {intake}")
             offering = course_terms(plan)
             offerings.append(offering)
-            path = export_plan(sheet_name, intake, plan, output_dir_path)
+            path = export_plan(sheet_name, intake, header, plan, output_dir_path)
             if path is None:
                 logger.debug(f"  Skipped (no courses)")
             else:

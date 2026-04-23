@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Collection, Generator
-from typing import Any
+from typing import Any, TypedDict
 
 import pandas as pd
 
@@ -49,6 +49,12 @@ CATALOGUE_SHEET_COLUMNS = {
     "Prerequisites": 4,
     "ToDo": 5,
 }
+
+
+class ProgramSheetHeader(TypedDict):
+    program: str
+    career: str
+    uoc: int
 
 
 def find_catalogue_sheet(workbook: Any) -> Any:
@@ -211,3 +217,28 @@ def iter_plans(
         intake = str(sub.iloc[0, 3]).strip()  # intake comment is in column D (index 3)
         rows = sub.iloc[1:].reset_index(drop=True)
         yield intake, rows
+
+
+def extract_program_sheet_header(
+    sheet: pd.DataFrame,
+) -> ProgramSheetHeader:
+    """Extract the program sheet header information from a normalised sheet.
+
+    Args:
+        sheet: A sheet already normalised by ``iter_program_sheets``.
+    Returns:
+        Dictionary with keys "program", "career", and "uoc" from the first row of the sheet.
+    """
+    code = str(sheet.iloc[0, 3]).strip()  # program code is in column D2
+    career = str(sheet.iloc[1, 3]).strip()  # career is in column D3
+    uoc: int = 0
+    try:
+        uoc = int(sheet.iloc[2, 3])  # type: ignore  # pyright: ignore[reportUnknownVariableType]  # UoC is in column D4
+    except (ValueError, TypeError):
+        pass
+
+    return ProgramSheetHeader(
+        program=code,
+        career=career,
+        uoc=uoc,
+    )

@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from transitionchecker.cli import extract_plans_cli
+from transitionchecker.core.mapping_workbook import ProgramSheetHeader
 
 
 def test_requires_excel_file_argument() -> None:
@@ -41,14 +42,21 @@ def test_main_runs_export_flow_and_writes_offerings(
         plan = pd.DataFrame([{"Code": "TEST1001", "Period": "Term 1"}])
         return iter([("2026 T1", plan)])
 
-    monkeypatch.setattr(extract_plans_cli, "iter_sheets", fake_iter_sheets)
+    monkeypatch.setattr(extract_plans_cli, "iter_program_sheets", fake_iter_sheets)
     monkeypatch.setattr(extract_plans_cli, "iter_plans", fake_iter_plans)
+
+    def fake_extract_program_sheet_header(_sheet: pd.DataFrame) -> ProgramSheetHeader:
+        return {"program": "TEST", "career": "Undergraduate", "uoc": 24}
 
     def fake_course_terms(_plan: pd.DataFrame) -> dict[str, set[str]]:
         return {"TEST1001": {"Term 1"}}
 
     def fake_export_plan(
-        _sheet: str, _intake: str, _plan: pd.DataFrame, _output_dir: Path
+        _sheet: str,
+        _intake: str,
+        _header: ProgramSheetHeader,
+        _plan: pd.DataFrame,
+        _output_dir: Path,
     ) -> Path:
         return out_dir / "p.json"
 
@@ -67,6 +75,11 @@ def test_main_runs_export_flow_and_writes_offerings(
     ) -> Path:
         return out_dir / "mapping_offerings.csv"
 
+    monkeypatch.setattr(
+        extract_plans_cli,
+        "extract_program_sheet_header",
+        fake_extract_program_sheet_header,
+    )
     monkeypatch.setattr(extract_plans_cli, "course_terms", fake_course_terms)
     monkeypatch.setattr(extract_plans_cli, "export_plan", fake_export_plan)
     monkeypatch.setattr(
