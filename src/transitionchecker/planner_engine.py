@@ -440,7 +440,9 @@ def load_templates(path: Path) -> TemplateConfig:
     return cast(TemplateConfig, raw)
 
 
-def extract_partial_plan_courses(plan_data: dict[str, Any]) -> list[PartialPlanCourseRecord]:
+def extract_partial_plan_courses(
+    plan_data: dict[str, Any],
+) -> list[PartialPlanCourseRecord]:
     """Extract fixed course rows from an existing plan JSON document."""
 
     courses_raw = plan_data.get("courses")
@@ -821,7 +823,9 @@ def _available_target_labels(slots: list[Slot]) -> str:
         {(slot.calendar_year, slot.canonical_period) for slot in slots},
         key=lambda item: (item[0], period_rank(item[1], fallback=999) or 999, item[1]),
     )
-    return ", ".join(_format_year_period(year, canonical) for year, canonical in unique_targets)
+    return ", ".join(
+        _format_year_period(year, canonical) for year, canonical in unique_targets
+    )
 
 
 def resolve_target_end_slot(slots: list[Slot], target_end: str) -> int:
@@ -843,17 +847,13 @@ def resolve_target_end_slot(slots: list[Slot], target_end: str) -> int:
         )
     except ValueError as exc:
         available = _available_target_labels(slots)
-        raise ValueError(
-            (
-                f"{exc} "
-                f"Available targets: {available}"
-            )
-        ) from exc
+        raise ValueError((f"{exc} Available targets: {available}")) from exc
 
     matching = [
         slot
         for slot in slots
-        if slot.calendar_year == target_year and slot.canonical_period == canonical_target
+        if slot.calendar_year == target_year
+        and slot.canonical_period == canonical_target
     ]
 
     if not matching:
@@ -1026,14 +1026,17 @@ def feasible_slots_for_course(
     if fixed_constraints is not None:
         pinned_slot = fixed_constraints.fixed_assignments.get(code)
         if pinned_slot is not None:
-            feasible_slots = [slot for slot in feasible_slots if slot.slot_idx == pinned_slot]
+            feasible_slots = [
+                slot for slot in feasible_slots if slot.slot_idx == pinned_slot
+            ]
         else:
             feasible_slots = [
                 slot
                 for slot in feasible_slots
                 if (
                     slot.slot_idx not in fixed_constraints.locked_slots
-                    or code in fixed_constraints.allowed_codes_by_slot.get(slot.slot_idx, set())
+                    or code
+                    in fixed_constraints.allowed_codes_by_slot.get(slot.slot_idx, set())
                 )
             ]
 
@@ -1409,7 +1412,11 @@ def evaluate_plan_cost(
                 fixed_constraint_violations += 1
 
         for code, slot_idx in assignments.items():
-            if slot_idx in fixed_constraints.locked_slots and code not in fixed_constraints.allowed_codes_by_slot.get(slot_idx, set()):
+            if (
+                slot_idx in fixed_constraints.locked_slots
+                and code
+                not in fixed_constraints.allowed_codes_by_slot.get(slot_idx, set())
+            ):
                 fixed_constraint_violations += 1
 
     cost = 0.0
@@ -1670,7 +1677,9 @@ def repair_assignments(
             if code in fixed_codes:
                 continue
             original_slot = current[code]
-            feasible = feasible_slots_for_course(code, slots, offerings, fixed_constraints)
+            feasible = feasible_slots_for_course(
+                code, slots, offerings, fixed_constraints
+            )
             best_local = current_cost
             best_slot = original_slot
             prereq_safe_slots = [

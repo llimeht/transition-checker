@@ -200,9 +200,12 @@ def extract_template_configs_from_workbook(excel_path: Path) -> dict[str, Any]:
     return {"intakes": intakes}
 
 
-def lint_prerequisites(catalogue: dict[str, dict[str, Any]], output: str | None = None) -> int:
+def lint_prerequisites(
+    catalogue: dict[str, dict[str, Any]], output: str | None = None
+) -> int:
     """Lint prerequisites in the catalogue and report unrecognized ones."""
     from transitionchecker.prereq_engine import parse_prerequisite_field
+
     lint_results: list[dict[str, Any]] = []
     for course_code, course in catalogue.items():
         prereq = str(course.get("prerequisites", ""))
@@ -213,28 +216,33 @@ def lint_prerequisites(catalogue: dict[str, dict[str, Any]], output: str | None 
             salvaged_expr: str = ""
             salvage_error: str = ""
             if classification is PrerequisiteClauseClassification.MIXED:
-                salvaged, salvage_expr_obj, salvage_error_obj = salvage_mixed_prerequisite_clause(
-                    prereq,
-                    matched_families,
+                salvaged, salvage_expr_obj, salvage_error_obj = (
+                    salvage_mixed_prerequisite_clause(
+                        prereq,
+                        matched_families,
+                    )
                 )
                 if salvage_expr_obj is not None:
                     salvaged_expr = json.dumps(salvage_expr_obj, sort_keys=True)
                 if salvage_error_obj is not None:
                     salvage_error = salvage_error_obj
-            lint_results.append({
-                "course_code": str(course_code),
-                "prerequisites": prereq,
-                "error": str(error),
-                "classification": classification.value,
-                "matched_families": ",".join(matched_families),
-                "salvaged": salvaged,
-                "salvaged_expr": salvaged_expr,
-                "salvage_error": salvage_error,
-            })
+            lint_results.append(
+                {
+                    "course_code": str(course_code),
+                    "prerequisites": prereq,
+                    "error": str(error),
+                    "classification": classification.value,
+                    "matched_families": ",".join(matched_families),
+                    "salvaged": salvaged,
+                    "salvaged_expr": salvaged_expr,
+                    "salvage_error": salvage_error,
+                }
+            )
     if output:
         out_path = Path(output)
         if out_path.suffix.lower() == ".csv":
             import csv
+
             with open(out_path, "w", encoding="utf-8", newline="") as f:
                 writer = csv.DictWriter(
                     f,
@@ -272,6 +280,7 @@ def lint_prerequisites(catalogue: dict[str, dict[str, Any]], output: str | None 
             print("No unrecognized prerequisites found.")
     # Exit with nonzero code if any errors found
     return 1 if lint_results else 0
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -311,12 +320,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--lint",
         action="store_true",
-        help="Lint all prerequisites in the extracted catalogue and report unrecognized ones."
+        help="Lint all prerequisites in the extracted catalogue and report unrecognized ones.",
     )
     parser.add_argument(
         "--lint-output",
         default=None,
-        help="Output file for lint results (CSV or JSON, determined by file extension)."
+        help="Output file for lint results (CSV or JSON, determined by file extension).",
     )
     parser.add_argument(
         "--prereq-snapshot-output",
@@ -336,7 +345,9 @@ def main(argv: list[str] | None = None) -> int:
     template_file = Path(args.template_output)
     plans_dir = catalogue_file.parent
     templates_dir = template_file.parent
-    snapshot_file = Path(args.prereq_snapshot_output) if args.prereq_snapshot_output else None
+    snapshot_file = (
+        Path(args.prereq_snapshot_output) if args.prereq_snapshot_output else None
+    )
     catalogue_input = Path(args.catalogue_input) if args.catalogue_input else None
 
     if excel_path is None and catalogue_input is None:
@@ -384,7 +395,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if snapshot_file is not None:
         try:
-            source_catalogue = str(catalogue_input) if catalogue_input else str(catalogue_file)
+            source_catalogue = (
+                str(catalogue_input) if catalogue_input else str(catalogue_file)
+            )
             write_prerequisite_snapshot(catalogue, snapshot_file, source_catalogue)
         except Exception as exc:
             print(f"ERROR: Failed to write prerequisite snapshot: {exc}")
@@ -410,18 +423,22 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         with open(template_file, "w", encoding="utf-8") as fh:
             json.dump(template_configs, fh, indent=2)
-        reporting.extend([
-            f"Template config file: {template_file}",
-            f"Intakes in template config: {len(template_configs.get('intakes', {}))}",
-        ])
+        reporting.extend(
+            [
+                f"Template config file: {template_file}",
+                f"Intakes in template config: {len(template_configs.get('intakes', {}))}",
+            ]
+        )
 
     if export_catalogue:
         with open(catalogue_file, "w", encoding="utf-8") as fh:
             json.dump(catalogue, fh, indent=2)
-            reporting.extend([
+            reporting.extend(
+                [
                     f"Catalogue file: {catalogue_file}",
-                    f"Catalogue entries: {len(catalogue)}"
-            ])
+                    f"Catalogue entries: {len(catalogue)}",
+                ]
+            )
 
     print("\n=== COMPLETE ===")
     print("\n".join(reporting))

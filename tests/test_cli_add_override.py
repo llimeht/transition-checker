@@ -47,7 +47,9 @@ def test_requires_prereq(tmp_path: Path) -> None:
 def test_requires_reason(tmp_path: Path) -> None:
     cat = _write_catalogue(tmp_path)
     with pytest.raises(SystemExit) as exc:
-        add_override_cli.main([str(cat), "--course", "CEIC3000", "--prereq", "CEIC2000"])
+        add_override_cli.main(
+            [str(cat), "--course", "CEIC3000", "--prereq", "CEIC2000"]
+        )
     assert exc.value.code == 2
 
 
@@ -60,7 +62,15 @@ def test_creates_overrides_file_when_absent(tmp_path: Path) -> None:
     cat = _write_catalogue(tmp_path)
 
     code = add_override_cli.main(
-        [str(cat), "--course", "CEIC3000", "--prereq", "CEIC2000", "--reason", "test reason"]
+        [
+            str(cat),
+            "--course",
+            "CEIC3000",
+            "--prereq",
+            "CEIC2000",
+            "--reason",
+            "test reason",
+        ]
     )
 
     assert code == 0
@@ -78,13 +88,27 @@ def test_updates_existing_override(tmp_path: Path) -> None:
     overrides_file = _overrides_path(cat)
     overrides_file.write_text(
         json.dumps(
-            {"CEIC3000": {"prerequisites": "CEIC1000", "reason": "old", "date": "2026-01-01"}}
+            {
+                "CEIC3000": {
+                    "prerequisites": "CEIC1000",
+                    "reason": "old",
+                    "date": "2026-01-01",
+                }
+            }
         ),
         encoding="utf-8",
     )
 
     code = add_override_cli.main(
-        [str(cat), "--course", "CEIC3000", "--prereq", "CEIC2000", "--reason", "updated"]
+        [
+            str(cat),
+            "--course",
+            "CEIC3000",
+            "--prereq",
+            "CEIC2000",
+            "--reason",
+            "updated",
+        ]
     )
 
     assert code == 0
@@ -98,7 +122,13 @@ def test_adds_second_course_preserves_first(tmp_path: Path) -> None:
     overrides_file = _overrides_path(cat)
     overrides_file.write_text(
         json.dumps(
-            {"CEIC1000": {"prerequisites": "CEIC0000", "reason": "existing", "date": "2026-01-01"}}
+            {
+                "CEIC1000": {
+                    "prerequisites": "CEIC0000",
+                    "reason": "existing",
+                    "date": "2026-01-01",
+                }
+            }
         ),
         encoding="utf-8",
     )
@@ -184,7 +214,15 @@ def test_parseable_prereq_succeeds_without_force(tmp_path: Path) -> None:
     cat = _write_catalogue(tmp_path)
 
     code = add_override_cli.main(
-        [str(cat), "--course", "CEIC3000", "--prereq", "CEIC2000 AND CEIC2010", "--reason", "r"]
+        [
+            str(cat),
+            "--course",
+            "CEIC3000",
+            "--prereq",
+            "CEIC2000 AND CEIC2010",
+            "--reason",
+            "r",
+        ]
     )
 
     assert code == 0

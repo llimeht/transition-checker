@@ -243,8 +243,12 @@ def test_derive_fixed_constraints_locks_period_and_allows_only_fixed_courses() -
         "TEST1002": ["Term 1", "Term 2"],
     }
 
-    fixed_feasible = feasible_slots_for_course("TEST1001", slots, offerings, constraints)
-    other_feasible = feasible_slots_for_course("TEST1002", slots, offerings, constraints)
+    fixed_feasible = feasible_slots_for_course(
+        "TEST1001", slots, offerings, constraints
+    )
+    other_feasible = feasible_slots_for_course(
+        "TEST1002", slots, offerings, constraints
+    )
 
     assert constraints.fixed_assignments == {"TEST1001": 0}
     assert constraints.locked_slots == {0}
@@ -353,7 +357,11 @@ def test_evaluate_plan_cost_penalizes_courses_after_target_end_slot() -> None:
 
 def test_apply_catalogue_overrides_patches_prerequisite() -> None:
     raw: dict[str, dict[str, Any]] = {
-        "CEIC3000": {"title": "Some Course", "uoc": 6, "prerequisites": "enrolled in program 4501"}
+        "CEIC3000": {
+            "title": "Some Course",
+            "uoc": 6,
+            "prerequisites": "enrolled in program 4501",
+        }
     }
     overrides = {
         "CEIC3000": {
@@ -373,7 +381,13 @@ def test_apply_catalogue_overrides_patches_prerequisite() -> None:
 
 def test_apply_catalogue_overrides_does_not_mutate_raw() -> None:
     raw = {"CEIC3000": {"prerequisites": "original"}}
-    overrides = {"CEIC3000": {"prerequisites": "CEIC2000", "reason": "test", "date": "2026-04-22"}}
+    overrides = {
+        "CEIC3000": {
+            "prerequisites": "CEIC2000",
+            "reason": "test",
+            "date": "2026-04-22",
+        }
+    }
     result = apply_catalogue_overrides(raw, overrides)
     assert raw["CEIC3000"]["prerequisites"] == "original"
     assert result["CEIC3000"]["prerequisites"] == "CEIC2000"
@@ -381,7 +395,9 @@ def test_apply_catalogue_overrides_does_not_mutate_raw() -> None:
 
 def test_apply_catalogue_overrides_adds_course_not_in_raw() -> None:
     raw: dict[str, dict[str, object]] = {}
-    overrides = {"CEIC9999": {"prerequisites": "CEIC1000", "reason": "new", "date": "2026-04-22"}}
+    overrides = {
+        "CEIC9999": {"prerequisites": "CEIC1000", "reason": "new", "date": "2026-04-22"}
+    }
     result = apply_catalogue_overrides(raw, overrides)
     assert result["CEIC9999"]["prerequisites"] == "CEIC1000"
 
@@ -424,7 +440,15 @@ def test_load_catalogue_applies_overrides_by_default(tmp_path: Path) -> None:
 
     catalogue_file = tmp_path / "catalogue.json"
     catalogue_file.write_text(
-        json.dumps({"CEIC3000": {"title": "C", "uoc": 6, "prerequisites": "enrolled in program"}}),
+        json.dumps(
+            {
+                "CEIC3000": {
+                    "title": "C",
+                    "uoc": 6,
+                    "prerequisites": "enrolled in program",
+                }
+            }
+        ),
         encoding="utf-8",
     )
     overrides_file = tmp_path / "catalogue_overrides.json"
@@ -449,7 +473,15 @@ def test_load_catalogue_apply_overrides_false_ignores_file(tmp_path: Path) -> No
 
     catalogue_file = tmp_path / "catalogue.json"
     catalogue_file.write_text(
-        json.dumps({"CEIC3000": {"title": "C", "uoc": 6, "prerequisites": "enrolled in program"}}),
+        json.dumps(
+            {
+                "CEIC3000": {
+                    "title": "C",
+                    "uoc": 6,
+                    "prerequisites": "enrolled in program",
+                }
+            }
+        ),
         encoding="utf-8",
     )
     overrides_file = tmp_path / "catalogue_overrides.json"

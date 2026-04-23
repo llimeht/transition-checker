@@ -180,8 +180,14 @@ def _clause_summary(clause: dict[str, Any], max_items: int = 4) -> str:
             elif isinstance(opt, dict) and "and" in opt:
                 opt_dict = cast(dict[str, Any], opt)
                 raw_and_val = opt_dict.get("and")
-                and_list = cast(list[Any], raw_and_val) if isinstance(raw_and_val, list) else []  # type: ignore[redundant-cast]
-                labels.append("+".join(str(c) for c in and_list[:3]) if and_list else "...")
+                and_list = (
+                    cast(list[Any], raw_and_val)
+                    if isinstance(raw_and_val, list)
+                    else []
+                )  # type: ignore[redundant-cast]
+                labels.append(
+                    "+".join(str(c) for c in and_list[:3]) if and_list else "..."
+                )
             else:
                 labels.append("...")
         suffix = "|..." if len(options) > max_items else ""
@@ -221,7 +227,13 @@ def _extract_clause_metadata(raw_config: dict[str, Any]) -> list[ValidationWarni
             1
             for c in clauses
             if isinstance(c, dict)
-            and ("or" in cast(dict[str, Any], c) or ("min" in cast(dict[str, Any], c) and "from" in cast(dict[str, Any], c)))
+            and (
+                "or" in cast(dict[str, Any], c)
+                or (
+                    "min" in cast(dict[str, Any], c)
+                    and "from" in cast(dict[str, Any], c)
+                )
+            )
         )
 
         for idx, clause_obj in enumerate(clauses):
@@ -362,7 +374,9 @@ def _collect_missing_atoms(
         children = cast(list[RuleExpr], node["and"])
         missing: list[str] = []
         for child in children:
-            missing.extend(_collect_missing_atoms(child, completed_courses, completed_uoc))
+            missing.extend(
+                _collect_missing_atoms(child, completed_courses, completed_uoc)
+            )
         return missing
 
     if set(node.keys()) == {"or"}:
@@ -381,8 +395,8 @@ def validate_scheduled_prerequisites(
     Courses in the same teaching period do not satisfy prerequisites for one
     another, but they may satisfy corequisites.
     """
-    failures, unsupported, _findings, _warnings = validate_scheduled_prerequisites_detailed(
-        courses
+    failures, unsupported, _findings, _warnings = (
+        validate_scheduled_prerequisites_detailed(courses)
     )
     return failures, unsupported
 
@@ -425,9 +439,7 @@ def validate_scheduled_prerequisites_detailed(
             course_label = f"{current.code} ({current.year} {current.period})"
 
             if unsupported_reason:
-                unsupported_msg = (
-                    f"{course_label}: {unsupported_reason}; raw='{current.prerequisites.strip()}'"
-                )
+                unsupported_msg = f"{course_label}: {unsupported_reason}; raw='{current.prerequisites.strip()}'"
                 unsupported.append(unsupported_msg)
                 warnings.append(
                     _make_warning(
@@ -453,10 +465,14 @@ def validate_scheduled_prerequisites_detailed(
             ):
                 diagnosis = diagnose_expression(prereq_expr, prior_courses, prior_uoc)
                 prereq_text = expression_to_text(prereq_expr)
-                failure_msg = f"[Prerequisite] {course_label}: {prereq_text} - {diagnosis}"
+                failure_msg = (
+                    f"[Prerequisite] {course_label}: {prereq_text} - {diagnosis}"
+                )
                 failures.append(failure_msg)
 
-                missing_atoms = _collect_missing_atoms(prereq_expr, prior_courses, prior_uoc)
+                missing_atoms = _collect_missing_atoms(
+                    prereq_expr, prior_courses, prior_uoc
+                )
                 for atom in missing_atoms:
                     if atom == "__ONEOF__":
                         key = ("prereq", current.code)
@@ -498,12 +514,18 @@ def validate_scheduled_prerequisites_detailed(
                 coreq_uoc = prior_uoc + group_uoc - current.uoc
 
                 if not evaluate_expression(coreq_expr, coreq_courses, coreq_uoc):
-                    diagnosis = diagnose_expression(coreq_expr, coreq_courses, coreq_uoc)
+                    diagnosis = diagnose_expression(
+                        coreq_expr, coreq_courses, coreq_uoc
+                    )
                     coreq_text = expression_to_text(coreq_expr)
-                    failure_msg = f"[Corequisite] {course_label}: {coreq_text} - {diagnosis}"
+                    failure_msg = (
+                        f"[Corequisite] {course_label}: {coreq_text} - {diagnosis}"
+                    )
                     failures.append(failure_msg)
 
-                    missing_atoms = _collect_missing_atoms(coreq_expr, coreq_courses, coreq_uoc)
+                    missing_atoms = _collect_missing_atoms(
+                        coreq_expr, coreq_courses, coreq_uoc
+                    )
                     for atom in missing_atoms:
                         if atom == "__ONEOF__":
                             key = ("coreq", current.code)
@@ -776,7 +798,9 @@ def validate_canonical_expression(expr: RuleExpr, path: str = "<clause>") -> Non
     if keys == {"uoc"}:
         threshold = expr["uoc"]
         if not isinstance(threshold, int) or threshold < 0:
-            raise RuleValidationError(f"{path}.uoc", "'uoc' must be a non-negative integer")
+            raise RuleValidationError(
+                f"{path}.uoc", "'uoc' must be a non-negative integer"
+            )
         return
 
     if keys == {"min", "from"}:
@@ -1099,7 +1123,9 @@ def report_plan(
     Returns:
         List of human-readable failure strings.
     """
-    failures, _findings, _warnings = report_plan_detailed(normalized_config, completed_courses)
+    failures, _findings, _warnings = report_plan_detailed(
+        normalized_config, completed_courses
+    )
     return failures
 
 
@@ -1128,7 +1154,9 @@ def _emit_atomic_rule_findings(
         findings: list[ValidationFinding] = []
         for child in cast(list[RuleExpr], node["and"]):
             findings.extend(
-                _emit_atomic_rule_findings(child, completed_courses, level_name, clause_index)
+                _emit_atomic_rule_findings(
+                    child, completed_courses, level_name, clause_index
+                )
             )
         return findings
 
@@ -1155,7 +1183,9 @@ def report_plan_detailed(
 
             rule_text = expression_to_text(clause)
             diagnosis = diagnose_expression(clause, completed_courses)
-            failures.append(f"[{level_name}] clause {idx}: {rule_text} \u2014 {diagnosis}")
+            failures.append(
+                f"[{level_name}] clause {idx}: {rule_text} \u2014 {diagnosis}"
+            )
 
             atomic_findings = _emit_atomic_rule_findings(
                 clause, completed_courses, level_name, idx
@@ -1335,10 +1365,7 @@ def _write_new_overrides(
         else []
     )
 
-    existing_ids: set[str] = {
-        str(e.get("failure_id", ""))
-        for e in overrides
-    }
+    existing_ids: set[str] = {str(e.get("failure_id", "")) for e in overrides}
 
     warnings: list[ValidationWarning] = []
     now = datetime.now(timezone.utc).isoformat()
@@ -1481,9 +1508,7 @@ def run_rules_command(
                 prereq_unsupported,
                 prereq_findings,
                 prereq_warnings,
-            ) = validate_plan_prerequisites_detailed(
-                cast(dict[str, Any], plan_data)
-            )
+            ) = validate_plan_prerequisites_detailed(cast(dict[str, Any], plan_data))
         except RuleValidationError as exc:
             print(f"Error: {exc}", file=stderr)
             return 1
@@ -1527,7 +1552,8 @@ def run_rules_command(
         active_findings = [f for f in all_findings if not f["accepted"]]
         active_rule = [f for f in active_findings if f["kind"].startswith("rule")]
         active_prereq = [
-            f for f in active_findings
+            f
+            for f in active_findings
             if f["kind"].startswith("prereq") or f["kind"].startswith("coreq")
         ]
         active_unsup = [f for f in active_findings if f["kind"] == "unsupported_syntax"]

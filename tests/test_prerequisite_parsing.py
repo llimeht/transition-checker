@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from transitionchecker.prereq_engine import parse_prerequisite_field, salvage_mixed_prerequisite_clause
+from transitionchecker.prereq_engine import (
+    parse_prerequisite_field,
+    salvage_mixed_prerequisite_clause,
+)
 
 
 def parse(text: str) -> tuple[object | None, object | None, str | None]:
@@ -10,7 +13,9 @@ def parse(text: str) -> tuple[object | None, object | None, str | None]:
     return parse_prerequisite_field(text)
 
 
-def salvage(text: str, matched_families: list[str]) -> tuple[bool, object | None, str | None]:
+def salvage(
+    text: str, matched_families: list[str]
+) -> tuple[bool, object | None, str | None]:
     """Convenience wrapper for mixed-clause salvage tests."""
     return salvage_mixed_prerequisite_clause(text, matched_families)
 
@@ -64,7 +69,9 @@ class TestSingleCourse:
         assert prereq == "CEIC1000"
 
     def test_students_must_have_completed_with_course_title(self) -> None:
-        prereq, _, err = parse("Students must have completed JURD7152 Introduction to Law & Justice.")
+        prereq, _, err = parse(
+            "Students must have completed JURD7152 Introduction to Law & Justice."
+        )
         assert err is None
         assert prereq == "JURD7152"
 
@@ -181,7 +188,9 @@ class TestUocTokens:
         assert prereq == {"uoc": 24}
 
     def test_uoc_in_level_maths_courses(self) -> None:
-        prereq, _, err = parse("Prerequisite: 12 units of credit in Level 2 Maths courses.")
+        prereq, _, err = parse(
+            "Prerequisite: 12 units of credit in Level 2 Maths courses."
+        )
         assert err is None
         assert prereq == {"uoc": 12}
 
@@ -191,7 +200,9 @@ class TestUocTokens:
         assert prereq == {"uoc": 36}
 
     def test_uoc_completed_in_descriptive_group(self) -> None:
-        prereq, _, err = parse("Prerequisite: 96 units of credit completed in Built Environment")
+        prereq, _, err = parse(
+            "Prerequisite: 96 units of credit completed in Built Environment"
+        )
         assert err is None
         assert prereq == {"uoc": 96}
 
@@ -229,12 +240,16 @@ class TestUocTokens:
         assert prereq == {"and": [{"uoc": 72}, "COMM1999"]}
 
     def test_uoc_with_students_must_have_completed_a_minimum_of(self) -> None:
-        prereq, _, err = parse("Prerequisite: Students must have completed a minimum of 48 UoC")
+        prereq, _, err = parse(
+            "Prerequisite: Students must have completed a minimum of 48 UoC"
+        )
         assert err is None
         assert prereq == {"uoc": 48}
 
     def test_uoc_with_completion_of_a_minimum(self) -> None:
-        prereq, _, err = parse("Prerequisite: Completion of a minimum 90 Units of Credit")
+        prereq, _, err = parse(
+            "Prerequisite: Completion of a minimum 90 Units of Credit"
+        )
         assert err is None
         assert prereq == {"uoc": 90}
 
@@ -244,12 +259,16 @@ class TestUocTokens:
         assert prereq == {"and": ["BIOS1301", {"uoc": 48}]}
 
     def test_course_and_minimum_of_uoc_completed_to_enrol(self) -> None:
-        prereq, _, err = parse("Prerequisite: BIOS1101, Minimum of 48 UOC completed to enrol")
+        prereq, _, err = parse(
+            "Prerequisite: BIOS1101, Minimum of 48 UOC completed to enrol"
+        )
         assert err is None
         assert prereq == {"and": ["BIOS1101", {"uoc": 48}]}
 
     def test_completed_minimum_uoc_with_parenthesized_including(self) -> None:
-        prereq, _, err = parse("Prerequisite: Completed a minimum of 108 UOC (including First Year core).")
+        prereq, _, err = parse(
+            "Prerequisite: Completed a minimum of 108 UOC (including First Year core)."
+        )
         assert err is None
         assert prereq == {"uoc": 108}
 
@@ -259,7 +278,9 @@ class TestUocTokens:
         assert prereq == {"uoc": 48}
 
     def test_completion_of_uoc_and_third_year_core(self) -> None:
-        prereq, _, err = parse("Prerequisite: Completion of 126 UOC and completion of 3rd year core")
+        prereq, _, err = parse(
+            "Prerequisite: Completion of 126 UOC and completion of 3rd year core"
+        )
         assert err is None
         assert prereq == {"uoc": 126}
 
@@ -274,7 +295,9 @@ class TestUocTokens:
         assert prereq == {"uoc": 72}
 
     def test_minimum_uoc_completed_at_unsw_prior_to_course(self) -> None:
-        prereq, _, err = parse("Minimum of 96UOC completed at UNSW prior to this course")
+        prereq, _, err = parse(
+            "Minimum of 96UOC completed at UNSW prior to this course"
+        )
         assert err is None
         assert prereq == {"uoc": 96}
 
@@ -326,7 +349,9 @@ class TestUocTokens:
         assert prereq == {"and": ["ZSPS1111", "ZSPS1337"]}
 
     def test_single_course_with_title_ending_in_digit(self) -> None:
-        prereq, _, err = parse("Prerequisite: ZSPS2119 Cyber Security Industry Project 1")
+        prereq, _, err = parse(
+            "Prerequisite: ZSPS2119 Cyber Security Industry Project 1"
+        )
         assert err is None
         assert prereq == "ZSPS2119"
 
@@ -336,7 +361,9 @@ class TestUocTokens:
         assert prereq == {"uoc": 132}
 
     def test_uoc_overall_and_a_minimum_wam(self) -> None:
-        prereq, _, err = parse("Prerequisite: 48 units of credit overall, and a minimum WAM of 75")
+        prereq, _, err = parse(
+            "Prerequisite: 48 units of credit overall, and a minimum WAM of 75"
+        )
         assert err is None
         assert prereq == {"uoc": 48}
 
@@ -436,7 +463,9 @@ class TestInvalidInputs:
 
 
 class TestMixedClauseSalvage:
-    def test_salvage_program_enrolment_sentence_with_following_uoc_and_courses(self) -> None:
+    def test_salvage_program_enrolment_sentence_with_following_uoc_and_courses(
+        self,
+    ) -> None:
         salvaged, expr, err = salvage(
             "Prerequisite: Enrolment in a postgraduate Education, Educational Leadership "
             "program, or Master of Teaching (Secondary). Master of Teaching (Secondary) "
@@ -456,7 +485,9 @@ class TestMixedClauseSalvage:
         assert err is None
         assert expr == {"uoc": 6}
 
-    def test_salvage_program_enrolment_with_following_completion_requirement(self) -> None:
+    def test_salvage_program_enrolment_with_following_completion_requirement(
+        self,
+    ) -> None:
         salvaged, expr, err = salvage(
             "Prerequisite: Enrolment in ACCTKS CPAA Specialisation AND completion of 36 UOC in Program 8415, "
             "OR Enrolment in 5415",

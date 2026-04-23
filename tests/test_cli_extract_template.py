@@ -224,9 +224,7 @@ def test_classify_prerequisite_clause_families() -> None:
     assert classification is PrerequisiteClauseClassification.MIXED
     assert "wam_mark" in families
 
-    classification, families = classify_prerequisite_clause(
-        "CEIC2001 AND CEIC2002"
-    )
+    classification, families = classify_prerequisite_clause("CEIC2001 AND CEIC2002")
     assert classification is PrerequisiteClauseClassification.NON_IGNORABLE
     assert families == []
 
@@ -255,9 +253,14 @@ def test_lint_prerequisites_json_includes_classification(tmp_path: Path) -> None
     assert code == 1
     rows = json.loads(out.read_text(encoding="utf-8"))
     by_code = {row["course_code"]: row for row in rows}
-    assert by_code["A"]["classification"] == PrerequisiteClauseClassification.IGNORABLE.value
+    assert (
+        by_code["A"]["classification"]
+        == PrerequisiteClauseClassification.IGNORABLE.value
+    )
     assert "program_enrolment" in by_code["A"]["matched_families"]
-    assert by_code["B"]["classification"] == PrerequisiteClauseClassification.MIXED.value
+    assert (
+        by_code["B"]["classification"] == PrerequisiteClauseClassification.MIXED.value
+    )
     assert "wam_mark" in by_code["B"]["matched_families"]
     assert by_code["A"]["salvaged"] is False
     assert by_code["A"]["salvaged_expr"] == ""

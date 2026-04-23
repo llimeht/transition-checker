@@ -262,7 +262,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Example: \n"
-             "  mapping-checker 'plans/CEIC/CEIC Program Sequence Mapping.xlsx' "
+            "  mapping-checker 'plans/CEIC/CEIC Program Sequence Mapping.xlsx' "
             "--output-dir plans/CEIC -v"
         ),
     )

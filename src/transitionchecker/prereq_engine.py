@@ -210,7 +210,9 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
             codes = COURSE_TOKEN_RE.findall(m.group(0))
             return (" AND " + " AND ".join(codes)) if codes else ""
 
-        normalized_part = re.sub(r"(?i),?\s*\(?\s*\bINCLUDING\b.*$", _expand_including, part).strip()
+        normalized_part = re.sub(
+            r"(?i),?\s*\(?\s*\bINCLUDING\b.*$", _expand_including, part
+        ).strip()
         normalized_part = re.sub(
             r"(?is)^\s*CURRENTLY\s+ENROLLED\s+IN\s+PROGRAM\b[^.]*\.\s*",
             "",
@@ -251,8 +253,12 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
             "",
             normalized_part,
         ).strip()
-        normalized_part = re.sub(r"(?i)\bCOMPLETION\s+OF\b", "", normalized_part).strip()
-        normalized_part = re.sub(r"(?i)^\s*SUCCESSFUL(?:LY)?\s+", "", normalized_part).strip()
+        normalized_part = re.sub(
+            r"(?i)\bCOMPLETION\s+OF\b", "", normalized_part
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)^\s*SUCCESSFUL(?:LY)?\s+", "", normalized_part
+        ).strip()
         normalized_part = re.sub(
             r"(?i)^\s*(?:SUCCESSFULLY\s+)?COMPLETED\s+(?:AT\s+LEAST\s+)?(\d+\s*UOC)\b",
             r"\1",
@@ -269,7 +275,9 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
             normalized_part,
         ).strip()
         # Drop handbook qualifier fragments like "or equivalent" that are not tokenized.
-        normalized_part = re.sub(r"(?i)\b(?:OR|AND)\s+EQUIVALENT(?:\s+COURSES?)?\b", "", normalized_part).strip()
+        normalized_part = re.sub(
+            r"(?i)\b(?:OR|AND)\s+EQUIVALENT(?:\s+COURSES?)?\b", "", normalized_part
+        ).strip()
         # Normalize minimum-UOC variants.
         normalized_part = re.sub(
             r"(?i)\b(?:A\s+)?MINIMUM\s+OF\s+(\d+\s*UOC)\b",
@@ -312,8 +320,12 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
             r"\1",
             normalized_part,
         ).strip()
-        normalized_part = re.sub(r"(?i)(\d+\s*UOC)\s+IN\s+PROGRAM\b", r"\1", normalized_part).strip()
-        normalized_part = re.sub(r"(?i)(\d+\s*UOC)\s+COMPLETED\b", r"\1", normalized_part).strip()
+        normalized_part = re.sub(
+            r"(?i)(\d+\s*UOC)\s+IN\s+PROGRAM\b", r"\1", normalized_part
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)(\d+\s*UOC)\s+COMPLETED\b", r"\1", normalized_part
+        ).strip()
         # Strip program-list enrolment clauses: "in program 8281, 8282 ..." (comma- or or/and-separated).
         normalized_part = re.sub(
             r"(?i)\b(?:OR\s+|AND\s+)?ENROL(?:MENT|LED)?\s+IN\s+PROGRAM\s+\d{3,4}(?:(?:\s*,\s*|\s+(?:OR|AND)\s+)\d{3,4})*",
@@ -326,28 +338,56 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
             normalized_part,
         ).strip()
         normalized_part = re.sub(r"\(\s*\)", " ", normalized_part).strip()
-        normalized_part = re.sub(r"(?i)\bAT\s+UNSW\s+PRIOR\s+TO\s+THIS\s+COURSE\b", "", normalized_part).strip()
+        normalized_part = re.sub(
+            r"(?i)\bAT\s+UNSW\s+PRIOR\s+TO\s+THIS\s+COURSE\b", "", normalized_part
+        ).strip()
         # Drop non-prerequisite enrolment/status clauses that often appear in prose.
         normalized_part = re.sub(
             r"(?i)\bAND\s+BE\s+ENROLLED\s+IN\b[^,;]*",
             "",
             normalized_part,
         ).strip()
-        normalized_part = re.sub(r"(?i)\bAND\s+\d+\s*WAM\b.*$", "", normalized_part).strip()
-        normalized_part = re.sub(r"(?i)^\s*(?:A\s+)?MINIMUM\s+WAM(?:\s+OF)?\s+\d+%?\s+AND\s+", "", normalized_part).strip()
-        normalized_part = re.sub(r"(?i)\bAND\s+(?:AND\s+)?(?:A\s+)?MINIMUM\s+WAM(?:\s+OF)?\s+\d+%?", "", normalized_part).strip()
-        normalized_part = re.sub(r"(?i)^\s*(?:A\s+)?MINIMUM\s+WAM(?:\s+OF)?\s+\d+%?\s*[,;:.+-]*$", "", normalized_part).strip()
-        normalized_part = re.sub(r"(?i)\bAND\s+\d+(?:ST|ND|RD|TH)\s+YEAR\s+CORE\b.*$", "", normalized_part).strip()
+        normalized_part = re.sub(
+            r"(?i)\bAND\s+\d+\s*WAM\b.*$", "", normalized_part
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)^\s*(?:A\s+)?MINIMUM\s+WAM(?:\s+OF)?\s+\d+%?\s+AND\s+",
+            "",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)\bAND\s+(?:AND\s+)?(?:A\s+)?MINIMUM\s+WAM(?:\s+OF)?\s+\d+%?",
+            "",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)^\s*(?:A\s+)?MINIMUM\s+WAM(?:\s+OF)?\s+\d+%?\s*[,;:.+-]*$",
+            "",
+            normalized_part,
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)\bAND\s+\d+(?:ST|ND|RD|TH)\s+YEAR\s+CORE\b.*$", "", normalized_part
+        ).strip()
         normalized_part = re.sub(
             r"(?i)\bBE\s+IN\s+GOOD\s+ACADEMIC\s+STANDING\b",
             "",
             normalized_part,
         ).strip()
-        normalized_part = re.sub(r"(?i)\bIN\s+ORDER\s+TO\s+ENRO?L\b\s*[,;:.+-]*$", "", normalized_part).strip()
-        normalized_part = re.sub(r"(?i)\bTO\s+ENRO?L\b\s*[,;:.+-]*$", "", normalized_part).strip()
-        normalized_part = re.sub(r"(?i)\bTO\s+UNDERTAKE\s+THIS\s+COURSE\b\s*[,;:.+-]*$", "", normalized_part).strip()
-        normalized_part = re.sub(r"(?i)\bIN\s+THE\s+SAME\s+TERM\b\s*[,;:.+-]*$", "", normalized_part).strip()
-        normalized_part = re.sub(r"(?i)\.?\s*(?:[A-Z]+\s+)?CONSENT\s+REQUIRED\b.*$", "", normalized_part).strip()
+        normalized_part = re.sub(
+            r"(?i)\bIN\s+ORDER\s+TO\s+ENRO?L\b\s*[,;:.+-]*$", "", normalized_part
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)\bTO\s+ENRO?L\b\s*[,;:.+-]*$", "", normalized_part
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)\bTO\s+UNDERTAKE\s+THIS\s+COURSE\b\s*[,;:.+-]*$", "", normalized_part
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)\bIN\s+THE\s+SAME\s+TERM\b\s*[,;:.+-]*$", "", normalized_part
+        ).strip()
+        normalized_part = re.sub(
+            r"(?i)\.?\s*(?:[A-Z]+\s+)?CONSENT\s+REQUIRED\b.*$", "", normalized_part
+        ).strip()
         # Drop trailing course-title text after explicit course codes.
         normalized_part = re.sub(
             r"(?i)\b([A-Z]{4}\d{4})\b"
@@ -360,7 +400,9 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
         ).strip()
         normalized_part = re.sub(r"(?i)\bAND\s+AND\b", "AND", normalized_part).strip()
         normalized_part = re.sub(r"(?i)\bOR\s+OR\b", "OR", normalized_part).strip()
-        normalized_part = re.sub(r"(?i)^\s*(?:AND|OR)\b\s*", "", normalized_part).strip()
+        normalized_part = re.sub(
+            r"(?i)^\s*(?:AND|OR)\b\s*", "", normalized_part
+        ).strip()
         normalized_part = re.sub(r"(?i)\b(?:AND|OR)\s*$", "", normalized_part).strip()
         # Treat maturity qualifiers as non-semantic for expression parsing.
         normalized_part = re.sub(r"(?i)\bAT\s+LEAST\b", "", normalized_part).strip()
@@ -444,9 +486,13 @@ def parse_prerequisite_field(
         trimmed,
         flags=re.IGNORECASE,
     )
-    trimmed = re.sub(r"^\s*pre(?:\s+|-)?req(?:uisite)?s?\s*:\s*", "", trimmed, flags=re.IGNORECASE)
+    trimmed = re.sub(
+        r"^\s*pre(?:\s+|-)?req(?:uisite)?s?\s*:\s*", "", trimmed, flags=re.IGNORECASE
+    )
     trimmed = re.sub(r"^\s*pre\s*:\s*", "", trimmed, flags=re.IGNORECASE)
-    trimmed = re.sub(r"^\s*pre-?req(uisite)?s?\s*:?\s*", "", trimmed, flags=re.IGNORECASE)
+    trimmed = re.sub(
+        r"^\s*pre-?req(uisite)?s?\s*:?\s*", "", trimmed, flags=re.IGNORECASE
+    )
     # Strip trailing punctuation and whitespace that may interfere with parsing.
     trimmed = re.sub(r"[\s,;:.+-]+$", "", trimmed)
 
@@ -455,8 +501,14 @@ def parse_prerequisite_field(
     # Normalize and check for empty prerequisites (case-insensitive).
     trimmed_upper = trimmed.upper().strip()
     if not trimmed or trimmed_upper in {
-        ".", "0", "NONE", "NIL", "N/A", "?",
-        "NIL PREREQUISITES", "NO PREREQUISITES",
+        ".",
+        "0",
+        "NONE",
+        "NIL",
+        "N/A",
+        "?",
+        "NIL PREREQUISITES",
+        "NO PREREQUISITES",
     }:
         result = (None, None, None)
         _PREREQ_PARSE_CACHE[raw_text] = result
@@ -513,12 +565,20 @@ PARSEABLE_SIGNAL_RE = re.compile(
 SALVAGE_STRIP_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     "program_enrolment": [
         re.compile(r"(?i)\benrol(?:ment|led)?\s+in\b[^.]*\.\s*"),
-        re.compile(r"(?i)\b(?:must\s+be\s+|be\s+)?enrol(?:ment|led)?\s+in\b.*?(?=\b(?:and|or)\s+(?:have\s+)?completed\b)"),
-        re.compile(r"(?i)\benrol(?:ment|led)?\s+in\b.*?(?=\b(?:and|or)\s+completion\s+of\b)"),
+        re.compile(
+            r"(?i)\b(?:must\s+be\s+|be\s+)?enrol(?:ment|led)?\s+in\b.*?(?=\b(?:and|or)\s+(?:have\s+)?completed\b)"
+        ),
+        re.compile(
+            r"(?i)\benrol(?:ment|led)?\s+in\b.*?(?=\b(?:and|or)\s+completion\s+of\b)"
+        ),
         re.compile(r"(?i)\benrol(?:ment|led)?\s+in\b.*?(?=\b(?:and|or)\s+completed\b)"),
-        re.compile(r"(?i)\benrol(?:ment|led)?\s+in\b.*?(?=\b(?:and|or)\s+(?:either\s+)?[A-Z]{4}\d{4}\b)"),
+        re.compile(
+            r"(?i)\benrol(?:ment|led)?\s+in\b.*?(?=\b(?:and|or)\s+(?:either\s+)?[A-Z]{4}\d{4}\b)"
+        ),
         re.compile(r"(?i)\benrol(?:ment|led)?\s+in\b[^,;.)]*"),
-        re.compile(r"(?i)\bin\s+program\s+\d{3,4}(?:(?:\s*,\s*|\s+(?:or|and)\s+)\d{3,4})*"),
+        re.compile(
+            r"(?i)\bin\s+program\s+\d{3,4}(?:(?:\s*,\s*|\s+(?:or|and)\s+)\d{3,4})*"
+        ),
         re.compile(r"(?i)\bprogram\s+\d{3,4}(?:(?:\s*,\s*|\s+(?:or|and)\s+)\d{3,4})*"),
         re.compile(r"(?i)\b(?:single|double)\s+degree(?:s)?\b"),
         re.compile(r"\b[A-Z]{4}\d[A-Z]\b"),
@@ -586,7 +646,9 @@ def salvage_mixed_prerequisite_clause(
     # before family stripping so the parser sees cleaner input.
     stripped = re.sub(r"(?i)\b(?:units?\s+of\s+credit)\b", "UOC", stripped)
     stripped = re.sub(r"(?i)\s+overall\b", "", stripped)
-    stripped = re.sub(r"(?i)\s+including\s+", " and ", stripped)  # Rewrite "including" as "and"
+    stripped = re.sub(
+        r"(?i)\s+including\s+", " and ", stripped
+    )  # Rewrite "including" as "and"
     stripped = re.sub(r"(?i),\s*including\s+", " and ", stripped)
 
     for family in matched_families:

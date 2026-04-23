@@ -374,18 +374,20 @@ def main(argv: list[str] | None = None) -> int:
 
         if rule_failures or prereq_failures or unsupported_prereqs:
             # Use structured findings when available so failure_ids are shown
-            active_findings = [
-                f for f in structured_findings if not f.get("accepted")
-            ]
+            active_findings = [f for f in structured_findings if not f.get("accepted")]
             rule_finding_lines = [
                 f for f in active_findings if str(f.get("kind", "")).startswith("rule")
             ]
             prereq_finding_lines = [
-                f for f in active_findings if str(f.get("kind", "")).startswith("prereq")
+                f
+                for f in active_findings
+                if str(f.get("kind", "")).startswith("prereq")
                 or str(f.get("kind", "")).startswith("coreq")
             ]
             unsup_finding_lines = [
-                f for f in active_findings if str(f.get("kind", "")) == "unsupported_syntax"
+                f
+                for f in active_findings
+                if str(f.get("kind", "")) == "unsupported_syntax"
             ]
 
             if rule_finding_lines:
@@ -395,33 +397,43 @@ def main(argv: list[str] | None = None) -> int:
                     msg = str(f.get("message", ""))
                     detail_lines.append(f"  - [{fid}] {msg}" if fid else f"  - {msg}")
                     if fid and f.get("overrideable"):
-                        detail_lines.append(f"    \u2192 degree-rules {rule_file_rel} --plan {plan_file_rel} --add-override '{fid}'")
+                        detail_lines.append(
+                            f"    \u2192 degree-rules {rule_file_rel} --plan {plan_file_rel} --add-override '{fid}'"
+                        )
             elif rule_failures:
                 detail_lines.append(f"rule_failures={len(rule_failures)}")
                 for failure in rule_failures:
                     detail_lines.append(f"  - {failure}")
 
             if prereq_finding_lines:
-                detail_lines.append(f"prerequisite_failures={len(prereq_finding_lines)}")
+                detail_lines.append(
+                    f"prerequisite_failures={len(prereq_finding_lines)}"
+                )
                 for f in prereq_finding_lines:
                     fid = str(f.get("failure_id", ""))
                     msg = str(f.get("message", ""))
                     detail_lines.append(f"  - [{fid}] {msg}" if fid else f"  - {msg}")
                     if fid and f.get("overrideable"):
-                        detail_lines.append(f"    \u2192 degree-rules {rule_file_rel} --plan {plan_file_rel} --add-override '{fid}'")
+                        detail_lines.append(
+                            f"    \u2192 degree-rules {rule_file_rel} --plan {plan_file_rel} --add-override '{fid}'"
+                        )
             elif prereq_failures:
                 detail_lines.append(f"prerequisite_failures={len(prereq_failures)}")
                 for failure in prereq_failures:
                     detail_lines.append(f"  - {failure}")
 
             if unsup_finding_lines:
-                detail_lines.append(f"unsupported_prerequisites={len(unsup_finding_lines)}")
+                detail_lines.append(
+                    f"unsupported_prerequisites={len(unsup_finding_lines)}"
+                )
                 for f in unsup_finding_lines:
                     fid = str(f.get("failure_id", ""))
                     msg = str(f.get("message", ""))
                     detail_lines.append(f"  - [{fid}] {msg}" if fid else f"  - {msg}")
             elif unsupported_prereqs:
-                detail_lines.append(f"unsupported_prerequisites={len(unsupported_prereqs)}")
+                detail_lines.append(
+                    f"unsupported_prerequisites={len(unsupported_prereqs)}"
+                )
                 for failure in unsupported_prereqs:
                     detail_lines.append(f"  - {failure}")
 
@@ -480,7 +492,6 @@ def main(argv: list[str] | None = None) -> int:
     }
     write_validation_report(report_path, report)
     print(f"\n☑️ Validation report written to: {report_path}")
-
 
     print()
     if failed == 0:

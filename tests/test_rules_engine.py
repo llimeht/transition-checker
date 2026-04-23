@@ -216,7 +216,9 @@ class TestRuleFindingIds:
         assert missing_id_warnings
         assert len(missing_id_warnings) >= 2
 
-        unnamed_subset_findings = [f for f in findings if f["failure_id"].startswith("rule:unnamed:")]
+        unnamed_subset_findings = [
+            f for f in findings if f["failure_id"].startswith("rule:unnamed:")
+        ]
         assert unnamed_subset_findings
         assert all(f["overrideable"] is False for f in unnamed_subset_findings)
         assert all(
@@ -286,7 +288,9 @@ class TestPrerequisiteFindingDecomposition:
 
         assert legacy_unsupported
         assert any(w["code"] == "unsupported_syntax" for w in warnings)
-        unsupported_findings = [f for f in findings if f["kind"] == "unsupported-syntax"]
+        unsupported_findings = [
+            f for f in findings if f["kind"] == "unsupported-syntax"
+        ]
         assert unsupported_findings
         assert all(f["overrideable"] is False for f in unsupported_findings)
         assert all(
