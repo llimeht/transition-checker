@@ -115,7 +115,9 @@ def test_run_import_handbook_command_closes_session_when_fetch_raises(
         )
 
     monkeypatch.setattr(import_handbook_cli, "_create_session", _create_session)
-    monkeypatch.setattr(import_handbook_cli, "fetch_handbook_record", _raise_fetch_error)
+    monkeypatch.setattr(
+        import_handbook_cli, "fetch_handbook_record", _raise_fetch_error
+    )
 
     command = import_handbook_cli.ImportHandbookCommand(
         year=2026,

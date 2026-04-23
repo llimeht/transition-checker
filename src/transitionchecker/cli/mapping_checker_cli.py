@@ -10,10 +10,14 @@ import json
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Generator, TypedDict
+from typing import Any, TypedDict
 import warnings
 
 import pandas as pd
+from transitionchecker.core.mapping_workbook import (
+    iter_plans,
+    iter_program_sheets as iter_sheets,
+)
 from transitionchecker.utils.logging import configure_logging
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
@@ -34,66 +38,6 @@ class PlanExport(TypedDict):
     sheet: str
     intake: str
     courses: list[PlanCourse]
-
-
-def iter_sheets(
-    dfs: dict[str, pd.DataFrame],
-) -> Generator[tuple[str, pd.DataFrame], None, None]:
-    """Yield only workbook sheets that contain enrolment plans.
-
-    Internal/template sheets (for example, "Cat" and "Lookup") are skipped.
-    The first eight columns are normalised to the expected canonical names so
-    downstream processing can rely on stable column labels.
-    """
-    for sheet_name, df in dfs.items():
-        # filter internal and template sheets
-        if "{" not in sheet_name and sheet_name not in ("Cat", "Lookup"):
-            # FIXME: fragile resetting of column names
-            columns = list(df.columns)
-            columns[0:8] = [
-                "EnrolYear",
-                "Year",
-                "Period",
-                "CourseN",
-                "Code",
-                "Title",
-                "UoC",
-                "Prerequisites",
-            ]
-            df.columns = pd.Index(columns)
-            yield sheet_name, df
-
-
-def iter_plans(
-    sheet: pd.DataFrame, start_row: int = 4
-) -> Generator[tuple[str, pd.DataFrame], None, None]:
-    """Yield each intake plan block from a normalised sheet.
-
-    Args:
-        sheet: A sheet already normalised by ``iter_sheets``.
-        start_row: Number of header rows to skip before plan blocks begin.
-
-    Yields:
-        Tuples of ``(intake, plan_dataframe)``.
-    """
-    # trim leading rows
-    sheet = sheet.iloc[start_row:].reset_index(drop=True)
-
-    # Column A (first column) used as separator signal
-    col_a = sheet.iloc[:, 0]
-
-    # True where row is part of a block
-    mask = col_a.notna() & (col_a.astype(str).str.strip() != "")
-
-    # Identify groups of consecutive True values
-    groups = (mask != mask.shift()).cumsum()
-
-    # iterate through the identified plans within each sheet
-    for _, sub in sheet[mask].groupby(groups[mask]):
-        intake = str(sub.iloc[0, 3])  # intake comment is in column D (index 3)
-        sub = sub.iloc[1:].reset_index(drop=True)
-
-        yield intake, sub
 
 
 def course_terms(plan: pd.DataFrame) -> dict[str, set[str]]:
