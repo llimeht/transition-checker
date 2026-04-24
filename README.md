@@ -15,8 +15,6 @@ The repository currently has three main workflows:
 
 3. Analyse enrolment sequences to plan clash free course combinations (CFCCs) to provide timetabling information (`cfcc-summary`)
 
-4. Obtain handbook metadata for courses from handbook.unsw.edu.au into CSV (`import-handbook`)
-
 ## Requirements
 
 - Python 3.11+
@@ -25,7 +23,7 @@ The repository currently has three main workflows:
     - standardised transition planning spreadsheet (e.g. `CEIC Program Sequence Mapping.xlsx`, fetched from canonical location on SharePoint); stored in `plans/<SCHOOL>/`
     - degree rules for each specialisation of interest (e.g. `CEICAH3707.json`); stored in `rules/`; where rules have changed over time, they can be `<stream><program>-<YYYY>-<YYYY>.json` like `CEICDH3707-2020-2025.json` to indicate the start and stop handbook years.
     - offerings list in `plans/offerings.json`; this can be copied from the output of `extract-plans` with some manual checking that the courses are indeed in the intended teaching periods. Use `add-offerings` to maintain and normalise this file.
-)
+
 
 Example setup:
 
@@ -182,7 +180,7 @@ map-maker \
 
 Copy whichever version of this plan you like back into the spreadsheet.
 
-### Steering configuration to `tune map-maker` behaviour
+### Steering configuration to tune `map-maker` behaviour
 
 The optional steering file can influence plan shape without changing the rule set.
 
@@ -284,6 +282,7 @@ Add (or update) an override for one course:
 ```bash
 add-override plans/catalogue.json \
   --course TEST3000 \
+  --career undergraduate \
   --prereq "Prerequisite: TEST2000. Corequisite: TEST2010" \
   --reason "Change TEST2010 to be a corequisite to make for easier sequencing."
 ```
@@ -291,17 +290,24 @@ add-override plans/catalogue.json \
 The tool validates that the supplied `--prereq` text parses correctly before writing.
 If the text cannot be parsed, the command exits with error (exits 1) and prints the parse error.
 Use `--force` to write an unparseable override anyway (an auditing warning is printed).
+The `--career` option will accept various aliases such as `UG` and `PG` as well.
 
-The `date` field is stamped automatically with today's ISO date. The resulting file looks like:
+The `date` field is stamped automatically with today's ISO date. The resulting file looks like (this is the same format as the `catalogue.json` file that the
+`extract-templates` tool will generate):
 
 ```json
-{
-  "TEST3000": {
+[
+  {
+    "code": "TEST3000",
+    "career": "Undergraduate",
     "date": "2026-04-22",
     "prerequisites": "Prerequisite: TEST2000. Corequisite: TEST2010",
     "reason": "Change TEST2010 …"
+  },
+  {
+    ...
   }
-}
+]
 ```
 
 To remove an override, delete the relevant entry from `catalogue_overrides.json` by hand.
@@ -409,9 +415,14 @@ Please do! The code is type annotated and is clean with `mypy --strict` and `ruf
 
 The project is configured for strict mypy in `pyproject.toml`.
 
+The project has a reasonable test coverage to help prevent regressions.
+A test-driven approach to fixing bugs (and adding features!) is appreciated.
+The test suite can be run using `python -m pytest`.
+
 ## Licence and credits
 
-This work was developed by Stuart Prescott as part of the UNSW 3+ to Flex-semester transition project.
+This work was developed by Stuart Prescott from the School of Chemical Engineering
+as part of the UNSW 3+ to Flex-semester transition project.
 
 Copyright 2026 UNSW Sydney
 
