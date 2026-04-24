@@ -33,6 +33,14 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--catalogue",
+        default="plans/catalogue.json",
+        help=(
+            "Catalogue JSON path used for course metadata during --plan validation "
+            "(default: plans/catalogue.json)"
+        ),
+    )
+    parser.add_argument(
         "--plan-report-json",
         action="store_true",
         help="With --plan, print machine-readable validation JSON",
@@ -67,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
         rules_file=Path(args.rules_file),
         json_output=args.json_output,
         plan_file=Path(args.plan) if args.plan else None,
+        catalogue_file=Path(args.catalogue) if args.plan else None,
         plan_report_json=args.plan_report_json,
         render_rules_text=args.plan is None and args.verbose > 0,
         add_overrides=tuple(args.add_overrides),

@@ -10,6 +10,7 @@ import openpyxl
 import pytest
 
 from transitionchecker.cli import extract_template_cli
+from transitionchecker.core import Catalogue, CatalogueEntry
 from transitionchecker.prereq_engine import (
     build_prerequisite_snapshot,
     classify_prerequisite_clause,
@@ -47,13 +48,15 @@ def test_main_writes_snapshot_from_catalogue_input(tmp_path: Path) -> None:
     snapshot_out = tmp_path / "snapshot.json"
     catalogue_in.write_text(
         json.dumps(
-            {
-                "CEIC1000": {
+            [
+                {
+                    "code": "CEIC1000",
+                    "career": "UGRD",
                     "title": "Course",
                     "uoc": 6,
                     "prerequisites": ".",
                 }
-            }
+            ]
         ),
         encoding="utf-8",
     )
@@ -85,15 +88,19 @@ def test_main_success_writes_outputs(
     def fake_load_workbook(_path: Path, data_only: bool = True) -> _FakeWorkbook:
         return _FakeWorkbook()
 
-    def fake_extract_catalogue(_wb: Any) -> dict[str, dict[str, Any]]:
-        return {
-            "TEST1001": {
-                "title": "T",
-                "uoc": 6,
-                "prerequisites": ".",
-                "level": "Level 1",
-            }
-        }
+    def fake_extract_catalogue(_wb: Any) -> Catalogue:
+        return Catalogue(
+            [
+                CatalogueEntry(
+                    code="TEST1001",
+                    title="T",
+                    career="UGRD",
+                    uoc=6,
+                    prerequisites=".",
+                    level="Level 1",
+                )
+            ]
+        )
 
     def fake_extract_template_configs(_path: Path) -> dict[str, Any]:
         return {"intakes": {"2026 T1": {"years": []}}}
@@ -124,14 +131,16 @@ def test_main_success_writes_outputs(
 
     catalogue = json.loads(catalogue_out.read_text(encoding="utf-8"))
     templates = json.loads(template_out.read_text(encoding="utf-8"))
-    assert "TEST1001" in catalogue
+    assert catalogue[0]["code"] == "TEST1001"
     assert "intakes" in templates
 
 
 def test_build_prerequisite_snapshot_is_deterministic() -> None:
     data_dir = Path(__file__).parent / "data"
-    catalogue = json.loads(
-        (data_dir / "catalogue_prereq_fixture.json").read_text(encoding="utf-8")
+    catalogue = Catalogue.from_list(
+        json.loads(
+            (data_dir / "catalogue_prereq_fixture.json").read_text(encoding="utf-8")
+        )
     )
 
     snapshot = build_prerequisite_snapshot(
@@ -168,14 +177,18 @@ def test_main_writes_prereq_snapshot(
     def fake_load_workbook(_path: Path, data_only: bool = True) -> _FakeWorkbook:
         return _FakeWorkbook()
 
-    def fake_extract_catalogue(_wb: Any) -> dict[str, dict[str, Any]]:
-        return {
-            "TEST1001": {
-                "title": "T",
-                "uoc": 6,
-                "prerequisites": "CEIC1000",
-            }
-        }
+    def fake_extract_catalogue(_wb: Any) -> Catalogue:
+        return Catalogue(
+            [
+                CatalogueEntry(
+                    code="TEST1001",
+                    title="T",
+                    career="UGRD",
+                    uoc=6,
+                    prerequisites="CEIC1000",
+                )
+            ]
+        )
 
     def fake_extract_template_configs(_path: Path) -> dict[str, Any]:
         return {"intakes": {"2026 T1": {"years": []}}}
@@ -242,10 +255,22 @@ def test_classify_prerequisite_clause_families() -> None:
 
 
 def test_lint_prerequisites_json_includes_classification(tmp_path: Path) -> None:
-    catalogue = {
-        "A": {"prerequisites": "Must be enrolled in program 4501"},
-        "B": {"prerequisites": "(CEIC2001 OR CEIC2002) and 65+ WAM"},
-    }
+    catalogue = Catalogue(
+        [
+            CatalogueEntry(
+                code="A",
+                title="A",
+                career="UGRD",
+                prerequisites="Must be enrolled in program 4501",
+            ),
+            CatalogueEntry(
+                code="B",
+                title="B",
+                career="UGRD",
+                prerequisites="(CEIC2001 OR CEIC2002) and 65+ WAM",
+            ),
+        ]
+    )
     out = tmp_path / "lint.json"
 
     code = extract_template_cli.lint_prerequisites(catalogue, str(out))

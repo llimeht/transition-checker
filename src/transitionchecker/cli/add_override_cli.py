@@ -14,22 +14,39 @@ from transitionchecker.prereq_engine import parse_prerequisite_field
 
 
 _DEFAULT_CATALOGUE = "plans/catalogue.json"
+_CAREER_ALIASES = {
+    "undergraduate": "Undergraduate",
+    "ug": "Undergraduate",
+    "ugrad": "Undergraduate",
+    "ugrd": "Undergraduate",
+    "postgraduate": "Postgraduate",
+    "pg": "Postgraduate",
+    "pgrad": "Postgraduate",
+    "pgrd": "Postgraduate",
+}
 
 
-def _load_overrides(path: Path) -> dict[str, dict[str, Any]]:
+def _normalize_career(value: str) -> str:
+    normalized = value.strip().casefold()
+    if not normalized:
+        return "Undergraduate"
+    return _CAREER_ALIASES.get(normalized, value.strip())
+
+
+def _load_overrides(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
-        return {}
+        return []
     with open(path, "r", encoding="utf-8") as fh:
         raw: object = json.load(fh)
-    if not isinstance(raw, dict):
-        raise ValueError(f"Overrides file must contain a JSON object: {path}")
-    return cast(dict[str, dict[str, Any]], raw)
+    if not isinstance(raw, list):
+        raise ValueError(f"Overrides file must contain a JSON list: {path}")
+    return cast(list[dict[str, Any]], raw)
 
 
-def _write_overrides(path: Path, overrides: dict[str, dict[str, Any]]) -> None:
+def _write_overrides(path: Path, overrides: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
-        json.dump(overrides, fh, indent=2, sort_keys=True)
+        json.dump(overrides, fh, indent=2)
         fh.write("\n")
 
 
@@ -62,6 +79,15 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         help="Course code to override (e.g. CEIC3000)",
     )
     parser.add_argument(
+        "--career",
+        default="Undergraduate",
+        metavar="CAREER",
+        help=(
+            "Career to override (default: Undergraduate). "
+            "Aliases UG/UGRAD/UGRD and PG/PGRAD/PGRD are accepted."
+        ),
+    )
+    parser.add_argument(
         "--prereq",
         required=True,
         metavar="TEXT",
@@ -89,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     overrides_path = catalogue_path.parent / "catalogue_overrides.json"
 
     course_code = normalize_course_code(str(args.course))
+    career = _normalize_career(str(args.career))
     if not course_code:
         print("Error: course code cannot be empty", file=sys.stderr)
         return 2
@@ -115,11 +142,31 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error reading overrides file: {exc}", file=sys.stderr)
         return 2
 
-    overrides[course_code] = {
+    new_entry = {
+        "code": course_code,
+        "career": career,
         "prerequisites": prereq_text,
         "reason": reason,
         "date": date.today().isoformat(),
     }
+
+    replaced = False
+    for idx, entry in enumerate(overrides):
+        if (
+            str(entry.get("code", "")).strip().upper() == course_code
+            and _normalize_career(str(entry.get("career", ""))) == career
+        ):
+            overrides[idx] = new_entry
+            replaced = True
+            break
+    if not replaced:
+        overrides.append(new_entry)
+    overrides.sort(
+        key=lambda entry: (
+            str(entry.get("code", "")).strip().upper(),
+            _normalize_career(str(entry.get("career", ""))),
+        )
+    )
 
     try:
         _write_overrides(overrides_path, overrides)
@@ -127,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error writing overrides file: {exc}", file=sys.stderr)
         return 2
 
-    print(f"✓ Override written for {course_code} → {overrides_path}")
+    print(f"✓ Override written for {course_code}/{career} → {overrides_path}")
     return 0
 
 

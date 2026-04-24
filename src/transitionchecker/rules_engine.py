@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, NotRequired, TextIO, TypedDict, cast
 
 from transitionchecker.core import period_rank
+from transitionchecker.core.catalogue import Catalogue, CatalogueEntry
 from transitionchecker.prereq_engine import (
     parse_prerequisite_field,
 )
@@ -93,6 +94,7 @@ class RulesCommand:
     rules_file: Path
     json_output: bool = False
     plan_file: Path | None = None
+    catalogue_file: Path | None = None
     plan_report_json: bool = False
     render_rules_text: bool = False
     add_overrides: tuple[str, ...] = ()
@@ -180,11 +182,9 @@ def _clause_summary(clause: dict[str, Any], max_items: int = 4) -> str:
             elif isinstance(opt, dict) and "and" in opt:
                 opt_dict = cast(dict[str, Any], opt)
                 raw_and_val = opt_dict.get("and")
-                and_list = (
-                    cast(list[Any], raw_and_val)
-                    if isinstance(raw_and_val, list)
-                    else []
-                )  # type: ignore[redundant-cast]
+                and_list: list[object] = (
+                    cast(list[object], raw_and_val) if isinstance(raw_and_val, list) else []
+                )
                 labels.append(
                     "+".join(str(c) for c in and_list[:3]) if and_list else "..."
                 )
@@ -346,6 +346,27 @@ def _course_rank(course_n: str) -> int:
     if not match:
         return 999
     return int(match.group(1))
+
+
+def _select_catalogue_entry(
+    code: str,
+    catalogue: Catalogue,
+) -> CatalogueEntry | None:
+    """Pick the best available catalogue entry for a course code."""
+
+    matches = catalogue.by_code(code)
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+
+    preferred_careers = ("UGRD", "Undergraduate", "")
+    for career in preferred_careers:
+        for entry in matches:
+            if entry.career == career:
+                return entry
+
+    return matches[0]
 
 
 def _expr_oneof_label(expr: RuleExpr) -> str:
@@ -565,11 +586,16 @@ def validate_scheduled_prerequisites_detailed(
     return failures, unsupported, findings, warnings
 
 
-def extract_scheduled_courses(plan_data: dict[str, Any]) -> list[ScheduledPlanCourse]:
+def extract_scheduled_courses(
+    plan_data: dict[str, Any],
+    *,
+    catalogue: Catalogue | None = None,
+) -> list[ScheduledPlanCourse]:
     """Extract, normalize, and sort planned courses chronologically.
 
     Args:
         plan_data: Parsed plan JSON object.
+        catalogue: Optional catalogue used to resolve course metadata.
 
     Returns:
         List of normalized scheduled course records sorted by year, period, and
@@ -612,16 +638,27 @@ def extract_scheduled_courses(plan_data: dict[str, Any]) -> list[ScheduledPlanCo
         if not isinstance(course_n, str):
             course_n = ""
 
-        uoc = _parse_int_like(course_record.get("uoc"), f"plan.courses[{idx}].uoc")
+        normalized_code = code.strip().upper()
+        catalogue_entry = (
+            _select_catalogue_entry(normalized_code, catalogue)
+            if catalogue is not None
+            else None
+        )
 
-        prerequisites = course_record.get("prerequisites")
-        if not isinstance(prerequisites, str):
-            prerequisites = ""
+        prerequisites: str
+        if catalogue_entry is not None:
+            uoc = catalogue_entry.uoc
+            prerequisites = catalogue_entry.prerequisites
+        else:
+            uoc = _parse_int_like(course_record.get("uoc"), f"plan.courses[{idx}].uoc")
+
+            raw_prerequisites = course_record.get("prerequisites")
+            prerequisites = raw_prerequisites if isinstance(raw_prerequisites, str) else ""
 
         scheduled_courses.append(
             ScheduledPlanCourse(
                 index=idx,
-                code=code.strip().upper(),
+                code=normalized_code,
                 year=year,
                 period=period.strip(),
                 period_rank=period_rank,
@@ -644,6 +681,8 @@ def extract_scheduled_courses(plan_data: dict[str, Any]) -> list[ScheduledPlanCo
 
 def validate_plan_prerequisites(
     plan_data: dict[str, Any],
+    *,
+    catalogue: Catalogue | None = None,
 ) -> tuple[list[str], list[str]]:
     """Validate prerequisite and corequisite expressions for all plan courses.
 
@@ -652,16 +691,18 @@ def validate_plan_prerequisites(
         - ``failures`` contains unmet prerequisite/corequisite diagnostics.
         - ``unsupported`` contains expressions that could not be parsed.
     """
-    courses = extract_scheduled_courses(plan_data)
+    courses = extract_scheduled_courses(plan_data, catalogue=catalogue)
     return validate_scheduled_prerequisites(courses)
 
 
 def validate_plan_prerequisites_detailed(
     plan_data: dict[str, Any],
+    *,
+    catalogue: Catalogue | None = None,
 ) -> tuple[list[str], list[str], list[ValidationFinding], list[ValidationWarning]]:
     """Detailed schedule-aware prerequisite validation with structured output."""
 
-    courses = extract_scheduled_courses(plan_data)
+    courses = extract_scheduled_courses(plan_data, catalogue=catalogue)
     return validate_scheduled_prerequisites_detailed(courses)
 
 
@@ -1499,6 +1540,25 @@ def run_rules_command(
             )
             return 1
 
+        catalogue: Catalogue | None = None
+        if command.catalogue_file is not None:
+            try:
+                from transitionchecker.planner_engine import load_catalogue
+
+                catalogue = load_catalogue(command.catalogue_file)
+            except FileNotFoundError:
+                print(
+                    f"Error: catalogue file not found: {command.catalogue_file}",
+                    file=stderr,
+                )
+                return 1
+            except json.JSONDecodeError as exc:
+                print(f"Error: invalid catalogue JSON: {exc}", file=stderr)
+                return 1
+            except ValueError as exc:
+                print(f"Error: {exc}", file=stderr)
+                return 1
+
         try:
             completed_courses = extract_completed_courses(
                 cast(dict[str, Any], plan_data)
@@ -1508,7 +1568,10 @@ def run_rules_command(
                 prereq_unsupported,
                 prereq_findings,
                 prereq_warnings,
-            ) = validate_plan_prerequisites_detailed(cast(dict[str, Any], plan_data))
+            ) = validate_plan_prerequisites_detailed(
+                cast(dict[str, Any], plan_data),
+                catalogue=catalogue,
+            )
         except RuleValidationError as exc:
             print(f"Error: {exc}", file=stderr)
             return 1

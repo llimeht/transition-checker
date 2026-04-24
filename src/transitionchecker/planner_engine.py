@@ -21,6 +21,9 @@ from transitionchecker.rules_engine import (
 )
 from transitionchecker.prereq_engine import parse_prerequisite_field
 from transitionchecker.core import (
+    Catalogue,
+    CatalogueEntry,
+    CatalogueKey,
     canonical_period as _canonical_period,
     is_nonstandard_period as _is_nonstandard_period,
     is_placeholder_course as _is_placeholder_course,
@@ -101,16 +104,6 @@ class Slot:
 class PlanEntry:
     code: str
     slot_idx: int
-
-
-@dataclass(frozen=True)
-class CourseMeta:
-    """Catalogue fields required by the planner and validators."""
-
-    title: str
-    uoc: int
-    prerequisites: str
-    level: str | None
 
 
 @dataclass
@@ -235,6 +228,7 @@ class PlannerCommand:
     patience: int | None = None
     ruin_fraction: float = 0.30
     seed: int = 1337
+    career: str = "UGRD"
     output_path: Path | None = None
     verbose: int = 0
 
@@ -324,95 +318,99 @@ def load_rules(path: Path) -> dict[str, Any]:
 _OVERRIDE_METADATA_KEYS: frozenset[str] = frozenset({"reason", "date"})
 
 
-def load_catalogue_overrides(path: Path) -> dict[str, dict[str, Any]]:
+def load_catalogue_overrides(path: Path) -> dict[CatalogueKey, dict[str, Any]]:
     """Load catalogue overrides from *path*, returning ``{}`` if the file is absent.
 
-    The file is a JSON object keyed by course code.  Each value is a dict of
-    catalogue fields to override (e.g. ``prerequisites``) plus optional
-    metadata keys ``reason`` and ``date`` which are ignored during merging.
+    The file uses the same top-level list-of-entry shape as ``catalogue.json``.
+    Each entry must include ``code`` and ``career`` plus whichever catalogue
+    fields it overrides (e.g. ``prerequisites``). Optional metadata keys such as
+    ``reason`` and ``date`` are ignored during merging.
     """
     if not path.exists():
         return {}
     raw = read_json(path)
-    if not isinstance(raw, dict):
-        raise ValueError(f"Catalogue overrides file must contain an object: {path}")
-    result: dict[str, dict[str, Any]] = {}
-    for code, payload in cast(dict[object, object], raw).items():
-        if not isinstance(code, str) or not isinstance(payload, dict):
+    if not isinstance(raw, list):
+        raise ValueError(f"Catalogue overrides file must contain a list: {path}")
+    result: dict[CatalogueKey, dict[str, Any]] = {}
+    for item_obj in cast(list[object], raw):
+        if not isinstance(item_obj, dict):
             continue
-        result[normalize_course_code(code)] = cast(dict[str, Any], payload)
+        item = cast(dict[str, Any], item_obj)
+        code_raw = item.get("code")
+        career_raw = item.get("career")
+        if not isinstance(code_raw, str) or not isinstance(career_raw, str):
+            continue
+        key = CatalogueKey(normalize_course_code(code_raw.strip()), career_raw.strip())
+        result[key] = item
     return result
 
 
 def apply_catalogue_overrides(
-    raw: dict[str, dict[str, Any]],
-    overrides: dict[str, dict[str, Any]],
-) -> dict[str, dict[str, Any]]:
-    """Return a new catalogue dict with *overrides* merged in.
+    catalogue: Catalogue,
+    overrides: dict[CatalogueKey, dict[str, Any]],
+) -> Catalogue:
+    """Return a new Catalogue with *overrides* merged into matching entries.
 
     Only non-metadata keys (i.e. not ``reason`` or ``date``) from each override
-    entry are applied.  ``raw`` is not mutated.
+    entry are applied.  The original catalogue is not mutated.
     """
     if not overrides:
-        return raw
-    result = dict(raw)
-    for code, override_entry in overrides.items():
-        base = dict(result.get(code, {}))
-        for key, value in override_entry.items():
-            if key not in _OVERRIDE_METADATA_KEYS:
-                base[key] = value
-        result[code] = base
-    return result
+        return catalogue
+    new_entries: list[CatalogueEntry] = []
+    for entry in catalogue.values():
+        override = overrides.get(entry.key)
+        if override is None:
+            new_entries.append(entry)
+            continue
+        fields: dict[str, Any] = {
+            "code": entry.code,
+            "title": entry.title,
+            "career": entry.career,
+            "uoc": entry.uoc,
+            "prerequisites": entry.prerequisites,
+            "level": entry.level,
+        }
+        for k, v in override.items():
+            if k not in _OVERRIDE_METADATA_KEYS and k in fields:
+                fields[k] = v
+        new_entries.append(CatalogueEntry(
+            code=fields["code"],
+            title=fields["title"],
+            career=fields["career"],
+            uoc=int(fields["uoc"]) if fields["uoc"] is not None else 6,
+            prerequisites=str(fields["prerequisites"]) if fields["prerequisites"] is not None else "",
+            level=str(fields["level"]) if fields["level"] is not None else None,
+        ))
+    return Catalogue(new_entries)
 
 
 def load_catalogue(
     path: Path,
     *,
     apply_overrides: bool = True,
-) -> dict[CourseCode, CourseMeta]:
+) -> Catalogue:
     """Load the course catalogue used for UoC, level, and prerequisite data.
 
     When *apply_overrides* is ``True`` (the default), a sibling file named
     ``catalogue_overrides.json`` is automatically discovered and merged in
-    before the catalogue entries are parsed.  The linter passes
+    before the catalogue entries are loaded.  The linter passes
     ``apply_overrides=False`` so that it sees the raw handbook text.
     """
 
     raw = read_json(path)
-    if not isinstance(raw, dict):
-        raise ValueError(f"Catalogue file must contain an object: {path}")
+    if not isinstance(raw, list):
+        raise ValueError(f"Catalogue file must contain a list: {path}")
 
-    raw_catalogue = cast(dict[str, dict[str, Any]], raw)
+    catalogue = Catalogue.from_list(cast(list[object], raw))
 
     if apply_overrides:
         overrides_path = path.parent / "catalogue_overrides.json"
-        raw_catalogue = apply_catalogue_overrides(
-            raw_catalogue,
+        catalogue = apply_catalogue_overrides(
+            catalogue,
             load_catalogue_overrides(overrides_path),
         )
 
-    result: dict[CourseCode, CourseMeta] = {}
-    for code, payload in raw_catalogue.items():
-        normalized_code = normalize_course_code(code)
-        title = payload.get("title")
-        prerequisites = payload.get("prerequisites")
-        level = payload.get("level")
-        uoc_raw = payload.get("uoc", 6)
-
-        uoc = 6
-        if isinstance(uoc_raw, int):
-            uoc = uoc_raw
-        elif isinstance(uoc_raw, float) and uoc_raw.is_integer():
-            uoc = int(uoc_raw)
-
-        result[normalized_code] = CourseMeta(
-            title=title if isinstance(title, str) else code,
-            uoc=uoc,
-            prerequisites=prerequisites if isinstance(prerequisites, str) else "",
-            level=level if isinstance(level, str) else None,
-        )
-
-    return result
+    return catalogue
 
 
 def load_offerings(path: Path) -> dict[CourseCode, list[str]]:
@@ -900,7 +898,8 @@ def extract_expr_courses(expr: RuleExpr) -> set[str]:
 def estimate_expr_cost(
     expr: RuleExpr,
     feasible_counts: dict[str, int],
-    catalogue: dict[str, CourseMeta],
+    catalogue: Catalogue,
+    career: str,
     branch_preferences: list[BranchPreference] | None = None,
 ) -> tuple[float, set[str]]:
     """Estimate the cheapest concrete course set satisfying one rule expression.
@@ -919,8 +918,9 @@ def estimate_expr_cost(
             return 99999.0, set()
         count = feasible_counts.get(code, 0)
         level_bias = 0.0
-        if code in catalogue:
-            level_bias = -0.01 * level_rank(catalogue[code].level)
+        entry = catalogue.get(CatalogueKey(code, career))
+        if entry is not None:
+            level_bias = -0.01 * level_rank(entry.level)
         penalty = 1000.0 if count == 0 else 1.0 / float(count)
         return penalty + level_bias, {code}
 
@@ -928,7 +928,7 @@ def estimate_expr_cost(
         min_count = cast(int, expr["min"])
         options = cast(list[RuleExpr], expr["from"])
         evaluated = [
-            estimate_expr_cost(option, feasible_counts, catalogue, branch_preferences)
+            estimate_expr_cost(option, feasible_counts, catalogue, career, branch_preferences)
             for option in options
         ]
         evaluated.sort(key=lambda item: item[0])
@@ -944,7 +944,7 @@ def estimate_expr_cost(
         op = next(iter(expr.keys()))
         children = cast(list[RuleExpr], expr[op])
         child_eval = [
-            estimate_expr_cost(child, feasible_counts, catalogue, branch_preferences)
+            estimate_expr_cost(child, feasible_counts, catalogue, career, branch_preferences)
             for child in children
         ]
         if op == "and":
@@ -982,7 +982,8 @@ def estimate_expr_cost(
 def select_required_courses(
     rules: dict[str, Any],
     feasible_counts: dict[str, int],
-    catalogue: dict[str, CourseMeta],
+    catalogue: Catalogue,
+    career: str,
     branch_preferences: list[BranchPreference] | None = None,
 ) -> list[str]:
     """Resolve the rules file into the concrete set of courses to schedule."""
@@ -1000,7 +1001,7 @@ def select_required_courses(
             continue
         for clause in cast(list[RuleExpr], clauses):
             _, chosen = estimate_expr_cost(
-                clause, feasible_counts, catalogue, branch_preferences
+                clause, feasible_counts, catalogue, career, branch_preferences
             )
             selected.update(chosen)
 
@@ -1044,13 +1045,13 @@ def feasible_slots_for_course(
     return [slot.slot_idx for slot in feasible_slots]
 
 
-def dependency_map(catalogue: dict[str, CourseMeta]) -> dict[str, RuleExpr | None]:
+def dependency_map(catalogue: Catalogue) -> dict[str, RuleExpr | None]:
     """Pre-parse prerequisite expressions for all catalogue courses."""
 
     expr_map: dict[str, RuleExpr | None] = {}
-    for code, meta in catalogue.items():
-        prereq_expr, _, _ = parse_prerequisite_field(meta.prerequisites)
-        expr_map[code] = prereq_expr
+    for entry in catalogue.values():
+        prereq_expr, _, _ = parse_prerequisite_field(entry.prerequisites)
+        expr_map[entry.code] = prereq_expr
     return expr_map
 
 
@@ -1091,7 +1092,8 @@ def prerequisite_depths(
 def build_plan_document(
     assignments: dict[str, int],
     slots: list[Slot],
-    catalogue: dict[str, CourseMeta],
+    catalogue: Catalogue,
+    career: str,
     intake: str,
 ) -> dict[str, Any]:
     """Render assignments into the legacy JSON-like plan document shape.
@@ -1110,8 +1112,8 @@ def build_plan_document(
         course_codes = sorted(by_slot.get(slot.slot_idx, []))
         for i, code in enumerate(course_codes, start=1):
             meta = catalogue.get(
-                code, CourseMeta(title=code, uoc=6, prerequisites="", level=None)
-            )
+                CatalogueKey(code, career)
+            ) or CatalogueEntry(code=code, title=code, career=career, uoc=6)
             courses_out.append(
                 {
                     "enrol_year": slot.enrol_year,
@@ -1135,7 +1137,8 @@ def build_plan_document(
 def scheduled_courses_from_assignments(
     assignments: dict[str, int],
     slots: list[Slot],
-    catalogue: dict[str, CourseMeta],
+    catalogue: Catalogue,
+    career: str,
 ) -> list[ScheduledPlanCourse]:
     """Convert assignments into chronologically ordered scheduled course rows."""
 
@@ -1149,8 +1152,8 @@ def scheduled_courses_from_assignments(
         course_codes = sorted(by_slot.get(slot.slot_idx, []))
         for course_pos, code in enumerate(course_codes, start=1):
             meta = catalogue.get(
-                code, CourseMeta(title=code, uoc=6, prerequisites="", level=None)
-            )
+                CatalogueKey(code, career)
+            ) or CatalogueEntry(code=code, title=code, career=career, uoc=6)
             scheduled.append(
                 ScheduledPlanCourse(
                     index=idx,
@@ -1173,13 +1176,14 @@ def scheduled_courses_from_assignments(
 def prior_history_for_slot(
     assignments: dict[str, int],
     candidate_slot: int,
-    catalogue: dict[str, CourseMeta],
+    catalogue: Catalogue,
+    career: str,
 ) -> tuple[Counter[str], int]:
     prior_courses = Counter(
         course for course, slot_idx in assignments.items() if slot_idx < candidate_slot
     )
     prior_uoc = sum(
-        catalogue.get(course, CourseMeta(course, 6, "", None)).uoc
+        (catalogue.get(CatalogueKey(course, career)) or CatalogueEntry(code=course, title=course, career=career, uoc=6)).uoc
         for course, slot_idx in assignments.items()
         if slot_idx < candidate_slot
     )
@@ -1191,7 +1195,8 @@ def slot_satisfies_prerequisites(
     candidate_slot: int,
     assignments: dict[str, int],
     dependency_exprs: dict[str, RuleExpr | None],
-    catalogue: dict[str, CourseMeta],
+    catalogue: Catalogue,
+    career: str,
 ) -> bool:
     """Check whether placing a course into one slot is prereq-safe."""
 
@@ -1199,7 +1204,7 @@ def slot_satisfies_prerequisites(
     if expr is None:
         return True
     prior_courses, prior_uoc = prior_history_for_slot(
-        assignments, candidate_slot, catalogue
+        assignments, candidate_slot, catalogue, career
     )
     return evaluate_expression(expr, prior_courses, prior_uoc)
 
@@ -1307,7 +1312,8 @@ def evaluate_plan_cost(
     required_courses: list[str],
     slots: list[Slot],
     offerings: dict[str, list[str]],
-    catalogue: dict[str, CourseMeta],
+    catalogue: Catalogue,
+    career: str,
     rules: dict[str, Any],
     steering: SteeringConfig,
     intake: str,
@@ -1331,7 +1337,7 @@ def evaluate_plan_cost(
             offering_violations += 1
 
     scheduled_courses = scheduled_courses_from_assignments(
-        assignments, slots, catalogue
+        assignments, slots, catalogue, career
     )
     prereq_failures, _unsupported = validate_scheduled_prerequisites(scheduled_courses)
     prereq_violations = len(prereq_failures)
@@ -1374,7 +1380,7 @@ def evaluate_plan_cost(
         total_uoc = 0
         for code, slot_idx in assignments.items():
             if slot_idx == slot.slot_idx:
-                total_uoc += catalogue.get(code, CourseMeta(code, 6, "", None)).uoc
+                total_uoc += (catalogue.get(CatalogueKey(code, career)) or CatalogueEntry(code=code, title=code, career=career, uoc=6)).uoc
         uoc_by_slot.append(total_uoc)
 
     uoc_stddev = 0.0
@@ -1461,7 +1467,8 @@ def greedy_place(
     required_courses: list[str],
     slots: list[Slot],
     offerings: dict[str, list[str]],
-    catalogue: dict[str, CourseMeta],
+    catalogue: Catalogue,
+    career: str,
     dependency_exprs: dict[str, RuleExpr | None],
     prereq_depth_by_course: dict[str, int],
     steering: SteeringConfig,
@@ -1489,7 +1496,7 @@ def greedy_place(
 
     def course_rank_score(code: str) -> float:
         level_value = level_rank(
-            catalogue.get(code, CourseMeta(code, 6, "", None)).level
+            (catalogue.get(CatalogueKey(code, career)) or CatalogueEntry(code=code, title=code, career=career, uoc=6)).level
         )
         score = 0.0
         score += 1000.0 * float(feasible_counts.get(code, 0))
@@ -1532,7 +1539,7 @@ def greedy_place(
                 slot_idx
                 for slot_idx in candidate_slots
                 if slot_satisfies_prerequisites(
-                    code, slot_idx, assignments, dependency_exprs, catalogue
+                    code, slot_idx, assignments, dependency_exprs, catalogue, career
                 )
             ]
             search_slots = prereq_safe_slots if prereq_safe_slots else candidate_slots
@@ -1634,7 +1641,8 @@ def repair_assignments(
     required_courses: list[str],
     slots: list[Slot],
     offerings: dict[str, list[str]],
-    catalogue: dict[str, CourseMeta],
+    catalogue: Catalogue,
+    career: str,
     dependency_exprs: dict[str, RuleExpr | None],
     rules: dict[str, Any],
     steering: SteeringConfig,
@@ -1656,6 +1664,7 @@ def repair_assignments(
         slots,
         offerings,
         catalogue,
+        career,
         rules,
         steering,
         intake,
@@ -1686,7 +1695,12 @@ def repair_assignments(
                 candidate_slot
                 for candidate_slot in feasible
                 if slot_satisfies_prerequisites(
-                    code, candidate_slot, current, dependency_exprs, catalogue
+                    code,
+                    candidate_slot,
+                    current,
+                    dependency_exprs,
+                    catalogue,
+                    career,
                 )
             ]
             candidate_order = prereq_safe_slots + [
@@ -1707,6 +1721,7 @@ def repair_assignments(
                     slots,
                     offerings,
                     catalogue,
+                    career,
                     rules,
                     steering,
                     intake,
@@ -1793,7 +1808,8 @@ def propose_ruin_recreate(
     required_courses: list[str],
     slots: list[Slot],
     offerings: dict[str, list[str]],
-    catalogue: dict[str, CourseMeta],
+    catalogue: Catalogue,
+    career: str,
     dependency_exprs: dict[str, RuleExpr | None],
     prereq_depth_by_course: dict[str, int],
     steering: SteeringConfig,
@@ -1829,6 +1845,7 @@ def propose_ruin_recreate(
         slots,
         offerings,
         catalogue,
+        career,
         dependency_exprs,
         prereq_depth_by_course,
         steering,
@@ -1845,7 +1862,8 @@ def anneal(
     required_courses: list[str],
     slots: list[Slot],
     offerings: dict[str, list[str]],
-    catalogue: dict[str, CourseMeta],
+    catalogue: Catalogue,
+    career: str,
     rules: dict[str, Any],
     steering: SteeringConfig,
     search: SearchConfig,
@@ -1867,6 +1885,7 @@ def anneal(
         slots,
         offerings,
         catalogue,
+        career,
         rules,
         steering,
         intake,
@@ -1898,6 +1917,7 @@ def anneal(
                 slots,
                 offerings,
                 catalogue,
+                career,
                 dependency_exprs,
                 prereq_depth_by_course,
                 steering,
@@ -1925,6 +1945,7 @@ def anneal(
             slots,
             offerings,
             catalogue,
+            career,
             dependency_exprs,
             rules,
             steering,
@@ -2127,7 +2148,8 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             target_slot.period,
         )
 
-    all_codes = sorted(catalogue.keys())
+    career = command.career
+    all_codes = sorted({entry.code for entry in catalogue.values() if entry.career == career})
     feasible_counts = {
         code: len(
             feasible_slots_for_course(
@@ -2140,7 +2162,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
         for code in all_codes
     }
     required_courses = select_required_courses(
-        rules, feasible_counts, catalogue, steering.branch_preferences
+        rules, feasible_counts, catalogue, career, steering.branch_preferences
     )
 
     if not required_courses:
@@ -2178,6 +2200,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             slots,
             offerings,
             catalogue,
+            career,
             dependency_exprs,
             prereq_depth_by_course,
             steering,
@@ -2192,6 +2215,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             slots,
             offerings,
             catalogue,
+            career,
             rules,
             steering,
             command.intake,
@@ -2214,6 +2238,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             slots,
             offerings,
             catalogue,
+            career,
             dependency_exprs,
             rules,
             steering,
@@ -2235,6 +2260,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             slots,
             offerings,
             catalogue,
+            career,
             rules,
             steering,
             search,

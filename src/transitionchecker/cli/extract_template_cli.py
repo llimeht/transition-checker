@@ -26,6 +26,7 @@ import warnings
 import openpyxl
 import pandas as pd
 from transitionchecker.core import period_rank
+from transitionchecker.core.catalogue import Catalogue
 from transitionchecker.core.mapping_workbook import (
     extract_catalogue,
     find_template_sheet,
@@ -44,7 +45,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 
 def write_prerequisite_snapshot(
-    catalogue: dict[str, dict[str, Any]],
+    catalogue: Catalogue,
     output_path: Path,
     source_catalogue: str,
 ) -> None:
@@ -201,16 +202,17 @@ def extract_template_configs_from_workbook(excel_path: Path) -> dict[str, Any]:
 
 
 def lint_prerequisites(
-    catalogue: dict[str, dict[str, Any]], output: str | None = None
+    catalogue: Catalogue, output: str | None = None
 ) -> int:
     """Lint prerequisites in the catalogue and report unrecognized ones."""
     from transitionchecker.prereq_engine import parse_prerequisite_field
 
     lint_results: list[dict[str, Any]] = []
-    for course_code, course in catalogue.items():
-        prereq = str(course.get("prerequisites", ""))
+    for entry in catalogue.values():
+        course_code = entry.code
+        prereq = entry.prerequisites
         _, _, error = parse_prerequisite_field(prereq)
-        if error:
+        if error is not None:
             classification, matched_families = classify_prerequisite_clause(prereq)
             salvaged = False
             salvaged_expr: str = ""
@@ -271,10 +273,10 @@ def lint_prerequisites(
         # Print to stdout
         if lint_results:
             print("\n=== LINT: Unrecognized Prerequisites ===")
-            for entry in lint_results:
+            for lint_entry in lint_results:
                 print(
-                    f"{entry['course_code']}: '{entry['prerequisites']}' -> {entry['error']} "
-                    f"[{entry['classification']}]"
+                    f"{lint_entry['course_code']}: '{lint_entry['prerequisites']}' -> {lint_entry['error']} "
+                    f"[{lint_entry['classification']}]"
                 )
         else:
             print("No unrecognized prerequisites found.")
@@ -360,7 +362,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    catalogue: dict[str, dict[str, Any]]
+    catalogue: Catalogue
 
     if catalogue_input is not None:
         if not catalogue_input.exists():
@@ -368,10 +370,10 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         try:
             with open(catalogue_input, "r", encoding="utf-8") as fh:
-                loaded = json.load(fh)
-            if not isinstance(loaded, dict):
-                raise ValueError("catalogue JSON root must be an object")
-            catalogue = cast(dict[str, dict[str, Any]], loaded)
+                loaded_obj: object = json.load(fh)
+            if not isinstance(loaded_obj, list):
+                raise ValueError("catalogue JSON root must be a list")
+            catalogue = Catalogue.from_list(cast(list[object], loaded_obj))
         except Exception as exc:
             print(f"ERROR: Failed to read catalogue input: {exc}")
             return 1
@@ -432,13 +434,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if export_catalogue:
         with open(catalogue_file, "w", encoding="utf-8") as fh:
-            json.dump(catalogue, fh, indent=2)
-            reporting.extend(
-                [
-                    f"Catalogue file: {catalogue_file}",
-                    f"Catalogue entries: {len(catalogue)}",
-                ]
-            )
+            json.dump(catalogue.to_list(), fh, indent=2)
+        reporting.extend(
+            [
+                f"Catalogue file: {catalogue_file}",
+                f"Catalogue entries: {len(catalogue)}",
+            ]
+        )
 
     print("\n=== COMPLETE ===")
     print("\n".join(reporting))

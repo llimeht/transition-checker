@@ -7,6 +7,8 @@ from typing import Any, TypedDict
 
 import pandas as pd
 
+from transitionchecker.core.catalogue import Catalogue, CatalogueEntry
+
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +73,7 @@ def find_catalogue_sheet(workbook: Any) -> Any:
     )
 
 
-def extract_catalogue(workbook: Any) -> dict[str, dict[str, Any]]:
+def extract_catalogue(workbook: Any) -> Catalogue:
     """Extract course catalogue from the catalogue sheet of an openpyxl workbook."""
     print("\n=== EXTRACTING CATALOGUE ===")
     try:
@@ -79,7 +81,7 @@ def extract_catalogue(workbook: Any) -> dict[str, dict[str, Any]]:
     except KeyError:
         raise ValueError("Catalogue sheet not found in workbook")
 
-    catalogue: dict[str, dict[str, Any]] = {}
+    entries: list[CatalogueEntry] = []
     for row in cat_sheet.iter_rows(
         min_row=CATALOGUE_SHEET_HEADER_ROWS, values_only=False
     ):
@@ -101,32 +103,28 @@ def extract_catalogue(workbook: Any) -> dict[str, dict[str, Any]]:
             else ""
         )
 
-        uoc: int | None = None
+        uoc: int = 6
         if len(row) > 2 and row[CATALOGUE_SHEET_COLUMNS["UoC"]].value is not None:
             try:
                 uoc = int(row[CATALOGUE_SHEET_COLUMNS["UoC"]].value)
             except (TypeError, ValueError):
-                uoc = None
+                pass
 
         prereq = (
             str(row[CATALOGUE_SHEET_COLUMNS["Prerequisites"]].value).strip()
             if len(row) > 3 and row[CATALOGUE_SHEET_COLUMNS["Prerequisites"]].value
             else "."
         )
-        todo = (
-            str(row[CATALOGUE_SHEET_COLUMNS["ToDo"]].value).strip()
-            if len(row) > 4 and row[CATALOGUE_SHEET_COLUMNS["ToDo"]].value
-            else ""
-        )
 
-        catalogue[course_code] = {
-            "title": title,
-            "career": career,
-            "uoc": uoc,
-            "prerequisites": prereq,
-            "todo": todo,
-        }
+        entries.append(CatalogueEntry(
+            code=course_code,
+            title=title,
+            career=career,
+            uoc=uoc,
+            prerequisites=prereq,
+        ))
 
+    catalogue = Catalogue(entries)
     print(f"Extracted {len(catalogue)} catalogue entries")
     return catalogue
 

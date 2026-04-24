@@ -47,6 +47,7 @@ def test_main_builds_rules_command_and_returns_runner_code(
     assert command.rules_file == Path("rules/sample.json")
     assert command.json_output is True
     assert command.plan_file == Path("plans/plan.json")
+    assert command.catalogue_file == Path("plans/catalogue.json")
     assert command.plan_report_json is True
     assert command.render_rules_text is False
 
@@ -116,6 +117,81 @@ def test_plan_report_json_includes_status_findings_warnings(
     assert "prerequisite_failures" in payload
     assert "unsupported_prerequisites" in payload
     assert any(w["code"] == "missing_rule_id" for w in payload["warnings"])
+
+
+def test_plan_validation_uses_catalogue_prerequisites(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    plan_file = tmp_path / "plan.json"
+    catalogue_file = tmp_path / "catalogue.json"
+
+    rules_file.write_text(
+        json.dumps({"required": {"Level 1": ["TEST1001", "TEST2001"]}}),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 1",
+                        "code": "TEST1001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 2",
+                        "code": "TEST2001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    catalogue_file.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "TEST1001",
+                    "title": "Prerequisite",
+                    "uoc": 6,
+                    "prerequisites": "",
+                },
+                {
+                    "code": "TEST2001",
+                    "title": "Dependent",
+                    "uoc": 6,
+                    "prerequisites": "TEST1001",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+            catalogue_file=catalogue_file,
+            plan_report_json=True,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 1
+    payload = json.loads(out.getvalue())
+    assert payload["status"] == "FAIL"
+    assert any("TEST2001" in failure for failure in payload["prerequisite_failures"])
 
 
 def test_accepted_status_exits_zero_with_overrides(

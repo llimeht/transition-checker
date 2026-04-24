@@ -15,7 +15,17 @@ def _write_catalogue(tmp_path: Path) -> Path:
     p = tmp_path / "plans" / "catalogue.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(
-        json.dumps({"CEIC3000": {"title": "C", "uoc": 6, "prerequisites": ""}}),
+        json.dumps(
+            [
+                {
+                    "code": "CEIC3000",
+                    "career": "Undergraduate",
+                    "title": "C",
+                    "uoc": 6,
+                    "prerequisites": "",
+                }
+            ]
+        ),
         encoding="utf-8",
     )
     return p
@@ -77,10 +87,12 @@ def test_creates_overrides_file_when_absent(tmp_path: Path) -> None:
     overrides_file = _overrides_path(cat)
     assert overrides_file.is_file()
     data = json.loads(overrides_file.read_text(encoding="utf-8"))
-    assert "CEIC3000" in data
-    assert data["CEIC3000"]["prerequisites"] == "CEIC2000"
-    assert data["CEIC3000"]["reason"] == "test reason"
-    assert "date" in data["CEIC3000"]
+    assert len(data) == 1
+    assert data[0]["code"] == "CEIC3000"
+    assert data[0]["career"] == "Undergraduate"
+    assert data[0]["prerequisites"] == "CEIC2000"
+    assert data[0]["reason"] == "test reason"
+    assert "date" in data[0]
 
 
 def test_updates_existing_override(tmp_path: Path) -> None:
@@ -88,13 +100,15 @@ def test_updates_existing_override(tmp_path: Path) -> None:
     overrides_file = _overrides_path(cat)
     overrides_file.write_text(
         json.dumps(
-            {
-                "CEIC3000": {
+            [
+                {
+                    "code": "CEIC3000",
+                    "career": "Undergraduate",
                     "prerequisites": "CEIC1000",
                     "reason": "old",
                     "date": "2026-01-01",
                 }
-            }
+            ]
         ),
         encoding="utf-8",
     )
@@ -113,8 +127,10 @@ def test_updates_existing_override(tmp_path: Path) -> None:
 
     assert code == 0
     data = json.loads(overrides_file.read_text(encoding="utf-8"))
-    assert data["CEIC3000"]["prerequisites"] == "CEIC2000"
-    assert data["CEIC3000"]["reason"] == "updated"
+    assert len(data) == 1
+    assert data[0]["code"] == "CEIC3000"
+    assert data[0]["prerequisites"] == "CEIC2000"
+    assert data[0]["reason"] == "updated"
 
 
 def test_adds_second_course_preserves_first(tmp_path: Path) -> None:
@@ -122,13 +138,15 @@ def test_adds_second_course_preserves_first(tmp_path: Path) -> None:
     overrides_file = _overrides_path(cat)
     overrides_file.write_text(
         json.dumps(
-            {
-                "CEIC1000": {
+            [
+                {
+                    "code": "CEIC1000",
+                    "career": "Undergraduate",
                     "prerequisites": "CEIC0000",
                     "reason": "existing",
                     "date": "2026-01-01",
                 }
-            }
+            ]
         ),
         encoding="utf-8",
     )
@@ -139,8 +157,10 @@ def test_adds_second_course_preserves_first(tmp_path: Path) -> None:
 
     assert code == 0
     data = json.loads(overrides_file.read_text(encoding="utf-8"))
-    assert "CEIC1000" in data
-    assert "CEIC3000" in data
+    assert [(entry["code"], entry["career"]) for entry in data] == [
+        ("CEIC1000", "Undergraduate"),
+        ("CEIC3000", "Undergraduate"),
+    ]
 
 
 def test_normalizes_lowercase_course_code(tmp_path: Path) -> None:
@@ -152,8 +172,52 @@ def test_normalizes_lowercase_course_code(tmp_path: Path) -> None:
 
     assert code == 0
     data = json.loads(_overrides_path(cat).read_text(encoding="utf-8"))
-    assert "CEIC3000" in data
-    assert "ceic3000" not in data
+    assert data[0]["code"] == "CEIC3000"
+    assert data[0]["career"] == "Undergraduate"
+
+
+def test_normalizes_undergraduate_career_aliases(tmp_path: Path) -> None:
+    cat = _write_catalogue(tmp_path)
+
+    code = add_override_cli.main(
+        [
+            str(cat),
+            "--course",
+            "CEIC3000",
+            "--career",
+            "ug",
+            "--prereq",
+            "CEIC2000",
+            "--reason",
+            "r",
+        ]
+    )
+
+    assert code == 0
+    data = json.loads(_overrides_path(cat).read_text(encoding="utf-8"))
+    assert data[0]["career"] == "Undergraduate"
+
+
+def test_normalizes_postgraduate_career_aliases_case_insensitively(tmp_path: Path) -> None:
+    cat = _write_catalogue(tmp_path)
+
+    code = add_override_cli.main(
+        [
+            str(cat),
+            "--course",
+            "CEIC3000",
+            "--career",
+            "pGrD",
+            "--prereq",
+            "CEIC2000",
+            "--reason",
+            "r",
+        ]
+    )
+
+    assert code == 0
+    data = json.loads(_overrides_path(cat).read_text(encoding="utf-8"))
+    assert data[0]["career"] == "Postgraduate"
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +271,7 @@ def test_force_allows_unparseable_prereq(
     stderr = capsys.readouterr().err
     assert "warning" in stderr.lower()
     data = json.loads(_overrides_path(cat).read_text(encoding="utf-8"))
-    assert data["CEIC3000"]["prerequisites"] == "must have done something complicated"
+    assert data[0]["prerequisites"] == "must have done something complicated"
 
 
 def test_parseable_prereq_succeeds_without_force(tmp_path: Path) -> None:
@@ -227,4 +291,4 @@ def test_parseable_prereq_succeeds_without_force(tmp_path: Path) -> None:
 
     assert code == 0
     data = json.loads(_overrides_path(cat).read_text(encoding="utf-8"))
-    assert data["CEIC3000"]["prerequisites"] == "CEIC2000 AND CEIC2010"
+    assert data[0]["prerequisites"] == "CEIC2000 AND CEIC2010"

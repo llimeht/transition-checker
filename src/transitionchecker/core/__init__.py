@@ -1,5 +1,10 @@
 """Shared core helpers for transition checker workflows."""
 
+from .catalogue import (
+    Catalogue,
+    CatalogueEntry,
+    CatalogueKey,
+)
 from .course_utils import (
     is_placeholder_course,
     looks_like_course,
@@ -15,6 +20,9 @@ from .period_utils import (
 from .validation import as_json_object, as_text
 
 __all__ = [
+    "Catalogue",
+    "CatalogueEntry",
+    "CatalogueKey",
     "canonical_period",
     "is_nonstandard_period",
     "natural_sort_key",

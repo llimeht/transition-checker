@@ -13,6 +13,8 @@ from enum import Enum
 import re
 from typing import Any, cast
 
+from transitionchecker.core.catalogue import Catalogue
+
 
 RuleExpr = str | dict[str, Any]
 
@@ -692,7 +694,7 @@ def salvage_mixed_prerequisite_clause(
 
 
 def build_prerequisite_snapshot(
-    catalogue: dict[str, dict[str, Any]],
+    catalogue: Catalogue,
     source_catalogue: str,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
@@ -706,13 +708,12 @@ def build_prerequisite_snapshot(
         timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
     entries: list[dict[str, Any]] = []
-    for course_code in sorted(catalogue.keys()):
-        course = catalogue[course_code]
-        prereq = str(course.get("prerequisites", ""))
+    for entry in sorted(catalogue.values(), key=lambda e: (e.code, e.career)):
+        prereq = entry.prerequisites
         prereq_expr, coreq_expr, error = parse_prerequisite_field(prereq)
         entries.append(
             {
-                "course_code": str(course_code),
+                "course_code": entry.code,
                 "prerequisites": prereq,
                 "prereq_expr": prereq_expr,
                 "coreq_expr": coreq_expr,

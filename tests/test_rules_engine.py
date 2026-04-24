@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from transitionchecker.core.catalogue import Catalogue, CatalogueEntry
 from transitionchecker.rules_engine import (
     RuleValidationError,
     extract_scheduled_courses,
@@ -49,6 +50,37 @@ class TestExtractScheduledCourses:
         courses = extract_scheduled_courses(plan)
         assert courses == []
 
+    def test_prefers_catalogue_course_metadata_when_provided(self) -> None:
+        plan: dict[str, Any] = {
+            "courses": [
+                {
+                    "year": 2024,
+                    "period": "Term 1",
+                    "course_n": "C1",
+                    "code": "TEST2001",
+                    "uoc": 12,
+                    "prerequisites": ".",
+                },
+            ]
+        }
+        catalogue = Catalogue(
+            [
+                CatalogueEntry(
+                    code="TEST2001",
+                    title="Test Course",
+                    career="",
+                    uoc=6,
+                    prerequisites="TEST1001",
+                )
+            ]
+        )
+
+        courses = extract_scheduled_courses(plan, catalogue=catalogue)
+
+        assert len(courses) == 1
+        assert courses[0].uoc == 6
+        assert courses[0].prerequisites == "TEST1001"
+
 
 class TestValidatePlanPrerequisites:
     def test_valid_plan_has_no_failures(self, plan_valid: dict[str, Any]) -> None:
@@ -61,6 +93,51 @@ class TestValidatePlanPrerequisites:
         failures, _unsupported = validate_plan_prerequisites(plan_missing_prereq)
         # TEST2001 lists TEST1001 as prereq but it's in the same term → fails
         assert any("TEST2001" in f for f in failures)
+
+    def test_catalogue_prereq_overrides_plan_embedded_value(self) -> None:
+        plan: dict[str, Any] = {
+            "courses": [
+                {
+                    "year": 2024,
+                    "period": "Term 1",
+                    "course_n": "Course 1",
+                    "code": "TEST1001",
+                    "uoc": 6,
+                    "prerequisites": ".",
+                },
+                {
+                    "year": 2024,
+                    "period": "Term 1",
+                    "course_n": "Course 2",
+                    "code": "TEST2001",
+                    "uoc": 6,
+                    "prerequisites": ".",
+                },
+            ]
+        }
+        catalogue = Catalogue(
+            [
+                CatalogueEntry(
+                    code="TEST1001",
+                    title="Prerequisite",
+                    career="",
+                    uoc=6,
+                    prerequisites="",
+                ),
+                CatalogueEntry(
+                    code="TEST2001",
+                    title="Dependent",
+                    career="",
+                    uoc=6,
+                    prerequisites="TEST1001",
+                ),
+            ]
+        )
+
+        failures, unsupported = validate_plan_prerequisites(plan, catalogue=catalogue)
+
+        assert unsupported == []
+        assert any("TEST2001" in failure for failure in failures)
 
     def test_coreq_in_same_term_passes(self) -> None:
         """A corequisite must be taken in the same or earlier term."""
