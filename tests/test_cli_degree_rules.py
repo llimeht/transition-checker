@@ -127,7 +127,12 @@ def test_plan_validation_uses_catalogue_prerequisites(
     catalogue_file = tmp_path / "catalogue.json"
 
     rules_file.write_text(
-        json.dumps({"required": {"Level 1": ["TEST1001", "TEST2001"]}}),
+        json.dumps(
+            {
+                "career": "Undergraduate",
+                "required": {"Level 1": ["TEST1001", "TEST2001"]},
+            }
+        ),
         encoding="utf-8",
     )
     plan_file.write_text(
@@ -161,12 +166,14 @@ def test_plan_validation_uses_catalogue_prerequisites(
                 {
                     "code": "TEST1001",
                     "title": "Prerequisite",
+                    "career": "Undergraduate",
                     "uoc": 6,
                     "prerequisites": "",
                 },
                 {
                     "code": "TEST2001",
                     "title": "Dependent",
+                    "career": "Undergraduate",
                     "uoc": 6,
                     "prerequisites": "TEST1001",
                 },
@@ -192,6 +199,145 @@ def test_plan_validation_uses_catalogue_prerequisites(
     payload = json.loads(out.getvalue())
     assert payload["status"] == "FAIL"
     assert any("TEST2001" in failure for failure in payload["prerequisite_failures"])
+
+
+def test_plan_validation_uses_rules_career_for_duplicate_catalogue_codes(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    plan_file = tmp_path / "plan.json"
+    catalogue_file = tmp_path / "catalogue.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "career": "pgrd",
+                "required": {"Level 1": ["TEST9001"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 1",
+                        "code": "TEST9001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    catalogue_file.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "TEST9001",
+                    "title": "UG version",
+                    "career": "Undergraduate",
+                    "uoc": 6,
+                    "prerequisites": "TEST0001",
+                },
+                {
+                    "code": "TEST9001",
+                    "title": "PG version",
+                    "career": "Postgraduate",
+                    "uoc": 6,
+                    "prerequisites": "",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+            catalogue_file=catalogue_file,
+            plan_report_json=True,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 0
+    payload = json.loads(out.getvalue())
+    assert payload["status"] == "PASS"
+    assert payload["prerequisite_failures"] == []
+
+
+def test_plan_validation_fails_when_rules_career_missing_from_catalogue(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    plan_file = tmp_path / "plan.json"
+    catalogue_file = tmp_path / "catalogue.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "career": "Undergraduate",
+                "required": {"Level 1": ["TEST9001"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 1",
+                        "code": "TEST9001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    catalogue_file.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "TEST9001",
+                    "title": "PG only",
+                    "career": "Postgraduate",
+                    "uoc": 6,
+                    "prerequisites": "",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+            catalogue_file=catalogue_file,
+            plan_report_json=True,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 1
+    assert "Catalogue contains no entries for career 'Undergraduate'" in err.getvalue()
 
 
 def test_accepted_status_exits_zero_with_overrides(

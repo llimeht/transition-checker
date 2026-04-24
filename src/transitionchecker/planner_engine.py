@@ -25,11 +25,15 @@ from transitionchecker.core import (
     CatalogueEntry,
     CatalogueKey,
     canonical_period as _canonical_period,
+    ensure_catalogue_courses_for_career,
+    ensure_catalogue_has_career,
     is_nonstandard_period as _is_nonstandard_period,
     is_placeholder_course as _is_placeholder_course,
     looks_like_course as _looks_like_course,
+    normalize_catalogue_career,
     normalize_course_code as _normalize_course_code,
     period_rank as _period_rank,
+    resolve_rules_career,
 )
 
 
@@ -228,7 +232,7 @@ class PlannerCommand:
     patience: int | None = None
     ruin_fraction: float = 0.30
     seed: int = 1337
-    career: str = "UGRD"
+    career: str | None = None
     output_path: Path | None = None
     verbose: int = 0
 
@@ -893,6 +897,22 @@ def extract_expr_courses(expr: RuleExpr) -> set[str]:
             return courses
 
     return set()
+
+
+def extract_required_rule_courses(rules: dict[str, Any]) -> set[str]:
+    """Return all concrete course codes referenced by the rules file."""
+
+    required = rules.get("required")
+    if not isinstance(required, dict):
+        return set()
+
+    courses: set[str] = set()
+    for clauses in cast(dict[str, Any], required).values():
+        if not isinstance(clauses, list):
+            continue
+        for clause in cast(list[RuleExpr], clauses):
+            courses.update(extract_expr_courses(clause))
+    return courses
 
 
 def estimate_expr_cost(
@@ -2113,6 +2133,22 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
     templates = load_templates(template_path)
     steering = load_steering(command.steering_path)
 
+    career = resolve_rules_career(rules)
+    if command.career is not None:
+        override_career = normalize_catalogue_career(command.career)
+        if override_career != career:
+            raise ValueError(
+                "PlannerCommand.career does not match the rules file career: "
+                f"'{override_career}' != '{career}'"
+            )
+
+    ensure_catalogue_has_career(catalogue, career)
+    ensure_catalogue_courses_for_career(
+        catalogue,
+        extract_required_rule_courses(rules),
+        career,
+    )
+
     slots = build_slots(templates, command.intake)
 
     partial_plan_courses: list[PartialPlanCourseRecord] = []
@@ -2132,6 +2168,12 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
                 file=stderr,
             )
 
+    ensure_catalogue_courses_for_career(
+        catalogue,
+        {record.code for record in partial_plan_courses},
+        career,
+    )
+
     preselected_constraints = derive_fixed_constraints(partial_plan_courses, slots)
     for message in preselected_constraints.diagnostics:
         print(f"Warning: {message}", file=stderr)
@@ -2148,7 +2190,6 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             target_slot.period,
         )
 
-    career = command.career
     all_codes = sorted({entry.code for entry in catalogue.values() if entry.career == career})
     feasible_counts = {
         code: len(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from io import StringIO
 from pathlib import Path
 from typing import cast
 
@@ -11,6 +13,7 @@ from transitionchecker.core import Catalogue, CatalogueEntry, CatalogueKey
 from transitionchecker.planner_engine import (
     CostConfig,
     PartialPlanCourseRecord,
+    PlannerCommand,
     SteeringConfig,
     TemplateConfig,
     apply_catalogue_overrides,
@@ -23,6 +26,7 @@ from transitionchecker.planner_engine import (
     load_catalogue_overrides,
     path_or_exit,
     resolve_target_end_slot,
+    run_planner,
     select_required_courses,
 )
 
@@ -587,3 +591,54 @@ def test_load_catalogue_no_overrides_file_is_silent(tmp_path: Path) -> None:
     # No overrides file present — must not raise
     catalogue = load_catalogue(catalogue_file)
     assert catalogue[CatalogueKey("CEIC3000", "UGRD")].prerequisites == "CEIC1000"
+
+
+def test_run_planner_uses_rules_career_for_catalogue_validation(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    offerings_file = tmp_path / "offerings.json"
+    catalogue_file = tmp_path / "catalogue.json"
+    template_file = tmp_path / "templates.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "career": "pgrd",
+                "required": {"Level 1": ["TEST9001"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    offerings_file.write_text(
+        json.dumps({"TEST9001": ["Term 1"]}),
+        encoding="utf-8",
+    )
+    catalogue_file.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "TEST9001",
+                    "title": "Undergraduate only",
+                    "career": "Undergraduate",
+                    "uoc": 6,
+                    "prerequisites": "",
+                    "level": "Level 9",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    template_file.write_text(json.dumps(_template_config()), encoding="utf-8")
+
+    command = PlannerCommand(
+        rule_path=rules_file,
+        intake="2026 T1",
+        offerings_path=offerings_file,
+        catalogue_path=catalogue_file,
+        template_config_path=template_file,
+        steering_path=tmp_path / "missing-steering.json",
+    )
+
+    with pytest.raises(ValueError, match="career 'Postgraduate'"):
+        run_planner(command, stdout=StringIO(), stderr=StringIO())

@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Any, NotRequired, TextIO, TypedDict, cast
 
 from transitionchecker.core import period_rank
-from transitionchecker.core.catalogue import Catalogue, CatalogueEntry
+from transitionchecker.core.catalogue import (
+    Catalogue,
+    CatalogueEntry,
+    ensure_catalogue_has_career,
+    get_catalogue_entry_for_career,
+    resolve_rules_career,
+)
 from transitionchecker.prereq_engine import (
     parse_prerequisite_field,
 )
@@ -351,22 +357,24 @@ def _course_rank(course_n: str) -> int:
 def _select_catalogue_entry(
     code: str,
     catalogue: Catalogue,
+    career: str | None = None,
 ) -> CatalogueEntry | None:
     """Pick the best available catalogue entry for a course code."""
 
     matches = catalogue.by_code(code)
     if not matches:
         return None
+    if career is not None:
+        return get_catalogue_entry_for_career(code, catalogue, career)
+
     if len(matches) == 1:
         return matches[0]
 
-    preferred_careers = ("UGRD", "Undergraduate", "")
-    for career in preferred_careers:
-        for entry in matches:
-            if entry.career == career:
-                return entry
-
-    return matches[0]
+    available = sorted({entry.career or "<blank>" for entry in matches})
+    raise ValueError(
+        f"Catalogue course '{code}' has multiple career entries "
+        f"({', '.join(available)}); supply an explicit career"
+    )
 
 
 def _expr_oneof_label(expr: RuleExpr) -> str:
@@ -590,6 +598,7 @@ def extract_scheduled_courses(
     plan_data: dict[str, Any],
     *,
     catalogue: Catalogue | None = None,
+    career: str | None = None,
 ) -> list[ScheduledPlanCourse]:
     """Extract, normalize, and sort planned courses chronologically.
 
@@ -639,11 +648,22 @@ def extract_scheduled_courses(
             course_n = ""
 
         normalized_code = code.strip().upper()
-        catalogue_entry = (
-            _select_catalogue_entry(normalized_code, catalogue)
-            if catalogue is not None
-            else None
-        )
+        catalogue_entry: CatalogueEntry | None = None
+        if catalogue is not None:
+            try:
+                catalogue_entry = _select_catalogue_entry(
+                    normalized_code,
+                    catalogue,
+                    career=career,
+                )
+            except ValueError as exc:
+                raise RuleValidationError(f"plan.courses[{idx}].code", str(exc)) from exc
+
+            if career is not None and catalogue_entry is None:
+                raise RuleValidationError(
+                    f"plan.courses[{idx}].code",
+                    f"Catalogue course '{normalized_code}' was not found for career '{career}'",
+                )
 
         prerequisites: str
         if catalogue_entry is not None:
@@ -683,6 +703,7 @@ def validate_plan_prerequisites(
     plan_data: dict[str, Any],
     *,
     catalogue: Catalogue | None = None,
+    career: str | None = None,
 ) -> tuple[list[str], list[str]]:
     """Validate prerequisite and corequisite expressions for all plan courses.
 
@@ -691,7 +712,7 @@ def validate_plan_prerequisites(
         - ``failures`` contains unmet prerequisite/corequisite diagnostics.
         - ``unsupported`` contains expressions that could not be parsed.
     """
-    courses = extract_scheduled_courses(plan_data, catalogue=catalogue)
+    courses = extract_scheduled_courses(plan_data, catalogue=catalogue, career=career)
     return validate_scheduled_prerequisites(courses)
 
 
@@ -699,10 +720,11 @@ def validate_plan_prerequisites_detailed(
     plan_data: dict[str, Any],
     *,
     catalogue: Catalogue | None = None,
+    career: str | None = None,
 ) -> tuple[list[str], list[str], list[ValidationFinding], list[ValidationWarning]]:
     """Detailed schedule-aware prerequisite validation with structured output."""
 
-    courses = extract_scheduled_courses(plan_data, catalogue=catalogue)
+    courses = extract_scheduled_courses(plan_data, catalogue=catalogue, career=career)
     return validate_scheduled_prerequisites_detailed(courses)
 
 
@@ -1541,11 +1563,14 @@ def run_rules_command(
             return 1
 
         catalogue: Catalogue | None = None
+        rules_career: str | None = None
         if command.catalogue_file is not None:
             try:
                 from transitionchecker.planner_engine import load_catalogue
 
                 catalogue = load_catalogue(command.catalogue_file)
+                rules_career = resolve_rules_career(validated)
+                ensure_catalogue_has_career(catalogue, rules_career)
             except FileNotFoundError:
                 print(
                     f"Error: catalogue file not found: {command.catalogue_file}",
@@ -1571,6 +1596,7 @@ def run_rules_command(
             ) = validate_plan_prerequisites_detailed(
                 cast(dict[str, Any], plan_data),
                 catalogue=catalogue,
+                career=rules_career,
             )
         except RuleValidationError as exc:
             print(f"Error: {exc}", file=stderr)
