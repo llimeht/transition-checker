@@ -1,5 +1,15 @@
 {
     "schemaVersion": 2,
+    "career": "Postgraduate",
+    "program": {"id": "8338", "name": "Master of Engineering Science"},
+    "specialisations": [
+        {"id": "CEICKS", "name": "Chemical Engineering"}
+    ],
+    "uoc": 96,
+    "validity": {
+        "from": "2024",
+        "to": "2029"
+    },
     "required": {
         "FDK Core": [
             "CEIC3004",

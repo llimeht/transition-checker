@@ -1,5 +1,15 @@
 {
     "schemaVersion": 2,
+    "career": "Postgraduate",
+    "program": {"id": "8338", "name": "Master of Engineering Science (with RPL)"},
+    "specialisations": [
+        {"id": "CEICKS", "name": "Chemical Engineering (with RPL)"}
+    ],
+    "uoc": 48,
+    "validity": {
+        "from": "2024",
+        "to": "2029"
+    },
     "required": {
         "ETM Electives": [
             "CEIC4000"

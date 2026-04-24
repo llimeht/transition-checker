@@ -1,5 +1,15 @@
 {
     "schemaVersion": 2,
+    "career": "Undergraduate",
+    "program": {"id": "3061", "name": "Bachelor of Science (Honours) in Food Science"},
+    "specialisations": [
+        {"id": "FOODJH", "name": "Food Science and Technology"}
+    ],
+    "uoc": 192,
+    "validity": {
+        "from": "2000",
+        "to": "2027"
+    },
     "required": {
         "Level 1": [
             "BABS1201",
