@@ -346,7 +346,7 @@ class TestPrerequisiteFindingDecomposition:
         ids = {f["failure_id"] for f in findings if f["kind"] == "coreq"}
         assert "coreq:TEST5001>=TEST1001" in ids
 
-    def test_unsupported_syntax_is_warning_and_non_overrideable(self) -> None:
+    def test_unsupported_syntax_is_error_and_non_overrideable(self) -> None:
         plan: dict[str, Any] = {
             "courses": [
                 {
@@ -364,9 +364,9 @@ class TestPrerequisiteFindingDecomposition:
         )
 
         assert legacy_unsupported
-        assert any(w["code"] == "unsupported_syntax" for w in warnings)
+        assert not any(w["code"] == "unsupported_syntax" for w in warnings)
         unsupported_findings = [
-            f for f in findings if f["kind"] == "unsupported-syntax"
+            f for f in findings if f["kind"] == "unsupported_syntax"
         ]
         assert unsupported_findings
         assert all(f["overrideable"] is False for f in unsupported_findings)

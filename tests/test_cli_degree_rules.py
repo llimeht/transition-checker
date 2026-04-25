@@ -50,6 +50,7 @@ def test_main_builds_rules_command_and_returns_runner_code(
     assert command.catalogue_file == Path("plans/catalogue.json")
     assert command.plan_report_json is True
     assert command.render_rules_text is False
+    assert command.show_plan_warnings is True
 
 
 def test_render_rules_text_when_verbose_without_plan(
@@ -117,6 +118,103 @@ def test_plan_report_json_includes_status_findings_warnings(
     assert "prerequisite_failures" in payload
     assert "unsupported_prerequisites" in payload
     assert any(w["code"] == "missing_rule_id" for w in payload["warnings"])
+
+
+def test_plan_warnings_hidden_without_verbose(
+    tmp_path: Path,
+    rules_without_subset_ids: dict[str, Any],
+    plan_for_subset_rules: dict[str, Any],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    plan_file = tmp_path / "plan.json"
+    catalogue_file = tmp_path / "catalogue.json"
+    rules_payload: dict[str, Any] = dict(rules_without_subset_ids)
+    rules_payload["career"] = "Undergraduate"
+    rules_file.write_text(json.dumps(rules_payload), encoding="utf-8")
+    plan_file.write_text(json.dumps(plan_for_subset_rules), encoding="utf-8")
+    catalogue_file.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "TEST1001",
+                    "title": "Foundation",
+                    "career": "Undergraduate",
+                    "uoc": 6,
+                    "prerequisites": "",
+                },
+                {
+                    "code": "TEST3001",
+                    "title": "Advanced A",
+                    "career": "Undergraduate",
+                    "uoc": 6,
+                    "prerequisites": "",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = degree_rules_cli.main(
+        [str(rules_file), "--plan", str(plan_file), "--catalogue", str(catalogue_file)],
+    )
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "Plan has 4 warning(s): use -v to show details" in captured.out
+    assert "[missing_rule_id]" not in captured.out
+
+
+def test_plan_warnings_visible_with_verbose(
+    tmp_path: Path,
+    rules_without_subset_ids: dict[str, Any],
+    plan_for_subset_rules: dict[str, Any],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    plan_file = tmp_path / "plan.json"
+    catalogue_file = tmp_path / "catalogue.json"
+    rules_payload: dict[str, Any] = dict(rules_without_subset_ids)
+    rules_payload["career"] = "Undergraduate"
+    rules_file.write_text(json.dumps(rules_payload), encoding="utf-8")
+    plan_file.write_text(json.dumps(plan_for_subset_rules), encoding="utf-8")
+    catalogue_file.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "TEST1001",
+                    "title": "Foundation",
+                    "career": "Undergraduate",
+                    "uoc": 6,
+                    "prerequisites": "",
+                },
+                {
+                    "code": "TEST3001",
+                    "title": "Advanced A",
+                    "career": "Undergraduate",
+                    "uoc": 6,
+                    "prerequisites": "",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = degree_rules_cli.main(
+        [
+            str(rules_file),
+            "--plan",
+            str(plan_file),
+            "--catalogue",
+            str(catalogue_file),
+            "-v",
+        ],
+    )
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "Plan has 4 warning(s):" in captured.out
+    assert "[missing_rule_id]" in captured.out
 
 
 def test_plan_validation_uses_catalogue_prerequisites(
@@ -199,6 +297,56 @@ def test_plan_validation_uses_catalogue_prerequisites(
     payload = json.loads(out.getvalue())
     assert payload["status"] == "FAIL"
     assert any("TEST2001" in failure for failure in payload["prerequisite_failures"])
+
+
+def test_plan_output_shows_unsupported_syntax_separately(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    plan_file = tmp_path / "plan.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "required": {"Level 1": ["TEST6001"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 1",
+                        "code": "TEST6001",
+                        "uoc": 6,
+                        "prerequisites": "TEST1001 / TEST1002",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 1
+    text = out.getvalue()
+    assert "Plan has 1 unsupported syntax expression(s):" in text
+    assert "[unsupported-syntax:TEST6001>TEST1001 / TEST1002]" in text
+    assert "warning(s)" not in text
 
 
 def test_plan_validation_uses_rules_career_for_duplicate_catalogue_codes(

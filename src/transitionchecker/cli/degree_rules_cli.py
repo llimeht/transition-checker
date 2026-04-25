@@ -78,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
         catalogue_file=Path(args.catalogue) if args.plan else None,
         plan_report_json=args.plan_report_json,
         render_rules_text=args.plan is None and args.verbose > 0,
+        show_plan_warnings=args.verbose > 0,
         add_overrides=tuple(args.add_overrides),
     )
     return run_rules_command(command, stdout=sys.stdout, stderr=sys.stderr)

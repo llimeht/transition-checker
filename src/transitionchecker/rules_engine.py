@@ -103,6 +103,7 @@ class RulesCommand:
     catalogue_file: Path | None = None
     plan_report_json: bool = False
     render_rules_text: bool = False
+    show_plan_warnings: bool = False
     add_overrides: tuple[str, ...] = ()
 
 
@@ -470,17 +471,10 @@ def validate_scheduled_prerequisites_detailed(
             if unsupported_reason:
                 unsupported_msg = f"{course_label}: {unsupported_reason}; raw='{current.prerequisites.strip()}'"
                 unsupported.append(unsupported_msg)
-                warnings.append(
-                    _make_warning(
-                        "unsupported_syntax",
-                        unsupported_msg,
-                        location=course_label,
-                    )
-                )
                 findings.append(
                     {
                         "failure_id": f"unsupported-syntax:{current.code}>{current.prerequisites.strip()}",
-                        "kind": "unsupported-syntax",
+                        "kind": "unsupported_syntax",
                         "message": unsupported_msg,
                         "overrideable": False,
                         "accepted": False,
@@ -1671,9 +1665,15 @@ def run_rules_command(
             for f in active_unsup:
                 print(f"  [{f['failure_id']}] {f['message']}", file=stdout)
 
+        visible_warnings = warnings if command.show_plan_warnings else []
+
         if warnings:
-            print(f"Plan has {len(warnings)} warning(s):", file=stdout)
-            for warning in warnings:
+            summary = f"Plan has {len(warnings)} warning(s):"
+            if not command.show_plan_warnings:
+                summary += " use -v to show details"
+            print(summary, file=stdout)
+        if visible_warnings:
+            for warning in visible_warnings:
                 print(f"  {_warning_message(warning)}", file=stdout)
 
         if is_valid:
