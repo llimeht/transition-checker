@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import pytest
 
+from transitionchecker.core.catalogue import (
+    Catalogue,
+    CatalogueEntry,
+    CatalogueKey,
+)
 from transitionchecker.core.course_utils import (
     is_placeholder_course,
     looks_like_course,
@@ -83,3 +88,46 @@ class TestIsPlaceholderCourse:
     )
     def test_non_placeholder_codes(self, code: str) -> None:
         assert not is_placeholder_course(code)
+
+
+class TestCatalogueCaseInsensitivity:
+    def _catalogue(self) -> Catalogue:
+        return Catalogue(
+            [
+                CatalogueEntry(code="CEIC1000", title="A", career="Undergraduate", uoc=6),
+                CatalogueEntry(code="CEIC1000", title="A PG", career="Postgraduate", uoc=6),
+                CatalogueEntry(code="MATH1131", title="B", career="Undergraduate", uoc=6),
+            ]
+        )
+
+    def test_get_lowercase_key_matches_uppercase_entry(self) -> None:
+        cat = self._catalogue()
+        assert cat.get(CatalogueKey("ceic1000", "Undergraduate")) is not None
+
+    def test_get_mixed_case_key_matches_entry(self) -> None:
+        cat = self._catalogue()
+        assert cat.get(CatalogueKey("Ceic1000", "Postgraduate")) is not None
+
+    def test_contains_lowercase_key(self) -> None:
+        cat = self._catalogue()
+        assert CatalogueKey("ceic1000", "Undergraduate") in cat
+
+    def test_by_code_lowercase_returns_matches(self) -> None:
+        cat = self._catalogue()
+        entries = cat.by_code("ceic1000")
+        assert len(entries) == 2
+
+    def test_by_code_mixed_case_returns_matches(self) -> None:
+        cat = self._catalogue()
+        assert len(cat.by_code("Math1131")) == 1
+
+    def test_cataloguekey_normalizes_code(self) -> None:
+        assert CatalogueKey("ceic1000", "Undergraduate").code == "CEIC1000"
+        assert CatalogueKey("  Ceic1000  ", "Undergraduate").code == "CEIC1000"
+
+    def test_from_list_normalizes_code(self) -> None:
+        cat = Catalogue.from_list(
+            [{"code": "ceic1000", "career": "Undergraduate", "title": "A", "uoc": 6, "prerequisites": ""}]
+        )
+        assert len(cat.by_code("CEIC1000")) == 1
+        assert len(cat.by_code("ceic1000")) == 1

@@ -20,6 +20,11 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Iterator, cast
 
 
+def _normalize_code(code: str) -> str:
+    """Canonical form for a course code: stripped and uppercased."""
+    return code.strip().upper()
+
+
 _CAREER_ALIASES = {
     "undergraduate": "Undergraduate",
     "ug": "Undergraduate",
@@ -39,10 +44,17 @@ _CAREER_ALIASES = {
 
 @dataclass(frozen=True)
 class CatalogueKey:
-    """Immutable, hashable primary key for a catalogue entry."""
+    """Immutable, hashable primary key for a catalogue entry.
+
+    The ``code`` field is normalized to uppercase on construction so that
+    lookups are case-insensitive by default.
+    """
 
     code: str
     career: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "code", _normalize_code(self.code))
 
 
 @dataclass(frozen=True)
@@ -113,7 +125,8 @@ class Catalogue:
 
     def by_code(self, code: str) -> list[CatalogueEntry]:
         """Return all entries whose code matches *code*, across all careers."""
-        return [e for e in self._index.values() if e.code == code]
+        normalized = _normalize_code(code)
+        return [e for e in self._index.values() if e.code == normalized]
 
     # ------------------------------------------------------------------
     # Serialisation
@@ -143,7 +156,7 @@ class Catalogue:
                     f"Each catalogue entry must be an object, got: {type(item_obj)}"
                 )
             item = cast(dict[str, Any], item_obj)
-            code = str(item.get("code") or "").strip()
+            code = _normalize_code(str(item.get("code") or ""))
             career = str(item.get("career") or "").strip()
             if not code:
                 raise ValueError(f"Catalogue entry missing 'code': {item}")
