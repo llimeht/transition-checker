@@ -236,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
             "valid": 0,
             "failed": 0,
             "skipped_no_rule": 0,
+            "skipped_placeholder": 0,
         }
         write_validation_report(report_path, report)
         print(f"☑️ Validation report written to: {report_path}")
@@ -244,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
     failed = 0
     valid = 0
     skipped_no_rule = 0
+    skipped_placeholder = 0
     results: list[dict[str, object]] = []
     failure_details: list[tuple[str, str, str]] = []
 
@@ -274,6 +276,31 @@ def main(argv: list[str] | None = None) -> int:
         if not rule_file.is_file():
             skipped_no_rule += 1
             continue
+
+        try:
+            plan_data = _as_json_object(json.loads(plan_file.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            plan_data = None
+
+        if plan_data is not None:
+            courses = _as_object_dict_list(plan_data.get("courses", []))
+            if not courses or all(
+                re.fullmatch(r"\[.*\]", str(c.get("code", "")).strip())
+                for c in courses
+            ):
+                print(
+                    f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'⊘ SKIP':>{status_col_width}}"
+                )
+                skipped_placeholder += 1
+                results.append(
+                    {
+                        "plan_file": str(plan_file),
+                        "program_code": program_code,
+                        "rule_file": rule_name,
+                        "status": "skipped_placeholder",
+                    }
+                )
+                continue
 
         result = run_cmd(
             [
@@ -516,6 +543,7 @@ def main(argv: list[str] | None = None) -> int:
         "valid": valid,
         "failed": failed,
         "skipped_no_rule": skipped_no_rule,
+        "skipped_placeholder": skipped_placeholder,
     }
     write_validation_report(report_path, report)
     print(f"\n☑️ Validation report written to: {report_path}")
