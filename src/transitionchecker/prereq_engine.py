@@ -240,12 +240,17 @@ def _parse_prerequisite_expression(text: str) -> tuple[RuleExpr | None, str | No
 
     # Fields that start with "Enrolled in " (sentence form) are pure enrolment restrictions.
     if re.match(
-        r"(?i)^\s*enrolled\s+in\s+a\b",
+        r"(?i)^\s*enrol(?:ment|led)\s+in\s+(?:a|an)\b",
         raw,
     ):
-        # Strip the enrolment condition and keep any following "and completion of..."
-        # by delegating to the per-part normalizations below.
-        pass  # handled by normalizations in _parse_prerequisite_expression
+        # Pure enrolment restrictions carry no positive prerequisite content.
+        # Keep the clause only if it also contains an explicit positive requirement
+        # that later normalizations can salvage.
+        if not re.search(
+            r"(?i)\bAND\s+(?:COMPLETION\s+OF\b|(?:HAVE\s+)?COMPLETED\b|[A-Z]{4}\d{4}\b|(?:AT\s+LEAST\s+|MINIMUM\s+)?\d+\s*(?:UOC|UNITS?\s+OF\s+CREDITS?))",
+            raw,
+        ):
+            return None, None
 
     plus_parts = [
         part.strip() for part in re.split(r"(?i)\bPLUS\b", raw) if part.strip()

@@ -92,6 +92,14 @@ class TestSingleCourse:
         assert err is None
         assert prereq == "ARCH7111"
 
+    def test_enrolment_in_major_only_returns_no_prereq(self) -> None:
+        prereq, coreq, err = parse(
+            "Prerequisite: Enrolment in a non-CSE major (no BINF, COMP, or SENG)"
+        )
+        assert err is None
+        assert prereq is None
+        assert coreq is None
+
     def test_must_have_completed_single_course(self) -> None:
         prereq, _, err = parse("Must have completed DART4101")
         assert err is None
