@@ -185,6 +185,31 @@ def main(argv: list[str] | None = None) -> int:
         print(export_result.stdout, end="")
 
     print("✅ Export complete!")
+
+    print()
+    print(f"📚 Extracting catalogue and overrides from: {excel_file}")
+    catalogue_path = project_root / "plans" / "catalogue.json"
+    extract_result = run_cmd(
+        [
+            sys.executable,
+            str(project_root / "extract_template.py"),
+            str(excel_file),
+            "--catalogue-output",
+            str(catalogue_path),
+            "--template-output",
+            "NONE",
+        ]
+    )
+    if extract_result.returncode != 0:
+        if extract_result.stdout:
+            print(extract_result.stdout, end="")
+        if extract_result.stderr:
+            print(extract_result.stderr, end="", file=sys.stderr)
+        return extract_result.returncode
+    if extract_result.stdout:
+        print(extract_result.stdout, end="")
+    print("✅ Catalogue extracted!")
+
     print()
     print("🔍 Validating exported plans...")
 
@@ -257,6 +282,8 @@ def main(argv: list[str] | None = None) -> int:
                 str(rule_file),
                 "--plan",
                 str(plan_file),
+                "--catalogue",
+                str(catalogue_path),
                 "--plan-report-json",
             ]
         )
