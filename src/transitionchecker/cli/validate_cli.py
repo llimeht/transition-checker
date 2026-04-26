@@ -256,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
     status_col_width = 10
 
     print(
-        f"  {'Plan':<{plan_col_width}}  {'Rule':<{rule_col_width}}  {'Status':>{status_col_width}}"
+        f"  {'Plan':<{plan_col_width}}  {'Rule':<{rule_col_width}}  {'Status':<{status_col_width}}"
     )
     print(f"  {'-' * plan_col_width}  {'-' * rule_col_width}  {'-' * status_col_width}")
 
@@ -291,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
                 for c in courses
             ):
                 print(
-                    f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'⊘ SKIP':>{status_col_width}}"
+                    f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'⊘ SKIP':<{status_col_width}}"
                 )
                 skipped_placeholder += 1
                 results.append(
@@ -387,12 +387,12 @@ def main(argv: list[str] | None = None) -> int:
             has_accepted = bool(accepted_findings)
             if has_accepted:
                 print(
-                    f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'~ ACCEPTED':>{status_col_width}}"
+                    f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'⁉ ACCEPTED':<{status_col_width}}"
                 )
                 accepted += 1
             else:
                 print(
-                    f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✓ PASS':>{status_col_width}}"
+                    f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✓ PASS':<{status_col_width}}"
                 )
                 valid += 1
             results.append(
@@ -410,7 +410,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         print(
-            f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✗ FAIL':>{status_col_width}}"
+            f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✗ FAIL':<{status_col_width}}"
         )
         has_structured_rule_report = bool(plan_report)
         rule_process_error_output = ""
