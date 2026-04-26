@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from openpyxl import Workbook
 import pandas as pd
 import pytest
 
 from transitionchecker.core.mapping_workbook import (
     END_INTAKE_MARKER,
+    extract_catalogue_overrides,
     find_template_sheet,
     iter_plans,
     iter_program_sheets,
@@ -121,3 +123,30 @@ def test_find_template_sheet_raises_when_ambiguous() -> None:
                 "template": pd.DataFrame(columns=["col0"]),
             }
         )
+
+
+def test_extract_catalogue_overrides_skips_placeholder_examples() -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.title = "Local Course Overrides"
+    sheet.append(["Use this table for new courses", None, None, None, None, None])
+    sheet.append(["Code", "Title", "Career", "UoC", "Prerequisites", "ToDo"])
+    sheet.append([
+        "[ABCD1234]",
+        "Example Undergraduate Course",
+        "Undergraduate",
+        0,
+        "Nil Prerequisites",
+        None,
+    ])
+    sheet.append(["FREE1", "Free Elective 1", "Undergraduate", 6, ".", None])
+    sheet.append(["CEIC9999", "New course", "Undergraduate", 6, ".", "Pending ECLIPS approval"])
+
+    overrides = extract_catalogue_overrides(workbook)
+
+    assert [entry["code"] for entry in overrides] == ["FREE1", "CEIC9999"]
+    # Row with no ToDo value must not include a reason key
+    assert "reason" not in overrides[0]
+    # Row with ToDo value must carry it as reason
+    assert overrides[1]["reason"] == "Pending ECLIPS approval"

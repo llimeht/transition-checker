@@ -353,15 +353,40 @@ def apply_catalogue_overrides(
     catalogue: Catalogue,
     overrides: dict[CatalogueKey, dict[str, Any]],
 ) -> Catalogue:
-    """Return a new Catalogue with *overrides* merged into matching entries.
+    """Return a new Catalogue with *overrides* merged in last-loaded-wins order.
 
     Only non-metadata keys (i.e. not ``reason`` or ``date``) from each override
-    entry are applied.  The original catalogue is not mutated.
+    entry are applied. Override-only entries are added to the resulting
+    catalogue. The original catalogue is not mutated.
     """
     if not overrides:
         return catalogue
+
+    def build_entry(
+        key: CatalogueKey,
+        fields: dict[str, Any],
+    ) -> CatalogueEntry:
+        return CatalogueEntry(
+            code=_normalize_course_code(str(fields.get("code") or key.code)),
+            title=str(fields.get("title") or ""),
+            career=str(fields.get("career") or key.career),
+            uoc=int(fields["uoc"]) if fields.get("uoc") is not None else 6,
+            prerequisites=(
+                str(fields["prerequisites"])
+                if fields.get("prerequisites") is not None
+                else ""
+            ),
+            level=(
+                str(fields["level"])
+                if fields.get("level") is not None
+                else None
+            ),
+        )
+
     new_entries: list[CatalogueEntry] = []
+    seen_keys: set[CatalogueKey] = set()
     for entry in catalogue.values():
+        seen_keys.add(entry.key)
         override = overrides.get(entry.key)
         if override is None:
             new_entries.append(entry)
@@ -377,28 +402,55 @@ def apply_catalogue_overrides(
         for k, v in override.items():
             if k not in _OVERRIDE_METADATA_KEYS and k in fields:
                 fields[k] = v
-        new_entries.append(CatalogueEntry(
-            code=fields["code"],
-            title=fields["title"],
-            career=fields["career"],
-            uoc=int(fields["uoc"]) if fields["uoc"] is not None else 6,
-            prerequisites=str(fields["prerequisites"]) if fields["prerequisites"] is not None else "",
-            level=str(fields["level"]) if fields["level"] is not None else None,
-        ))
+        new_entries.append(build_entry(entry.key, fields))
+
+    for key, override in overrides.items():
+        if key in seen_keys:
+            continue
+        fields = {
+            field_name: value
+            for field_name, value in override.items()
+            if field_name not in _OVERRIDE_METADATA_KEYS
+        }
+        new_entries.append(build_entry(key, fields))
+
     return Catalogue(new_entries)
+
+
+def _ordered_catalogue_override_paths(
+    catalogue_path: Path,
+    extra_override_paths: Iterable[Path],
+) -> list[Path]:
+    """Return unique override paths in last-loaded-wins application order."""
+
+    ordered_paths = [catalogue_path.parent / "catalogue_overrides.json"]
+    ordered_paths.extend(extra_override_paths)
+
+    unique_paths: list[Path] = []
+    seen: set[Path] = set()
+    for path in ordered_paths:
+        resolved = path.resolve(strict=False)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique_paths.append(path)
+    return unique_paths
 
 
 def load_catalogue(
     path: Path,
     *,
     apply_overrides: bool = True,
+    override_paths: Iterable[Path] = (),
 ) -> Catalogue:
     """Load the course catalogue used for UoC, level, and prerequisite data.
 
     When *apply_overrides* is ``True`` (the default), a sibling file named
-    ``catalogue_overrides.json`` is automatically discovered and merged in
-    before the catalogue entries are loaded.  The linter passes
-    ``apply_overrides=False`` so that it sees the raw handbook text.
+    ``catalogue_overrides.json`` is automatically discovered and merged in.
+    Any additional *override_paths* are then applied in the order provided,
+    so later files win when the same ``(code, career)`` entry appears more
+    than once. The linter passes ``apply_overrides=False`` so that it sees the
+    raw handbook text.
     """
 
     raw = read_json(path)
@@ -408,11 +460,10 @@ def load_catalogue(
     catalogue = Catalogue.from_list(cast(list[object], raw))
 
     if apply_overrides:
-        overrides_path = path.parent / "catalogue_overrides.json"
-        catalogue = apply_catalogue_overrides(
-            catalogue,
-            load_catalogue_overrides(overrides_path),
-        )
+        merged_overrides: dict[CatalogueKey, dict[str, Any]] = {}
+        for override_path in _ordered_catalogue_override_paths(path, override_paths):
+            merged_overrides.update(load_catalogue_overrides(override_path))
+        catalogue = apply_catalogue_overrides(catalogue, merged_overrides)
 
     return catalogue
 
@@ -2129,7 +2180,15 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
 
     rules = load_rules(rule_path)
     offerings = load_offerings(offerings_path)
-    catalogue = load_catalogue(catalogue_path)
+    extra_override_paths: list[Path] = []
+    if command.partial_plan_path is not None:
+        extra_override_paths.append(
+            command.partial_plan_path.parent / "catalogue_overrides.json"
+        )
+    if command.output_path is not None:
+        extra_override_paths.append(command.output_path.parent / "catalogue_overrides.json")
+
+    catalogue = load_catalogue(catalogue_path, override_paths=extra_override_paths)
     templates = load_templates(template_path)
     steering = load_steering(command.steering_path)
 

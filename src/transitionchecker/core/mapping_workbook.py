@@ -13,13 +13,18 @@ from transitionchecker.core.catalogue import Catalogue, CatalogueEntry
 logger = logging.getLogger(__name__)
 
 
-CATALOGUE_SHEET_NAMES = (
+HANDBOOK_CATALOGUE_SHEET_NAMES = (
+    "Handbook Course Catalogue",
     "Course Catalogue",
     "Catalogue",
     "Merged Course List",
-    "Handbook Course Catalogue",
-    "Local Course Overrides",
     "Courses Master",
+)
+
+LOCAL_COURSE_OVERRIDE_SHEET_NAMES = ("Local Course Overrides",)
+
+CATALOGUE_SHEET_NAMES = (
+    HANDBOOK_CATALOGUE_SHEET_NAMES + LOCAL_COURSE_OVERRIDE_SHEET_NAMES
 )
 
 IGNORE_SHEET_NAMES = CATALOGUE_SHEET_NAMES + ("Instructions and glossary",)
@@ -59,25 +64,37 @@ class ProgramSheetHeader(TypedDict):
     uoc: int
 
 
-def find_catalogue_sheet(workbook: Any) -> Any:
-    """Return the first catalogue sheet found in an openpyxl workbook.
+def find_catalogue_sheet(
+    workbook: Any,
+    sheet_names: tuple[str, ...] = HANDBOOK_CATALOGUE_SHEET_NAMES,
+) -> Any:
+    """Return the first matching catalogue sheet found in an openpyxl workbook.
 
-    Tries each name in ``CATALOGUE_SHEET_NAMES`` in order and returns the
+    Tries each name in ``sheet_names`` in order and returns the
     first match.  Raises ``ValueError`` if none are present.
     """
-    for name in CATALOGUE_SHEET_NAMES:
+    for name in sheet_names:
         if name in workbook:
             return workbook[name]
     raise ValueError(
-        f"No catalogue sheet found. Expected one of: {', '.join(CATALOGUE_SHEET_NAMES)}"
+        f"No catalogue sheet found. Expected one of: {', '.join(sheet_names)}"
     )
 
 
-def extract_catalogue(workbook: Any) -> Catalogue:
-    """Extract course catalogue from the catalogue sheet of an openpyxl workbook."""
-    print("\n=== EXTRACTING CATALOGUE ===")
+def _is_placeholder_catalogue_code(course_code: str) -> bool:
+    return course_code.startswith("[") and course_code.endswith("]")
+
+
+def _extract_catalogue_from_sheet(
+    workbook: Any,
+    *,
+    sheet_names: tuple[str, ...],
+    label: str,
+) -> Catalogue:
+    """Extract catalogue-style rows from the first matching workbook sheet."""
+    print(f"\n=== EXTRACTING {label.upper()} ===")
     try:
-        cat_sheet = find_catalogue_sheet(workbook)
+        cat_sheet = find_catalogue_sheet(workbook, sheet_names)
     except KeyError:
         raise ValueError("Catalogue sheet not found in workbook")
 
@@ -89,7 +106,7 @@ def extract_catalogue(workbook: Any) -> Catalogue:
             continue
 
         course_code = str(row[CATALOGUE_SHEET_COLUMNS["Code"]].value).strip()
-        if not course_code:
+        if not course_code or _is_placeholder_catalogue_code(course_code):
             continue
 
         title = (
@@ -125,8 +142,80 @@ def extract_catalogue(workbook: Any) -> Catalogue:
         ))
 
     catalogue = Catalogue(entries)
-    print(f"Extracted {len(catalogue)} catalogue entries")
+    print(f"Extracted {len(catalogue)} {label.lower()} entries")
     return catalogue
+
+
+def extract_catalogue(workbook: Any) -> Catalogue:
+    """Extract handbook course catalogue rows from an openpyxl workbook."""
+
+    return _extract_catalogue_from_sheet(
+        workbook,
+        sheet_names=HANDBOOK_CATALOGUE_SHEET_NAMES,
+        label="catalogue",
+    )
+
+
+def extract_catalogue_overrides(workbook: Any) -> list[dict[str, Any]]:
+    """Extract school-local course override rows from the workbook.
+
+    Returns a list of override dicts in the same format as
+    ``catalogue_overrides.json``.  The ``ToDo`` column value, when present, is
+    stored under the ``reason`` key so it round-trips correctly through the
+    override loading machinery.
+
+    Returns an empty list when the sheet is absent.
+    """
+    print("\n=== EXTRACTING LOCAL COURSE OVERRIDES ===")
+    for name in LOCAL_COURSE_OVERRIDE_SHEET_NAMES:
+        if name not in workbook:
+            continue
+        cat_sheet = workbook[name]
+        records: list[dict[str, Any]] = []
+        for row in cat_sheet.iter_rows(
+            min_row=CATALOGUE_SHEET_HEADER_ROWS, values_only=False
+        ):
+            if not row or not row[CATALOGUE_SHEET_COLUMNS["Code"]].value:
+                continue
+            course_code = str(row[CATALOGUE_SHEET_COLUMNS["Code"]].value).strip()
+            if not course_code or _is_placeholder_catalogue_code(course_code):
+                continue
+
+            title = (
+                str(row[CATALOGUE_SHEET_COLUMNS["Title"]].value).strip()
+                if len(row) > 1 and row[CATALOGUE_SHEET_COLUMNS["Title"]].value
+                else ""
+            )
+            career = (
+                str(row[CATALOGUE_SHEET_COLUMNS["Career"]].value).strip()
+                if len(row) > 2 and row[CATALOGUE_SHEET_COLUMNS["Career"]].value
+                else ""
+            )
+            uoc: int = 6
+            if len(row) > 3 and row[CATALOGUE_SHEET_COLUMNS["UoC"]].value is not None:
+                try:
+                    uoc = int(row[CATALOGUE_SHEET_COLUMNS["UoC"]].value)
+                except (TypeError, ValueError):
+                    pass
+            prereq = (
+                str(row[CATALOGUE_SHEET_COLUMNS["Prerequisites"]].value).strip()
+                if len(row) > 4 and row[CATALOGUE_SHEET_COLUMNS["Prerequisites"]].value
+                else "."
+            )
+            record: dict[str, Any] = {
+                "code": course_code,
+                "title": title,
+                "career": career,
+                "uoc": uoc,
+                "prerequisites": prereq,
+            }
+            if len(row) > 5 and row[CATALOGUE_SHEET_COLUMNS["ToDo"]].value:
+                record["reason"] = str(row[CATALOGUE_SHEET_COLUMNS["ToDo"]].value).strip()
+            records.append(record)
+        print(f"Extracted {len(records)} local course overrides entries")
+        return records
+    print("No local course overrides sheet found")
+    return []
 
 
 def find_template_sheet(dfs: dict[str, pd.DataFrame]) -> tuple[str, pd.DataFrame]:

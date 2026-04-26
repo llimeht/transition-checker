@@ -2,6 +2,7 @@
 
 Outputs:
 - plans/catalogue.json
+- plans/<school>/catalogue_overrides.json
 - templates/template_configs.json
 
 Usage:
@@ -29,6 +30,7 @@ from transitionchecker.core import period_rank
 from transitionchecker.core.catalogue import Catalogue
 from transitionchecker.core.mapping_workbook import (
     extract_catalogue,
+    extract_catalogue_overrides,
     find_template_sheet,
     iter_plans,
     normalize_plan_sheet_columns,
@@ -347,10 +349,14 @@ def main(argv: list[str] | None = None) -> int:
     template_file = Path(args.template_output)
     plans_dir = catalogue_file.parent
     templates_dir = template_file.parent
+    school_override_file = (
+        excel_path.parent / "catalogue_overrides.json" if excel_path is not None else None
+    )
     snapshot_file = (
         Path(args.prereq_snapshot_output) if args.prereq_snapshot_output else None
     )
     catalogue_input = Path(args.catalogue_input) if args.catalogue_input else None
+    school_catalogue_override_records: list[dict[str, Any]] = []
 
     if excel_path is None and catalogue_input is None:
         print("ERROR: Provide either xlsx workbook path or --catalogue-input.")
@@ -390,6 +396,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             workbook = openpyxl.load_workbook(excel_path, data_only=True)
             catalogue = extract_catalogue(workbook)
+            school_catalogue_override_records = extract_catalogue_overrides(workbook)
             workbook.close()
         except Exception as exc:
             print(f"ERROR: Failed to extract catalogue: {exc}")
@@ -416,6 +423,17 @@ def main(argv: list[str] | None = None) -> int:
     export_catalogue = catalogue_file.name != "NONE"
 
     reporting: list[str] = []
+
+    if school_override_file is not None:
+        school_override_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(school_override_file, "w", encoding="utf-8") as fh:
+            json.dump(school_catalogue_override_records, fh, indent=2)
+        reporting.extend(
+            [
+                f"School catalogue overrides file: {school_override_file}",
+                f"School catalogue overrides entries: {len(school_catalogue_override_records)}",
+            ]
+        )
 
     if export_templates:
         try:

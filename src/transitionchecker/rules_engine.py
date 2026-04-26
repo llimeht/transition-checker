@@ -1562,7 +1562,11 @@ def run_rules_command(
             try:
                 from transitionchecker.planner_engine import load_catalogue
 
-                catalogue = load_catalogue(command.catalogue_file)
+                override_paths = [command.plan_file.parent / "catalogue_overrides.json"]
+                catalogue = load_catalogue(
+                    command.catalogue_file,
+                    override_paths=override_paths,
+                )
                 rules_career = resolve_rules_career(validated)
                 ensure_catalogue_has_career(catalogue, rules_career)
             except FileNotFoundError:

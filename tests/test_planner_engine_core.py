@@ -440,17 +440,23 @@ def test_apply_catalogue_overrides_does_not_mutate_raw() -> None:
     assert result[CatalogueKey("CEIC3000", "UGRD")].prerequisites == "CEIC2000"
 
 
-def test_apply_catalogue_overrides_ignores_course_not_in_raw() -> None:
+def test_apply_catalogue_overrides_adds_course_not_in_raw() -> None:
     raw = Catalogue([])
-    overrides = {
+    overrides: dict[CatalogueKey, dict[str, object]] = {
         CatalogueKey("CEIC9999", "UGRD"): {
+            "title": "Synthetic elective",
+            "career": "UGRD",
+            "uoc": 6,
             "prerequisites": "CEIC1000",
             "reason": "new",
             "date": "2026-04-22",
         }
     }
     result = apply_catalogue_overrides(raw, overrides)
-    assert len(result) == 0
+    assert len(result) == 1
+    entry = result[CatalogueKey("CEIC9999", "UGRD")]
+    assert entry.title == "Synthetic elective"
+    assert entry.prerequisites == "CEIC1000"
 
 
 def test_apply_catalogue_overrides_empty_overrides_returns_same() -> None:
@@ -593,6 +599,92 @@ def test_load_catalogue_no_overrides_file_is_silent(tmp_path: Path) -> None:
     assert catalogue[CatalogueKey("CEIC3000", "UGRD")].prerequisites == "CEIC1000"
 
 
+def test_load_catalogue_applies_extra_override_paths_last(tmp_path: Path) -> None:
+    import json
+
+    catalogue_file = tmp_path / "catalogue.json"
+    catalogue_file.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "CEIC3000",
+                    "career": "UGRD",
+                    "title": "C",
+                    "uoc": 6,
+                    "prerequisites": "HANDBOOK1000",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    root_overrides_file = tmp_path / "catalogue_overrides.json"
+    root_overrides_file.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "CEIC3000",
+                    "career": "UGRD",
+                    "prerequisites": "ROOT1000",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    school_dir = tmp_path / "CEIC"
+    school_dir.mkdir()
+    school_overrides_file = school_dir / "catalogue_overrides.json"
+    school_overrides_file.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "CEIC3000",
+                    "career": "UGRD",
+                    "prerequisites": "SCHOOL1000",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    catalogue = load_catalogue(
+        catalogue_file,
+        override_paths=[school_overrides_file],
+    )
+
+    assert catalogue[CatalogueKey("CEIC3000", "UGRD")].prerequisites == "SCHOOL1000"
+
+
+def test_load_catalogue_adds_override_only_entries_from_extra_paths(tmp_path: Path) -> None:
+    import json
+
+    catalogue_file = tmp_path / "catalogue.json"
+    catalogue_file.write_text(json.dumps([]), encoding="utf-8")
+    school_dir = tmp_path / "CEIC"
+    school_dir.mkdir()
+    school_overrides_file = school_dir / "catalogue_overrides.json"
+    school_overrides_file.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "GenEd1",
+                    "career": "Undergraduate",
+                    "title": "Gen Ed 1",
+                    "uoc": 6,
+                    "prerequisites": ".",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    catalogue = load_catalogue(
+        catalogue_file,
+        override_paths=[school_overrides_file],
+    )
+
+    assert catalogue[CatalogueKey("GENED1", "Undergraduate")].title == "Gen Ed 1"
+
+
 def test_run_planner_uses_rules_career_for_catalogue_validation(
     tmp_path: Path,
 ) -> None:
@@ -642,3 +734,63 @@ def test_run_planner_uses_rules_career_for_catalogue_validation(
 
     with pytest.raises(ValueError, match="career 'Postgraduate'"):
         run_planner(command, stdout=StringIO(), stderr=StringIO())
+
+
+def test_run_planner_uses_output_dir_catalogue_overrides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    offerings_file = tmp_path / "offerings.json"
+    catalogue_file = tmp_path / "catalogue.json"
+    template_file = tmp_path / "templates.json"
+    output_dir = tmp_path / "CEIC"
+    output_dir.mkdir()
+
+    for path in (rules_file, offerings_file, catalogue_file, template_file):
+        path.write_text("{}", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    class _StopPlanner(Exception):
+        pass
+
+    def fake_load_catalogue(
+        path: Path,
+        *,
+        apply_overrides: bool = True,
+        override_paths: object = (),
+    ) -> Catalogue:
+        captured["path"] = path
+        captured["apply_overrides"] = apply_overrides
+        captured["override_paths"] = list(cast(list[Path], override_paths))
+        raise _StopPlanner()
+
+    def fake_load_rules(_path: Path) -> dict[str, object]:
+        return {}
+
+    def fake_load_offerings(_path: Path) -> dict[str, list[str]]:
+        return {}
+
+    monkeypatch.setattr("transitionchecker.planner_engine.load_rules", fake_load_rules)
+    monkeypatch.setattr(
+        "transitionchecker.planner_engine.load_offerings", fake_load_offerings
+    )
+    monkeypatch.setattr("transitionchecker.planner_engine.load_catalogue", fake_load_catalogue)
+
+    command = PlannerCommand(
+        rule_path=rules_file,
+        intake="2026 T1",
+        offerings_path=offerings_file,
+        catalogue_path=catalogue_file,
+        template_config_path=template_file,
+        steering_path=tmp_path / "missing-steering.json",
+        output_path=output_dir / "result.csv",
+    )
+
+    with pytest.raises(_StopPlanner):
+        run_planner(command, stdout=StringIO(), stderr=StringIO())
+
+    assert captured["path"] == catalogue_file
+    assert captured["apply_overrides"] is True
+    assert captured["override_paths"] == [output_dir / "catalogue_overrides.json"]

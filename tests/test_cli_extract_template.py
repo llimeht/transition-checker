@@ -79,11 +79,27 @@ def test_main_writes_snapshot_from_catalogue_input(tmp_path: Path) -> None:
 def test_main_success_writes_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    excel = tmp_path / "mapping.xlsx"
+    school_dir = tmp_path / "CEIC"
+    school_dir.mkdir()
+    excel = school_dir / "mapping.xlsx"
     excel.write_text("placeholder", encoding="utf-8")
 
     catalogue_out = tmp_path / "plans" / "catalogue.json"
     template_out = tmp_path / "templates" / "template_configs.json"
+    root_overrides = catalogue_out.parent / "catalogue_overrides.json"
+    root_overrides.parent.mkdir(parents=True, exist_ok=True)
+    root_overrides.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "TEST1001",
+                    "career": "UGRD",
+                    "prerequisites": "GLOBAL1000",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
 
     def fake_load_workbook(_path: Path, data_only: bool = True) -> _FakeWorkbook:
         return _FakeWorkbook()
@@ -96,11 +112,30 @@ def test_main_success_writes_outputs(
                     title="T",
                     career="UGRD",
                     uoc=6,
-                    prerequisites=".",
+                    prerequisites="HANDBOOK1000",
                     level="Level 1",
                 )
             ]
         )
+
+    def fake_extract_catalogue_overrides(_wb: Any) -> list[dict[str, Any]]:
+        return [
+            {
+                "code": "TEST1001",
+                "title": "T local",
+                "career": "UGRD",
+                "uoc": 6,
+                "prerequisites": "LOCAL1000",
+            },
+            {
+                "code": "NEW1001",
+                "title": "New local course",
+                "career": "UGRD",
+                "uoc": 6,
+                "prerequisites": ".",
+                "reason": "Not yet in handbook",
+            },
+        ]
 
     def fake_extract_template_configs(_path: Path) -> dict[str, Any]:
         return {"intakes": {"2026 T1": {"years": []}}}
@@ -108,6 +143,11 @@ def test_main_success_writes_outputs(
     monkeypatch.setattr(openpyxl, "load_workbook", fake_load_workbook)
     monkeypatch.setattr(
         extract_template_cli, "extract_catalogue", fake_extract_catalogue
+    )
+    monkeypatch.setattr(
+        extract_template_cli,
+        "extract_catalogue_overrides",
+        fake_extract_catalogue_overrides,
     )
     monkeypatch.setattr(
         extract_template_cli,
@@ -128,10 +168,21 @@ def test_main_success_writes_outputs(
     assert code == 0
     assert catalogue_out.is_file()
     assert template_out.is_file()
+    assert (school_dir / "catalogue_overrides.json").is_file()
 
     catalogue = json.loads(catalogue_out.read_text(encoding="utf-8"))
     templates = json.loads(template_out.read_text(encoding="utf-8"))
-    assert catalogue[0]["code"] == "TEST1001"
+    local_overrides = json.loads(
+        (school_dir / "catalogue_overrides.json").read_text(encoding="utf-8")
+    )
+
+    catalogue_by_code = {entry["code"]: entry for entry in catalogue}
+    assert set(catalogue_by_code) == {"TEST1001"}
+    assert catalogue_by_code["TEST1001"]["prerequisites"] == "HANDBOOK1000"
+    local_by_code = {entry["code"]: entry for entry in local_overrides}
+    assert set(local_by_code) == {"TEST1001", "NEW1001"}
+    assert "reason" not in local_by_code["TEST1001"]
+    assert local_by_code["NEW1001"]["reason"] == "Not yet in handbook"
     assert "intakes" in templates
 
 
@@ -190,12 +241,20 @@ def test_main_writes_prereq_snapshot(
             ]
         )
 
+    def fake_extract_catalogue_overrides(_wb: Any) -> list[dict[str, Any]]:
+        return []
+
     def fake_extract_template_configs(_path: Path) -> dict[str, Any]:
         return {"intakes": {"2026 T1": {"years": []}}}
 
     monkeypatch.setattr(openpyxl, "load_workbook", fake_load_workbook)
     monkeypatch.setattr(
         extract_template_cli, "extract_catalogue", fake_extract_catalogue
+    )
+    monkeypatch.setattr(
+        extract_template_cli,
+        "extract_catalogue_overrides",
+        fake_extract_catalogue_overrides,
     )
     monkeypatch.setattr(
         extract_template_cli,

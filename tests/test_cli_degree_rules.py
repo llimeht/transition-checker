@@ -299,6 +299,174 @@ def test_plan_validation_uses_catalogue_prerequisites(
     assert any("TEST2001" in failure for failure in payload["prerequisite_failures"])
 
 
+def test_plan_validation_uses_plan_dir_catalogue_overrides(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    school_dir = tmp_path / "CEIC"
+    school_dir.mkdir()
+    plan_file = school_dir / "plan.json"
+    catalogue_file = tmp_path / "catalogue.json"
+    school_overrides_file = school_dir / "catalogue_overrides.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "career": "Undergraduate",
+                "required": {"Level 1": ["TEST1001", "TEST2001"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 1",
+                        "code": "TEST1001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 2",
+                        "code": "TEST2001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    catalogue_file.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "TEST1001",
+                    "title": "Prerequisite",
+                    "career": "Undergraduate",
+                    "uoc": 6,
+                    "prerequisites": "",
+                },
+                {
+                    "code": "TEST2001",
+                    "title": "Dependent",
+                    "career": "Undergraduate",
+                    "uoc": 6,
+                    "prerequisites": "TEST1001",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    school_overrides_file.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "TEST2001",
+                    "career": "Undergraduate",
+                    "prerequisites": "",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+            catalogue_file=catalogue_file,
+            plan_report_json=True,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 0
+    payload = json.loads(out.getvalue())
+    assert payload["status"] == "PASS"
+    assert payload["prerequisite_failures"] == []
+
+
+def test_plan_validation_uses_override_only_courses_from_plan_dir_catalogue_overrides(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    school_dir = tmp_path / "CEIC"
+    school_dir.mkdir()
+    plan_file = school_dir / "plan.json"
+    catalogue_file = tmp_path / "catalogue.json"
+    school_overrides_file = school_dir / "catalogue_overrides.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "career": "Undergraduate",
+                "required": {"Level 1": ["GENED1"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 1",
+                        "code": "GENED1",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    catalogue_file.write_text(json.dumps([]), encoding="utf-8")
+    school_overrides_file.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "GenEd1",
+                    "title": "Gen Ed 1",
+                    "career": "Undergraduate",
+                    "uoc": 6,
+                    "prerequisites": ".",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+            catalogue_file=catalogue_file,
+            plan_report_json=True,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 0
+    payload = json.loads(out.getvalue())
+    assert payload["status"] == "PASS"
+    assert payload["prerequisite_failures"] == []
+
+
 def test_plan_output_shows_unsupported_syntax_separately(
     tmp_path: Path,
 ) -> None:
