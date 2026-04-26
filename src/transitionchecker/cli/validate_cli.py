@@ -237,6 +237,7 @@ def main(argv: list[str] | None = None) -> int:
             "failed": 0,
             "skipped_no_rule": 0,
             "skipped_placeholder": 0,
+            "accepted": 0,
         }
         write_validation_report(report_path, report)
         print(f"☑️ Validation report written to: {report_path}")
@@ -244,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
 
     failed = 0
     valid = 0
+    accepted = 0
     skipped_no_rule = 0
     skipped_placeholder = 0
     results: list[dict[str, object]] = []
@@ -381,16 +383,24 @@ def main(argv: list[str] | None = None) -> int:
             offerings_valid = False
 
         if plan_is_valid and offerings_valid:
-            print(
-                f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✓ PASS':>{status_col_width}}"
-            )
-            valid += 1
+            accepted_findings = [f for f in structured_findings if f.get("accepted")]
+            has_accepted = bool(accepted_findings)
+            if has_accepted:
+                print(
+                    f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'~ ACCEPTED':>{status_col_width}}"
+                )
+                accepted += 1
+            else:
+                print(
+                    f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✓ PASS':>{status_col_width}}"
+                )
+                valid += 1
             results.append(
                 {
                     "plan_file": str(plan_file),
                     "program_code": program_code,
                     "rule_file": rule_name,
-                    "status": "valid",
+                    "status": "accepted" if has_accepted else "valid",
                     "rule_failures": rule_failures,
                     "prerequisite_failures": prereq_failures,
                     "unsupported_prerequisites": unsupported_prereqs,
@@ -544,6 +554,7 @@ def main(argv: list[str] | None = None) -> int:
         "failed": failed,
         "skipped_no_rule": skipped_no_rule,
         "skipped_placeholder": skipped_placeholder,
+        "accepted": accepted,
     }
     write_validation_report(report_path, report)
     print(f"\n☑️ Validation report written to: {report_path}")
