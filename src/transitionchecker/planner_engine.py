@@ -2206,6 +2206,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
         catalogue,
         extract_required_rule_courses(rules),
         career,
+        stderr=stderr,
     )
 
     slots = build_slots(templates, command.intake)
@@ -2231,6 +2232,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
         catalogue,
         {record.code for record in partial_plan_courses},
         career,
+        stderr=stderr,
     )
 
     preselected_constraints = derive_fixed_constraints(partial_plan_courses, slots)

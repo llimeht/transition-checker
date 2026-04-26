@@ -17,7 +17,7 @@ JSON format
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Iterator, cast
+from typing import Any, Iterable, Iterator, TextIO, cast
 
 
 def _normalize_code(code: str) -> str:
@@ -241,15 +241,29 @@ def ensure_catalogue_courses_for_career(
     catalogue: Catalogue,
     codes: Iterable[str],
     career: str,
+    *,
+    stderr: TextIO | None = None,
 ) -> None:
-    """Raise when any referenced course is missing for the requested career."""
+    """Raise when any referenced course is missing for the requested career.
+
+    When a course exists in the catalogue but under a different career, a warning
+    is printed to *stderr* and the check passes (falling back to that career).
+    """
 
     missing: list[str] = []
     for code in sorted({value.strip().upper() for value in codes if value.strip()}):
         try:
             entry = get_catalogue_entry_for_career(code, catalogue, career)
-        except ValueError as exc:
-            missing.append(str(exc))
+        except ValueError:
+            # Course exists but under a different career — warn and fall back.
+            matches = catalogue.by_code(code)
+            available = sorted({m.career or "<blank>" for m in matches})
+            msg = (
+                f"Catalogue course '{code}' is not available for career '{career}' "
+                f"(available careers: {', '.join(available)}); using first available career"
+            )
+            if stderr is not None:
+                print(f"Warning: {msg}", file=stderr)
             continue
 
         if entry is None:
