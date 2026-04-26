@@ -447,13 +447,15 @@ class TestInvalidInputs:
         _, _, err = parse("CEIC1000 XYZZY CEIC1001")
         assert err is not None
 
-    def test_advisory_completed_sentence_remains_error(self) -> None:
+    def test_advisory_sentence_returns_no_prereq(self) -> None:
+        # Advisory sentences carry no positive prerequisite content; the parser
+        # should return (None, None, None) rather than a parse error.
         prereq, coreq, err = parse(
             "Students who have previously completed ACCT5906 should not enrol into this course."
         )
         assert prereq is None
         assert coreq is None
-        assert err is not None
+        assert err is None
 
     def test_result_is_cached(self) -> None:
         """Calling with the same input twice returns the same object (cache hit)."""

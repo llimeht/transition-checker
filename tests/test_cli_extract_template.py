@@ -250,8 +250,10 @@ def test_classify_prerequisite_clause_families() -> None:
     classification, families = classify_prerequisite_clause(
         "Students who have previously completed ACCT5906 should not enrol into this course."
     )
-    assert classification is PrerequisiteClauseClassification.NON_IGNORABLE
-    assert families == []
+    # MIXED: advisory phrase is recognised but ACCT5906 remains as a parseable signal.
+    # The parser itself returns no-error for purely advisory sentences.
+    assert classification is PrerequisiteClauseClassification.MIXED
+    assert "advisory" in families
 
 
 def test_lint_prerequisites_json_includes_classification(tmp_path: Path) -> None:
