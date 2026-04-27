@@ -467,6 +467,93 @@ def test_plan_validation_uses_override_only_courses_from_plan_dir_catalogue_over
     assert payload["prerequisite_failures"] == []
 
 
+def test_plan_validation_counts_repeated_placeholder_rows_for_placeholder_clause(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    school_dir = tmp_path / "CEIC"
+    school_dir.mkdir()
+    plan_file = school_dir / "plan.json"
+    catalogue_file = tmp_path / "catalogue.json"
+    school_overrides_file = school_dir / "catalogue_overrides.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "career": "Undergraduate",
+                "required": {
+                    "Electives": [
+                        {
+                            "min": 2,
+                            "placeholder": "CEICeeee",
+                            "from": ["TEST2001", "TEST2002", "TEST2003"],
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 1",
+                        "code": "CEICeeee",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                    {
+                        "year": 2026,
+                        "period": "Term 2",
+                        "course_n": "Course 2",
+                        "code": "CEICeeee",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    catalogue_file.write_text(json.dumps([]), encoding="utf-8")
+    school_overrides_file.write_text(
+        json.dumps(
+            [
+                {
+                    "code": "CEICeeee",
+                    "title": "CEIC Elective Placeholder",
+                    "career": "Undergraduate",
+                    "uoc": 6,
+                    "prerequisites": ".",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+            catalogue_file=catalogue_file,
+            plan_report_json=True,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 0
+    payload = json.loads(out.getvalue())
+    assert payload["status"] == "PASS"
+    assert payload["rule_failures"] == []
+
+
 def test_plan_output_shows_unsupported_syntax_separately(
     tmp_path: Path,
 ) -> None:

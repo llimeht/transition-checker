@@ -111,6 +111,44 @@ _CLAUSE_META_KEY = "_required_clause_meta"
 _MISSING_UOC_ATOM_RE = re.compile(r"\d+\s*uoc", re.IGNORECASE)
 
 
+def _is_placeholder_min_from(node: dict[str, Any]) -> bool:
+    return set(node.keys()) == {"min", "from", "placeholder"}
+
+
+def _validate_placeholder_code(value: Any, path: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise RuleValidationError(path, "'placeholder' must be a non-empty course code")
+
+    placeholder = _normalize_course_code(value)
+    if not _is_course_code(placeholder):
+        raise RuleValidationError(path, "'placeholder' must be a valid course code")
+    return placeholder
+
+
+def _count_min_from_satisfied(
+    from_exprs: list[RuleExpr],
+    completed_courses: Counter[str],
+    completed_uoc: int,
+    placeholder: str | None = None,
+) -> int:
+    satisfied = sum(
+        completed_courses[cast(str, child)]
+        if _is_course_code(child)
+        else int(evaluate_expression(child, completed_courses, completed_uoc))
+        for child in from_exprs
+    )
+    if placeholder is None:
+        return satisfied
+
+    if any(
+        _is_course_code(child) and cast(str, child) == placeholder
+        for child in from_exprs
+    ):
+        return satisfied
+
+    return satisfied + completed_courses[placeholder]
+
+
 def _make_warning(
     code: str,
     message: str,
@@ -206,7 +244,11 @@ def _clause_summary(clause: dict[str, Any], max_items: int = 4) -> str:
             pool = cast(list[Any], raw_from)  # type: ignore[redundant-cast]
             items = [str(c) for c in pool[:max_items]]
             suffix = "|..." if len(pool) > max_items else ""
-            return f"min {n} from[{'|'.join(items)}{suffix}]"
+            summary = f"min {n} from[{'|'.join(items)}{suffix}]"
+            placeholder = clause.get("placeholder")
+            if isinstance(placeholder, str) and placeholder.strip():
+                summary += f" placeholder[{placeholder.strip()}]"
+            return summary
     return ""
 
 
@@ -754,7 +796,7 @@ def normalize_clause(clause: Any) -> RuleExpr:
         operator_clause.pop("id", None)
         keys = set(operator_clause.keys())
 
-        if keys == {"min", "from"}:
+        if keys == {"min", "from"} or keys == {"min", "from", "placeholder"}:
             min_count = operator_clause["min"]
             from_value = operator_clause["from"]
             if not isinstance(min_count, int) or min_count < 1:
@@ -769,10 +811,16 @@ def normalize_clause(clause: Any) -> RuleExpr:
                     "<clause>",
                     f"'from' has {len(from_courses)} options but 'min' is {min_count}",
                 )
-            return {
+            normalized_clause: dict[str, Any] = {
                 "min": min_count,
                 "from": [normalize_clause(child) for child in from_courses],
             }
+            if "placeholder" in operator_clause:
+                normalized_clause["placeholder"] = _validate_placeholder_code(
+                    operator_clause["placeholder"],
+                    "<clause>.placeholder",
+                )
+            return normalized_clause
 
         if len(operator_clause) != 1:
             raise RuleValidationError(
@@ -860,7 +908,7 @@ def validate_canonical_expression(expr: RuleExpr, path: str = "<clause>") -> Non
             )
         return
 
-    if keys == {"min", "from"}:
+    if keys == {"min", "from"} or keys == {"min", "from", "placeholder"}:
         min_count = expr["min"]
         from_value = expr["from"]
         if not isinstance(min_count, int) or min_count < 1:
@@ -872,6 +920,8 @@ def validate_canonical_expression(expr: RuleExpr, path: str = "<clause>") -> Non
             raise RuleValidationError(
                 path, f"'from' has {len(from_courses)} options but 'min' is {min_count}"
             )
+        if "placeholder" in expr:
+            _validate_placeholder_code(expr["placeholder"], f"{path}.placeholder")
         for idx, child in enumerate(from_courses):
             validate_canonical_expression(child, f"{path}.from[{idx}]")
         return
@@ -929,14 +979,17 @@ def evaluate_expression(
             )
         return completed_uoc >= threshold
 
-    if set(node.keys()) == {"min", "from"}:
+    if set(node.keys()) == {"min", "from"} or _is_placeholder_min_from(node):
         min_count = cast(int, node["min"])
         from_exprs = cast(list[RuleExpr], node["from"])
-        satisfied = sum(
-            completed_courses[cast(str, child)]
-            if _is_course_code(child)
-            else int(evaluate_expression(child, completed_courses, completed_uoc))
-            for child in from_exprs
+        placeholder = (
+            cast(str, node["placeholder"]) if _is_placeholder_min_from(node) else None
+        )
+        satisfied = _count_min_from_satisfied(
+            from_exprs,
+            completed_courses,
+            completed_uoc,
+            placeholder,
         )
         return satisfied >= min_count
 
@@ -1069,14 +1122,17 @@ def expression_to_text(expr: RuleExpr, parent_op: str | None = None) -> str:
         threshold = cast(int, node["uoc"])
         return f"{threshold} UOC"
 
-    if set(node.keys()) == {"min", "from"}:
+    if set(node.keys()) == {"min", "from"} or _is_placeholder_min_from(node):
         min_count = cast(int, node["min"])
         from_exprs = cast(list[RuleExpr], node["from"])
         total = len(from_exprs)
         items = ", ".join(expression_to_text(child) for child in from_exprs)
+        placeholder_text = ""
+        if _is_placeholder_min_from(node):
+            placeholder_text = f" [placeholder {cast(str, node['placeholder'])}]"
         if min_count == total:
-            return f"ALL OF ({items})"
-        return f"AT LEAST {min_count} OF ({items})"
+            return f"ALL OF ({items}){placeholder_text}"
+        return f"AT LEAST {min_count} OF ({items}){placeholder_text}"
 
     op = next(iter(node.keys()))
     children = cast(list[RuleExpr], node[op])
@@ -1136,17 +1192,22 @@ def diagnose_expression(
         needed = max(0, threshold - completed_uoc)
         return f"need {needed} more UoC (have {completed_uoc}, need {threshold})"
 
-    if set(node.keys()) == {"min", "from"}:
+    if set(node.keys()) == {"min", "from"} or _is_placeholder_min_from(node):
         min_count = cast(int, node["min"])
         from_exprs = cast(list[RuleExpr], node["from"])
-        satisfied = sum(
-            completed_courses[cast(str, child)]
-            if _is_course_code(child)
-            else int(evaluate_expression(child, completed_courses, completed_uoc))
-            for child in from_exprs
+        placeholder = (
+            cast(str, node["placeholder"]) if _is_placeholder_min_from(node) else None
+        )
+        satisfied = _count_min_from_satisfied(
+            from_exprs,
+            completed_courses,
+            completed_uoc,
+            placeholder,
         )
         needed = min_count - satisfied
         options = ", ".join(expression_to_text(e) for e in from_exprs)
+        if placeholder is not None:
+            options = f"{options}; placeholder {placeholder}"
         return f"need {needed} more from ({options})"
 
     op = next(iter(node.keys()))

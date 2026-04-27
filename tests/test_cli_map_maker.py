@@ -28,6 +28,15 @@ def test_parse_args_defaults() -> None:
     assert args.num_solutions == 5
     assert args.restarts == 4
     assert args.iterations == 100
+    assert args.no_placeholders is False
+
+
+def test_parse_args_accepts_no_placeholders() -> None:
+    args = map_maker_cli.parse_args(
+        ["--rule", "rules/r.json", "--intake", "2026 T1", "--no-placeholders"]
+    )
+
+    assert args.no_placeholders is True
 
 
 def test_main_builds_command_and_returns_runner_code(
@@ -48,6 +57,7 @@ def test_main_builds_command_and_returns_runner_code(
         patience=10,
         ruin_fraction=0.2,
         seed=99,
+        no_placeholders=True,
         output="out.csv",
         verbose=2,
     )
@@ -73,6 +83,7 @@ def test_main_builds_command_and_returns_runner_code(
     assert cmd.patience == 10
     assert cmd.ruin_fraction == 0.2
     assert cmd.seed == 99
+    assert cmd.no_placeholders is True
     assert cmd.output_path == Path("out.csv")
     assert cmd.verbose == 2
     assert cmd.partial_plan_path == Path("plans/test_partial_plan.json")
@@ -96,6 +107,7 @@ def test_main_returns_1_when_runner_raises(
         patience=None,
         ruin_fraction=0.3,
         seed=1,
+        no_placeholders=False,
         output=None,
         verbose=0,
     )

@@ -122,6 +122,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Fraction of courses to ruin in ruin-and-recreate moves",
     )
     parser.add_argument("--seed", type=int, default=1337, help="Random seed")
+    parser.add_argument(
+        "--no-placeholders",
+        action="store_true",
+        help="Prefer concrete electives from the rule pool instead of declared placeholders",
+    )
     parser.add_argument("--output", help="Output CSV path (stdout if omitted)")
     parser.add_argument(
         "-v",
@@ -152,6 +157,7 @@ def main() -> int:
         patience=args.patience,
         ruin_fraction=args.ruin_fraction,
         seed=args.seed,
+        no_placeholders=args.no_placeholders,
         output_path=Path(args.output) if args.output else None,
         verbose=args.verbose,
     )

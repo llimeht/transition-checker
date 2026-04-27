@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from io import StringIO
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -17,6 +17,8 @@ from transitionchecker.planner_engine import (
     SteeringConfig,
     TemplateConfig,
     apply_catalogue_overrides,
+    assignment_course_code,
+    build_plan_document,
     build_slots,
     derive_fixed_constraints,
     evaluate_plan_cost,
@@ -157,6 +159,220 @@ def test_select_required_courses_picks_feasible_or_branch() -> None:
 
     selected = select_required_courses(rules, feasible_counts, catalogue, "UGRD")
     assert selected == ["TEST2002"]
+
+
+def test_select_required_courses_prefers_or_branch_matching_fixed_courses() -> None:
+    rules: dict[str, Any] = {
+        "required": {
+            "Level 1": [
+                {
+                    "or": [
+                        {"and": ["CHEM1811", "CHEM1821"]},
+                        {"and": ["CHEM1011", "CHEM1021"]},
+                    ]
+                }
+            ]
+        }
+    }
+    feasible_counts = {
+        "CHEM1811": 2,
+        "CHEM1821": 2,
+        "CHEM1011": 4,
+        "CHEM1021": 4,
+    }
+    catalogue = Catalogue(
+        [
+            CatalogueEntry(code="CHEM1811", title="Chem 1A", career="UGRD", uoc=6, prerequisites="", level="Level 1"),
+            CatalogueEntry(code="CHEM1821", title="Chem 1B", career="UGRD", uoc=6, prerequisites="", level="Level 1"),
+            CatalogueEntry(code="CHEM1011", title="Chem 1A alt", career="UGRD", uoc=6, prerequisites="", level="Level 1"),
+            CatalogueEntry(code="CHEM1021", title="Chem 1B alt", career="UGRD", uoc=6, prerequisites="", level="Level 1"),
+        ]
+    )
+
+    selected = select_required_courses(
+        rules,
+        feasible_counts,
+        catalogue,
+        "UGRD",
+        fixed_course_codes={"CHEM1811", "CHEM1821"},
+    )
+
+    assert selected == ["CHEM1811", "CHEM1821"]
+
+
+def test_select_required_courses_prefers_placeholder_for_min_from() -> None:
+    rules: dict[str, Any] = {
+        "required": {
+            "Electives": [
+                {
+                    "min": 2,
+                    "placeholder": "CEICeeee",
+                    "from": ["TEST2001", "TEST2002", "TEST2003"],
+                }
+            ]
+        }
+    }
+    feasible_counts = {
+        "CEICEEEE": 4,
+        "TEST2001": 4,
+        "TEST2002": 4,
+        "TEST2003": 4,
+    }
+    catalogue = Catalogue(
+        [
+            CatalogueEntry(code="CEICEEEE", title="Elective Placeholder", career="UGRD", uoc=6, prerequisites="", level="Level 4"),
+            CatalogueEntry(code="TEST2001", title="A", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
+            CatalogueEntry(code="TEST2002", title="B", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
+            CatalogueEntry(code="TEST2003", title="C", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
+        ]
+    )
+
+    selected = select_required_courses(rules, feasible_counts, catalogue, "UGRD")
+
+    assert selected == ["CEICEEEE", "CEICEEEE#2"]
+
+
+def test_select_required_courses_plain_min_from_does_not_use_placeholder_logic() -> None:
+    rules: dict[str, Any] = {
+        "required": {
+            "Electives": [
+                {
+                    "min": 2,
+                    "from": ["TEST2001", "TEST2002", "TEST2003"],
+                }
+            ]
+        }
+    }
+    feasible_counts = {
+        "CEICEEEE": 10,
+        "TEST2001": 3,
+        "TEST2002": 2,
+        "TEST2003": 1,
+    }
+    catalogue = Catalogue(
+        [
+            CatalogueEntry(code="CEICEEEE", title="Elective Placeholder", career="UGRD", uoc=6, prerequisites="", level="Level 4"),
+            CatalogueEntry(code="TEST2001", title="A", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
+            CatalogueEntry(code="TEST2002", title="B", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
+            CatalogueEntry(code="TEST2003", title="C", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
+        ]
+    )
+
+    selected = select_required_courses(rules, feasible_counts, catalogue, "UGRD")
+
+    assert selected == ["TEST2001", "TEST2002"]
+
+
+def test_select_required_courses_can_opt_out_of_placeholder_preference() -> None:
+    rules: dict[str, Any] = {
+        "required": {
+            "Electives": [
+                {
+                    "min": 1,
+                    "placeholder": "CEICeeee",
+                    "from": ["TEST2001", "TEST2002"],
+                }
+            ]
+        }
+    }
+    feasible_counts = {"CEICEEEE": 5, "TEST2001": 2, "TEST2002": 0}
+    catalogue = Catalogue(
+        [
+            CatalogueEntry(code="CEICEEEE", title="Elective Placeholder", career="UGRD", uoc=6, prerequisites="", level="Level 4"),
+            CatalogueEntry(code="TEST2001", title="A", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
+            CatalogueEntry(code="TEST2002", title="B", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
+        ]
+    )
+
+    selected = select_required_courses(
+        rules,
+        feasible_counts,
+        catalogue,
+        "UGRD",
+        prefer_placeholders=False,
+    )
+
+    assert selected == ["TEST2001"]
+
+
+def test_derive_fixed_constraints_maps_duplicate_placeholder_rows_to_instances() -> None:
+    slots = build_slots(_template_config(), "2026 T1")
+    partial = [
+        PartialPlanCourseRecord(
+            code="CEICEEEE",
+            year=2026,
+            enrol_year="Year 1",
+            period="Term 1",
+            course_n="Course 1",
+        ),
+        PartialPlanCourseRecord(
+            code="CEICEEEE",
+            year=2026,
+            enrol_year="Year 1",
+            period="Term 2",
+            course_n="Course 2",
+        ),
+    ]
+
+    constraints = derive_fixed_constraints(
+        partial,
+        slots,
+        ["CEICEEEE", "CEICEEEE#2"],
+    )
+
+    assert constraints.fixed_assignments == {"CEICEEEE": 0, "CEICEEEE#2": 1}
+
+
+def test_derive_fixed_constraints_defers_duplicate_diagnostic_before_instance_resolution() -> None:
+    slots = build_slots(_template_config(), "2026 T1")
+    partial = [
+        PartialPlanCourseRecord(
+            code="CEICEEEE",
+            year=2026,
+            enrol_year="Year 1",
+            period="Term 1",
+            course_n="Course 1",
+        ),
+        PartialPlanCourseRecord(
+            code="CEICEEEE",
+            year=2026,
+            enrol_year="Year 1",
+            period="Term 2",
+            course_n="Course 2",
+        ),
+    ]
+
+    constraints = derive_fixed_constraints(partial, slots)
+
+    assert constraints.diagnostics == []
+    assert constraints.fixed_assignments == {"CEICEEEE": 0}
+
+
+def test_build_plan_document_strips_internal_assignment_suffixes() -> None:
+    slots = build_slots(_template_config(), "2026 T1")
+    catalogue = Catalogue(
+        [
+            CatalogueEntry(code="CEICEEEE", title="Elective Placeholder", career="UGRD", uoc=6, prerequisites="", level="Level 4"),
+        ]
+    )
+
+    document: dict[str, Any] = build_plan_document(
+        {"CEICEEEE": 0, "CEICEEEE#2": 1},
+        slots,
+        catalogue,
+        "UGRD",
+        "2026 T1",
+    )
+    courses = cast(list[dict[str, Any]], document["courses"])
+
+    assert [course["code"] for course in courses] == [
+        "CEICEEEE",
+        "CEICEEEE",
+    ]
+    assert all(
+        assignment_course_code(course["code"]) == "CEICEEEE"
+        for course in courses
+    )
 
 
 def test_path_or_exit_raises_for_missing_file(tmp_path: Path) -> None:

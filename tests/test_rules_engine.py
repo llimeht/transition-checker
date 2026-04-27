@@ -223,6 +223,24 @@ class TestValidateRulesConfig:
         with pytest.raises(RuleValidationError):
             validate_rules_config(bad_config)
 
+    def test_placeholder_min_from_is_accepted(self) -> None:
+        config: dict[str, Any] = {
+            "required": {
+                "Electives": [
+                    {
+                        "min": 2,
+                        "placeholder": "CEICeeee",
+                        "from": ["TEST2001", "TEST2002", "TEST2003"],
+                    }
+                ]
+            }
+        }
+
+        validated = validate_rules_config(config)
+
+        clause = validated["required"]["Electives"][0]
+        assert clause["placeholder"] == "CEICEEEE"
+
 
 class TestEvaluateRequired:
     def test_passing_plan(self, rules_simple: dict[str, Any]) -> None:
@@ -254,6 +272,65 @@ class TestEvaluateRequired:
         result = evaluate_required(normalized, completed)
         assert result["Level 1"]
         assert result["Level 2"]
+
+    def test_placeholder_counts_toward_min_from(self) -> None:
+        normalized = validate_rules_config(
+            {
+                "required": {
+                    "Electives": [
+                        {
+                            "min": 2,
+                            "placeholder": "CEICeeee",
+                            "from": ["TEST2001", "TEST2002", "TEST2003"],
+                        }
+                    ]
+                }
+            }
+        )
+
+        completed = Counter(["CEICEEEE", "CEICEEEE"])
+        result = evaluate_required(normalized, completed)
+
+        assert result["Electives"]
+
+    def test_placeholder_and_concrete_course_can_mix_in_min_from(self) -> None:
+        normalized = validate_rules_config(
+            {
+                "required": {
+                    "Electives": [
+                        {
+                            "min": 2,
+                            "placeholder": "CEICeeee",
+                            "from": ["TEST2001", "TEST2002", "TEST2003"],
+                        }
+                    ]
+                }
+            }
+        )
+
+        completed = Counter(["CEICEEEE", "TEST2002"])
+        result = evaluate_required(normalized, completed)
+
+        assert result["Electives"]
+
+    def test_plain_min_from_does_not_count_placeholder_rows(self) -> None:
+        normalized = validate_rules_config(
+            {
+                "required": {
+                    "Electives": [
+                        {
+                            "min": 2,
+                            "from": ["TEST2001", "TEST2002", "TEST2003"],
+                        }
+                    ]
+                }
+            }
+        )
+
+        completed = Counter(["CEICEEEE", "CEICEEEE"])
+        result = evaluate_required(normalized, completed)
+
+        assert not result["Electives"]
 
 
 class TestRuleFindingIds:

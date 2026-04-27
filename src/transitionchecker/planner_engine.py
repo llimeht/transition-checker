@@ -38,6 +38,7 @@ from transitionchecker.core import (
 
 
 CourseCode = str
+ASSIGNMENT_INSTANCE_SEPARATOR = "#"
 
 
 class TemplatePeriod(TypedDict):
@@ -233,6 +234,7 @@ class PlannerCommand:
     ruin_fraction: float = 0.30
     seed: int = 1337
     career: str | None = None
+    no_placeholders: bool = False
     output_path: Path | None = None
     verbose: int = 0
 
@@ -244,6 +246,24 @@ def normalize_course_code(value: str) -> str:
     """Normalize a course code for internal comparisons."""
 
     return _normalize_course_code(value)
+
+
+def assignment_course_code(value: str) -> str:
+    """Return the visible course code for one internal assignment id."""
+
+    base, _sep, _suffix = value.partition(ASSIGNMENT_INSTANCE_SEPARATOR)
+    return normalize_course_code(base)
+
+
+def next_assignment_id(code: str, counts: Counter[str]) -> str:
+    """Return a unique internal assignment id for one selected course instance."""
+
+    base_code = assignment_course_code(code)
+    counts[base_code] += 1
+    occurrence = counts[base_code]
+    if occurrence == 1:
+        return base_code
+    return f"{base_code}{ASSIGNMENT_INSTANCE_SEPARATOR}{occurrence}"
 
 
 def canonical_period(period: str) -> str:
@@ -278,7 +298,7 @@ def level_rank(level: str | None) -> int:
 
 
 def course_numeric_level(code: str) -> int:
-    match = re.search(r"(\d)", normalize_course_code(code))
+    match = re.search(r"(\d)", assignment_course_code(code))
     if not match:
         return 9
     return int(match.group(1))
@@ -298,7 +318,7 @@ def implicit_preferred_year_number(code: str) -> int | None:
 
 
 def is_placeholder_course(code: str) -> bool:
-    return _is_placeholder_course(code)
+    return _is_placeholder_course(assignment_course_code(code))
 
 
 def read_json(path: Path) -> Any:
@@ -568,7 +588,7 @@ def _resolve_partial_row_slot(
 def derive_fixed_constraints(
     partial_plan_courses: list[PartialPlanCourseRecord],
     slots: list[Slot],
-    required_courses: set[str] | None = None,
+    required_courses: Iterable[str] | None = None,
 ) -> FixedConstraints:
     """Build immutable course placements and locked-empty periods.
 
@@ -580,6 +600,12 @@ def derive_fixed_constraints(
     diagnostics: list[str] = []
     fixed_assignments: dict[str, int] = {}
     locked_slots: set[int] = set()
+    remaining_required_instances: dict[str, list[str]] = {}
+    if required_courses is not None:
+        for required_code in required_courses:
+            remaining_required_instances.setdefault(
+                assignment_course_code(required_code), []
+            ).append(required_code)
 
     for row in partial_plan_courses:
         slot_idx = _resolve_partial_row_slot(row, slots)
@@ -594,14 +620,24 @@ def derive_fixed_constraints(
 
         locked_slots.add(slot_idx)
 
-        if required_courses is not None and row.code not in required_courses:
-            diagnostics.append(
-                f"fixed course {row.code} is not part of selected required courses; ignoring fixed row"
-            )
-            continue
+        resolved_code = row.code
+        if required_courses is not None:
+            matching_instances = remaining_required_instances.get(row.code, [])
+            if not matching_instances:
+                diagnostics.append(
+                    f"fixed course {row.code} is not part of selected required courses; ignoring fixed row"
+                )
+                continue
+            resolved_code = matching_instances.pop(0)
 
-        existing = fixed_assignments.get(row.code)
+        existing = fixed_assignments.get(resolved_code)
         if existing is not None and existing != slot_idx:
+            if required_courses is None:
+                # The early preselection pass runs before repeated placeholder
+                # instances have been expanded into distinct assignment ids.
+                # Defer duplicate-slot diagnostics to the later instance-aware
+                # fixed-constraint build.
+                continue
             diagnostics.append(
                 (
                     f"fixed course {row.code} appears in multiple slots "
@@ -609,7 +645,7 @@ def derive_fixed_constraints(
                 )
             )
             continue
-        fixed_assignments[row.code] = slot_idx
+        fixed_assignments[resolved_code] = slot_idx
 
     by_slot: dict[int, set[str]] = {}
     for code, slot_idx in fixed_assignments.items():
@@ -995,9 +1031,19 @@ def estimate_expr_cost(
         penalty = 1000.0 if count == 0 else 1.0 / float(count)
         return penalty + level_bias, {code}
 
-    if set(expr.keys()) == {"min", "from"}:
+    if set(expr.keys()) == {"min", "from"} or set(expr.keys()) == {"min", "from", "placeholder"}:
         min_count = cast(int, expr["min"])
         options = cast(list[RuleExpr], expr["from"])
+        placeholder = expr.get("placeholder")
+        if isinstance(placeholder, str) and placeholder.strip():
+            code = normalize_course_code(placeholder)
+            count = feasible_counts.get(code, 0)
+            level_bias = 0.0
+            entry = catalogue.get(CatalogueKey(code, career))
+            if entry is not None:
+                level_bias = -0.01 * level_rank(entry.level)
+            penalty = 1000.0 if count == 0 else 1.0 / float(count)
+            return (penalty * float(min_count)) + level_bias, {code}
         evaluated = [
             estimate_expr_cost(option, feasible_counts, catalogue, career, branch_preferences)
             for option in options
@@ -1050,33 +1096,171 @@ def estimate_expr_cost(
     return 99999.0, set()
 
 
+def resolve_selected_courses(
+    expr: RuleExpr,
+    feasible_counts: dict[str, int],
+    catalogue: Catalogue,
+    career: str,
+    branch_preferences: list[BranchPreference] | None = None,
+    prefer_placeholders: bool = True,
+    selection_counts: Counter[str] | None = None,
+    fixed_course_codes: set[str] | None = None,
+) -> list[str]:
+    """Resolve one rule expression into selected planner assignment ids."""
+
+    if branch_preferences is None:
+        branch_preferences = []
+    if selection_counts is None:
+        selection_counts = Counter()
+    if fixed_course_codes is None:
+        fixed_course_codes = set()
+
+    if isinstance(expr, str):
+        code = normalize_course_code(expr)
+        if not looks_like_course(code):
+            return []
+        return [next_assignment_id(code, selection_counts)]
+
+    if set(expr.keys()) == {"min", "from"} or set(expr.keys()) == {"min", "from", "placeholder"}:
+        min_count = cast(int, expr["min"])
+        placeholder = expr.get("placeholder")
+        if prefer_placeholders and isinstance(placeholder, str) and placeholder.strip():
+            return [
+                next_assignment_id(placeholder, selection_counts)
+                for _ in range(min_count)
+            ]
+
+        options = cast(list[RuleExpr], expr["from"])
+        evaluated = [
+            (
+                estimate_expr_cost(
+                    option,
+                    feasible_counts,
+                    catalogue,
+                    career,
+                    branch_preferences,
+                )[0],
+                option,
+            )
+            for option in options
+        ]
+        evaluated.sort(key=lambda item: item[0])
+        selected_courses: list[str] = []
+        for _cost, option in evaluated[:min_count]:
+            selected_courses.extend(
+                resolve_selected_courses(
+                    option,
+                    feasible_counts,
+                    catalogue,
+                    career,
+                    branch_preferences,
+                    prefer_placeholders,
+                    selection_counts,
+                    fixed_course_codes,
+                )
+            )
+        return selected_courses
+
+    if len(expr) == 1:
+        op = next(iter(expr.keys()))
+        children = cast(list[RuleExpr], expr[op])
+        if op == "and":
+            selected: list[str] = []
+            for child in children:
+                selected.extend(
+                    resolve_selected_courses(
+                        child,
+                        feasible_counts,
+                        catalogue,
+                        career,
+                        branch_preferences,
+                        prefer_placeholders,
+                        selection_counts,
+                        fixed_course_codes,
+                    )
+                )
+            return selected
+        if op == "or":
+            child_matches: list[tuple[int, float, RuleExpr]] = []
+            for child in children:
+                overlap = len(extract_expr_courses(child) & fixed_course_codes)
+                cost = estimate_expr_cost(
+                    child,
+                    feasible_counts,
+                    catalogue,
+                    career,
+                    branch_preferences,
+                )[0]
+                child_matches.append((overlap, cost, child))
+
+            best_overlap = max((item[0] for item in child_matches), default=0)
+            if best_overlap > 0:
+                candidate_children = [
+                    (cost, child)
+                    for overlap, cost, child in child_matches
+                    if overlap == best_overlap
+                ]
+                chosen = min(candidate_children, key=lambda item: item[0])[1]
+            else:
+                chosen = min(child_matches, key=lambda item: item[1])[2]
+            return resolve_selected_courses(
+                chosen,
+                feasible_counts,
+                catalogue,
+                career,
+                branch_preferences,
+                prefer_placeholders,
+                selection_counts,
+                fixed_course_codes,
+            )
+
+    return []
+
+
 def select_required_courses(
     rules: dict[str, Any],
     feasible_counts: dict[str, int],
     catalogue: Catalogue,
     career: str,
     branch_preferences: list[BranchPreference] | None = None,
+    prefer_placeholders: bool = True,
+    fixed_course_codes: set[str] | None = None,
 ) -> list[str]:
     """Resolve the rules file into the concrete set of courses to schedule."""
 
     if branch_preferences is None:
         branch_preferences = []
+    if fixed_course_codes is None:
+        fixed_course_codes = set()
 
     required = rules.get("required")
     if not isinstance(required, dict):
         return []
 
-    selected: set[str] = set()
+    selected: list[str] = []
+    seen: set[str] = set()
+    selection_counts: Counter[str] = Counter()
     for clauses in cast(dict[str, Any], required).values():
         if not isinstance(clauses, list):
             continue
         for clause in cast(list[RuleExpr], clauses):
-            _, chosen = estimate_expr_cost(
-                clause, feasible_counts, catalogue, career, branch_preferences
+            chosen = resolve_selected_courses(
+                clause,
+                feasible_counts,
+                catalogue,
+                career,
+                branch_preferences,
+                prefer_placeholders,
+                selection_counts,
+                fixed_course_codes,
             )
-            selected.update(chosen)
+            for course in chosen:
+                if course in seen:
+                    continue
+                seen.add(course)
+                selected.append(course)
 
-    return sorted(selected)
+    return selected
 
 
 def feasible_slots_for_course(
@@ -1087,7 +1271,8 @@ def feasible_slots_for_course(
 ) -> list[int]:
     """Return slot indices where the course is offered, ordered by preference."""
 
-    offered_periods = offerings.get(code)
+    base_code = assignment_course_code(code)
+    offered_periods = offerings.get(base_code)
     if not offered_periods:
         LOGGER.debug("course %s not found in offerings", code)
         return []  # No feasible slots if not in offerings; will leave course unplaced
@@ -1132,7 +1317,7 @@ def prerequisite_depths(
 ) -> dict[str, int]:
     """Estimate prerequisite depth within the selected required-course set."""
 
-    required_set = set(required_courses)
+    required_set = {assignment_course_code(code) for code in required_courses}
     cache: dict[str, int] = {}
     visiting: set[str] = set()
 
@@ -1142,7 +1327,7 @@ def prerequisite_depths(
         if code in visiting:
             return 0
         visiting.add(code)
-        expr = dependency_exprs.get(code)
+        expr = dependency_exprs.get(assignment_course_code(code))
         prereqs = (
             [prereq for prereq in extract_expr_courses(expr) if prereq in required_set]
             if expr is not None
@@ -1176,22 +1361,22 @@ def build_plan_document(
 
     by_slot: dict[int, list[str]] = {}
     for code, slot_idx in assignments.items():
-        by_slot.setdefault(slot_idx, []).append(code)
+        by_slot.setdefault(slot_idx, []).append(assignment_course_code(code))
 
     courses_out: list[dict[str, Any]] = []
     for slot in slots:
         course_codes = sorted(by_slot.get(slot.slot_idx, []))
         for i, code in enumerate(course_codes, start=1):
             meta = catalogue.get(
-                CatalogueKey(code, career)
-            ) or CatalogueEntry(code=code, title=code, career=career, uoc=6)
+                CatalogueKey(assignment_course_code(code), career)
+            ) or CatalogueEntry(code=assignment_course_code(code), title=assignment_course_code(code), career=career, uoc=6)
             courses_out.append(
                 {
                     "enrol_year": slot.enrol_year,
                     "year": slot.calendar_year,
                     "period": slot.period,
                     "course_n": f"Course {i}",
-                    "code": code,
+                    "code": assignment_course_code(code),
                     "title": meta.title,
                     "uoc": meta.uoc,
                     "prerequisites": meta.prerequisites,
@@ -1215,7 +1400,7 @@ def scheduled_courses_from_assignments(
 
     by_slot: dict[int, list[str]] = {}
     for code, slot_idx in assignments.items():
-        by_slot.setdefault(slot_idx, []).append(code)
+        by_slot.setdefault(slot_idx, []).append(assignment_course_code(code))
 
     scheduled: list[ScheduledPlanCourse] = []
     idx = 0
@@ -1251,10 +1436,12 @@ def prior_history_for_slot(
     career: str,
 ) -> tuple[Counter[str], int]:
     prior_courses = Counter(
-        course for course, slot_idx in assignments.items() if slot_idx < candidate_slot
+        assignment_course_code(course)
+        for course, slot_idx in assignments.items()
+        if slot_idx < candidate_slot
     )
     prior_uoc = sum(
-        (catalogue.get(CatalogueKey(course, career)) or CatalogueEntry(code=course, title=course, career=career, uoc=6)).uoc
+        (catalogue.get(CatalogueKey(assignment_course_code(course), career)) or CatalogueEntry(code=assignment_course_code(course), title=assignment_course_code(course), career=career, uoc=6)).uoc
         for course, slot_idx in assignments.items()
         if slot_idx < candidate_slot
     )
@@ -1271,7 +1458,7 @@ def slot_satisfies_prerequisites(
 ) -> bool:
     """Check whether placing a course into one slot is prereq-safe."""
 
-    expr = dependency_exprs.get(code)
+    expr = dependency_exprs.get(assignment_course_code(code))
     if expr is None:
         return True
     prior_courses, prior_uoc = prior_history_for_slot(
@@ -1400,7 +1587,8 @@ def evaluate_plan_cost(
 
     offering_violations = 0
     for code, slot_idx in assignments.items():
-        offered_periods = offerings.get(code)
+        base_code = assignment_course_code(code)
+        offered_periods = offerings.get(base_code)
         if not offered_periods:
             offering_violations += 1
             continue
@@ -1451,7 +1639,8 @@ def evaluate_plan_cost(
         total_uoc = 0
         for code, slot_idx in assignments.items():
             if slot_idx == slot.slot_idx:
-                total_uoc += (catalogue.get(CatalogueKey(code, career)) or CatalogueEntry(code=code, title=code, career=career, uoc=6)).uoc
+                base_code = assignment_course_code(code)
+                total_uoc += (catalogue.get(CatalogueKey(base_code, career)) or CatalogueEntry(code=base_code, title=base_code, career=career, uoc=6)).uoc
         uoc_by_slot.append(total_uoc)
 
     uoc_stddev = 0.0
@@ -1464,7 +1653,9 @@ def evaluate_plan_cost(
 
     hint_penalty = 0.0
     for code, slot_idx in assignments.items():
-        hint_penalty += slot_hint_penalty_for_course(code, slots[slot_idx], steering)
+        hint_penalty += slot_hint_penalty_for_course(
+            assignment_course_code(code), slots[slot_idx], steering
+        )
 
     soft_precedence_penalty = 0.0
     soft_precedence_violations = 0
@@ -1567,7 +1758,7 @@ def greedy_place(
 
     def course_rank_score(code: str) -> float:
         level_value = level_rank(
-            (catalogue.get(CatalogueKey(code, career)) or CatalogueEntry(code=code, title=code, career=career, uoc=6)).level
+            (catalogue.get(CatalogueKey(assignment_course_code(code), career)) or CatalogueEntry(code=assignment_course_code(code), title=assignment_course_code(code), career=career, uoc=6)).level
         )
         score = 0.0
         score += 1000.0 * float(feasible_counts.get(code, 0))
@@ -1641,7 +1832,7 @@ def find_dependents(
     required_set = set(required_courses)
     rev: dict[str, set[str]] = {}
     for dep in required_set:
-        expr = dependency_exprs.get(dep)
+        expr = dependency_exprs.get(assignment_course_code(dep))
         if expr is None:
             continue
         for prereq_code in extract_expr_courses(expr):
@@ -1662,10 +1853,11 @@ def satisfied_without_course(
     if not with_target:
         return False
     modified = Counter(history)
-    if modified[target_code] > 0:
-        modified[target_code] -= 1
-        if modified[target_code] <= 0:
-            del modified[target_code]
+    target_base = assignment_course_code(target_code)
+    if modified[target_base] > 0:
+        modified[target_base] -= 1
+        if modified[target_base] <= 0:
+            del modified[target_base]
     return evaluate_expression(expr, modified, 0)
 
 
@@ -1697,7 +1889,7 @@ def cascade_ruin_set(
                 if expr is None:
                     continue
                 history = Counter(
-                    course
+                    assignment_course_code(course)
                     for course, slot_idx in assignments.items()
                     if slot_idx < assignments[dep] and course not in ruined
                 )
@@ -2102,7 +2294,7 @@ def render_csv_rows(
     for assignments in options:
         mapping: dict[int, list[str]] = {}
         for code, slot_idx in assignments.items():
-            mapping.setdefault(slot_idx, []).append(code)
+            mapping.setdefault(slot_idx, []).append(assignment_course_code(code))
         for slot_codes in mapping.values():
             slot_codes.sort()
         by_option_slot.append(mapping)
@@ -2264,7 +2456,13 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
         for code in all_codes
     }
     required_courses = select_required_courses(
-        rules, feasible_counts, catalogue, career, steering.branch_preferences
+        rules,
+        feasible_counts,
+        catalogue,
+        career,
+        steering.branch_preferences,
+        prefer_placeholders=not command.no_placeholders,
+        fixed_course_codes={record.code for record in partial_plan_courses},
     )
 
     if not required_courses:
@@ -2276,7 +2474,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
     fixed_constraints = derive_fixed_constraints(
         partial_plan_courses,
         slots,
-        set(required_courses),
+        required_courses,
     )
     for message in fixed_constraints.diagnostics:
         print(f"Warning: {message}", file=stderr)
