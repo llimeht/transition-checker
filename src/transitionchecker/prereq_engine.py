@@ -770,13 +770,13 @@ def parse_prerequisite_field(
         r"^\s*pre-?req(?:uisite)?s?/s\s*:\s*", "", trimmed, flags=re.IGNORECASE
     )
     # Normalise known prerequisite label misspellings (e.g. "Prerequsite:").
-    trimmed = re.sub(
-        r"^\s*pre-?req[a-z]*\s*:\s*", "", trimmed, flags=re.IGNORECASE
-    )
+    trimmed = re.sub(r"^\s*pre-?req[a-z]*\s*:\s*", "", trimmed, flags=re.IGNORECASE)
     # Strip "as a co-requisite or pre-requisite" BEFORE the coreq split so that work-placement
     # fields like "Complete COURSE as a co-requisite or pre-requisite" are not incorrectly split.
     trimmed = re.sub(
-        r"(?i)\bas\s+a\s+(?:co-?|core?-?)requisite\s+or\s+pre-?requisite\b.*$", "", trimmed
+        r"(?i)\bas\s+a\s+(?:co-?|core?-?)requisite\s+or\s+pre-?requisite\b.*$",
+        "",
+        trimmed,
     ).strip()
     # Strip labels: "Prerequisite or Corequisite:" first, then just "Prerequisite:".
     # Do NOT strip corequisite labels—the split function needs them to identify corequisite parts.
@@ -818,9 +818,10 @@ def parse_prerequisite_field(
 
     # Strip spurious "pre-requisite:" labels that sometimes appear inside the coreq section.
     if coreq_text:
-        coreq_text = re.sub(
-            r"(?i)^\s*pre-?req(?:uisite)?s?\s*:\s*", "", coreq_text
-        ).strip() or None
+        coreq_text = (
+            re.sub(r"(?i)^\s*pre-?req(?:uisite)?s?\s*:\s*", "", coreq_text).strip()
+            or None
+        )
 
     prereq_expr, prereq_error = _parse_prerequisite_expression(prereq_text)
     if prereq_error:

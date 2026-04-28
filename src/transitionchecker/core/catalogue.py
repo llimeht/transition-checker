@@ -169,14 +169,16 @@ class Catalogue:
             prerequisites = str(item.get("prerequisites") or "").strip()
             level_raw = item.get("level")
             level = str(level_raw).strip() if level_raw is not None else None
-            entries.append(CatalogueEntry(
-                code=code,
-                title=title,
-                career=career,
-                uoc=uoc,
-                prerequisites=prerequisites,
-                level=level,
-            ))
+            entries.append(
+                CatalogueEntry(
+                    code=code,
+                    title=title,
+                    career=career,
+                    uoc=uoc,
+                    prerequisites=prerequisites,
+                    level=level,
+                )
+            )
         return cls(entries)
 
 
@@ -204,14 +206,8 @@ def ensure_catalogue_has_career(catalogue: Catalogue, career: str) -> None:
         return
 
     available = available_catalogue_careers(catalogue)
-    detail = (
-        f" Available careers: {', '.join(available)}."
-        if available
-        else ""
-    )
-    raise ValueError(
-        f"Catalogue contains no entries for career '{career}'.{detail}"
-    )
+    detail = f" Available careers: {', '.join(available)}." if available else ""
+    raise ValueError(f"Catalogue contains no entries for career '{career}'.{detail}")
 
 
 def get_catalogue_entry_for_career(
@@ -273,6 +269,4 @@ def ensure_catalogue_courses_for_career(
         return
 
     details = "; ".join(missing)
-    raise ValueError(
-        f"Catalogue lookup failed for career '{career}': {details}"
-    )
+    raise ValueError(f"Catalogue lookup failed for career '{career}': {details}")

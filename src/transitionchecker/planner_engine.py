@@ -396,11 +396,7 @@ def apply_catalogue_overrides(
                 if fields.get("prerequisites") is not None
                 else ""
             ),
-            level=(
-                str(fields["level"])
-                if fields.get("level") is not None
-                else None
-            ),
+            level=(str(fields["level"]) if fields.get("level") is not None else None),
         )
 
     new_entries: list[CatalogueEntry] = []
@@ -1031,7 +1027,11 @@ def estimate_expr_cost(
         penalty = 1000.0 if count == 0 else 1.0 / float(count)
         return penalty + level_bias, {code}
 
-    if set(expr.keys()) == {"min", "from"} or set(expr.keys()) == {"min", "from", "placeholder"}:
+    if set(expr.keys()) == {"min", "from"} or set(expr.keys()) == {
+        "min",
+        "from",
+        "placeholder",
+    }:
         min_count = cast(int, expr["min"])
         options = cast(list[RuleExpr], expr["from"])
         placeholder = expr.get("placeholder")
@@ -1045,7 +1045,9 @@ def estimate_expr_cost(
             penalty = 1000.0 if count == 0 else 1.0 / float(count)
             return (penalty * float(min_count)) + level_bias, {code}
         evaluated = [
-            estimate_expr_cost(option, feasible_counts, catalogue, career, branch_preferences)
+            estimate_expr_cost(
+                option, feasible_counts, catalogue, career, branch_preferences
+            )
             for option in options
         ]
         evaluated.sort(key=lambda item: item[0])
@@ -1061,7 +1063,9 @@ def estimate_expr_cost(
         op = next(iter(expr.keys()))
         children = cast(list[RuleExpr], expr[op])
         child_eval = [
-            estimate_expr_cost(child, feasible_counts, catalogue, career, branch_preferences)
+            estimate_expr_cost(
+                child, feasible_counts, catalogue, career, branch_preferences
+            )
             for child in children
         ]
         if op == "and":
@@ -1121,7 +1125,11 @@ def resolve_selected_courses(
             return []
         return [next_assignment_id(code, selection_counts)]
 
-    if set(expr.keys()) == {"min", "from"} or set(expr.keys()) == {"min", "from", "placeholder"}:
+    if set(expr.keys()) == {"min", "from"} or set(expr.keys()) == {
+        "min",
+        "from",
+        "placeholder",
+    }:
         min_count = cast(int, expr["min"])
         placeholder = expr.get("placeholder")
         if prefer_placeholders and isinstance(placeholder, str) and placeholder.strip():
@@ -1369,7 +1377,12 @@ def build_plan_document(
         for i, code in enumerate(course_codes, start=1):
             meta = catalogue.get(
                 CatalogueKey(assignment_course_code(code), career)
-            ) or CatalogueEntry(code=assignment_course_code(code), title=assignment_course_code(code), career=career, uoc=6)
+            ) or CatalogueEntry(
+                code=assignment_course_code(code),
+                title=assignment_course_code(code),
+                career=career,
+                uoc=6,
+            )
             courses_out.append(
                 {
                     "enrol_year": slot.enrol_year,
@@ -1407,9 +1420,9 @@ def scheduled_courses_from_assignments(
     for slot in slots:
         course_codes = sorted(by_slot.get(slot.slot_idx, []))
         for course_pos, code in enumerate(course_codes, start=1):
-            meta = catalogue.get(
-                CatalogueKey(code, career)
-            ) or CatalogueEntry(code=code, title=code, career=career, uoc=6)
+            meta = catalogue.get(CatalogueKey(code, career)) or CatalogueEntry(
+                code=code, title=code, career=career, uoc=6
+            )
             scheduled.append(
                 ScheduledPlanCourse(
                     index=idx,
@@ -1441,7 +1454,15 @@ def prior_history_for_slot(
         if slot_idx < candidate_slot
     )
     prior_uoc = sum(
-        (catalogue.get(CatalogueKey(assignment_course_code(course), career)) or CatalogueEntry(code=assignment_course_code(course), title=assignment_course_code(course), career=career, uoc=6)).uoc
+        (
+            catalogue.get(CatalogueKey(assignment_course_code(course), career))
+            or CatalogueEntry(
+                code=assignment_course_code(course),
+                title=assignment_course_code(course),
+                career=career,
+                uoc=6,
+            )
+        ).uoc
         for course, slot_idx in assignments.items()
         if slot_idx < candidate_slot
     )
@@ -1640,7 +1661,12 @@ def evaluate_plan_cost(
         for code, slot_idx in assignments.items():
             if slot_idx == slot.slot_idx:
                 base_code = assignment_course_code(code)
-                total_uoc += (catalogue.get(CatalogueKey(base_code, career)) or CatalogueEntry(code=base_code, title=base_code, career=career, uoc=6)).uoc
+                total_uoc += (
+                    catalogue.get(CatalogueKey(base_code, career))
+                    or CatalogueEntry(
+                        code=base_code, title=base_code, career=career, uoc=6
+                    )
+                ).uoc
         uoc_by_slot.append(total_uoc)
 
     uoc_stddev = 0.0
@@ -1758,7 +1784,15 @@ def greedy_place(
 
     def course_rank_score(code: str) -> float:
         level_value = level_rank(
-            (catalogue.get(CatalogueKey(assignment_course_code(code), career)) or CatalogueEntry(code=assignment_course_code(code), title=assignment_course_code(code), career=career, uoc=6)).level
+            (
+                catalogue.get(CatalogueKey(assignment_course_code(code), career))
+                or CatalogueEntry(
+                    code=assignment_course_code(code),
+                    title=assignment_course_code(code),
+                    career=career,
+                    uoc=6,
+                )
+            ).level
         )
         score = 0.0
         score += 1000.0 * float(feasible_counts.get(code, 0))
@@ -2378,7 +2412,9 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             command.partial_plan_path.parent / "catalogue_overrides.json"
         )
     if command.output_path is not None:
-        extra_override_paths.append(command.output_path.parent / "catalogue_overrides.json")
+        extra_override_paths.append(
+            command.output_path.parent / "catalogue_overrides.json"
+        )
 
     catalogue = load_catalogue(catalogue_path, override_paths=extra_override_paths)
     templates = load_templates(template_path)
@@ -2443,7 +2479,9 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
             target_slot.period,
         )
 
-    all_codes = sorted({entry.code for entry in catalogue.values() if entry.career == career})
+    all_codes = sorted(
+        {entry.code for entry in catalogue.values() if entry.career == career}
+    )
     feasible_counts = {
         code: len(
             feasible_slots_for_course(

@@ -132,16 +132,20 @@ def test_extract_catalogue_overrides_skips_placeholder_examples() -> None:
     sheet.title = "Local Course Overrides"
     sheet.append(["Use this table for new courses", None, None, None, None, None])
     sheet.append(["Code", "Title", "Career", "UoC", "Prerequisites", "ToDo"])
-    sheet.append([
-        "[ABCD1234]",
-        "Example Undergraduate Course",
-        "Undergraduate",
-        0,
-        "Nil Prerequisites",
-        None,
-    ])
+    sheet.append(
+        [
+            "[ABCD1234]",
+            "Example Undergraduate Course",
+            "Undergraduate",
+            0,
+            "Nil Prerequisites",
+            None,
+        ]
+    )
     sheet.append(["FREE1", "Free Elective 1", "Undergraduate", 6, ".", None])
-    sheet.append(["CEIC9999", "New course", "Undergraduate", 6, ".", "Pending ECLIPS approval"])
+    sheet.append(
+        ["CEIC9999", "New course", "Undergraduate", 6, ".", "Pending ECLIPS approval"]
+    )
 
     overrides = extract_catalogue_overrides(workbook)
 

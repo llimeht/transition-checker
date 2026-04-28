@@ -152,10 +152,26 @@ def test_select_required_courses_picks_feasible_or_branch() -> None:
         }
     }
     feasible_counts = {"TEST2001": 0, "TEST2002": 3}
-    catalogue = Catalogue([
-        CatalogueEntry(code="TEST2001", title="A", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
-        CatalogueEntry(code="TEST2002", title="B", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
-    ])
+    catalogue = Catalogue(
+        [
+            CatalogueEntry(
+                code="TEST2001",
+                title="A",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 2",
+            ),
+            CatalogueEntry(
+                code="TEST2002",
+                title="B",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 2",
+            ),
+        ]
+    )
 
     selected = select_required_courses(rules, feasible_counts, catalogue, "UGRD")
     assert selected == ["TEST2002"]
@@ -182,10 +198,38 @@ def test_select_required_courses_prefers_or_branch_matching_fixed_courses() -> N
     }
     catalogue = Catalogue(
         [
-            CatalogueEntry(code="CHEM1811", title="Chem 1A", career="UGRD", uoc=6, prerequisites="", level="Level 1"),
-            CatalogueEntry(code="CHEM1821", title="Chem 1B", career="UGRD", uoc=6, prerequisites="", level="Level 1"),
-            CatalogueEntry(code="CHEM1011", title="Chem 1A alt", career="UGRD", uoc=6, prerequisites="", level="Level 1"),
-            CatalogueEntry(code="CHEM1021", title="Chem 1B alt", career="UGRD", uoc=6, prerequisites="", level="Level 1"),
+            CatalogueEntry(
+                code="CHEM1811",
+                title="Chem 1A",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 1",
+            ),
+            CatalogueEntry(
+                code="CHEM1821",
+                title="Chem 1B",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 1",
+            ),
+            CatalogueEntry(
+                code="CHEM1011",
+                title="Chem 1A alt",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 1",
+            ),
+            CatalogueEntry(
+                code="CHEM1021",
+                title="Chem 1B alt",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 1",
+            ),
         ]
     )
 
@@ -220,10 +264,38 @@ def test_select_required_courses_prefers_placeholder_for_min_from() -> None:
     }
     catalogue = Catalogue(
         [
-            CatalogueEntry(code="CEICEEEE", title="Elective Placeholder", career="UGRD", uoc=6, prerequisites="", level="Level 4"),
-            CatalogueEntry(code="TEST2001", title="A", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
-            CatalogueEntry(code="TEST2002", title="B", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
-            CatalogueEntry(code="TEST2003", title="C", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
+            CatalogueEntry(
+                code="CEICEEEE",
+                title="Elective Placeholder",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 4",
+            ),
+            CatalogueEntry(
+                code="TEST2001",
+                title="A",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 2",
+            ),
+            CatalogueEntry(
+                code="TEST2002",
+                title="B",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 2",
+            ),
+            CatalogueEntry(
+                code="TEST2003",
+                title="C",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 2",
+            ),
         ]
     )
 
@@ -232,7 +304,9 @@ def test_select_required_courses_prefers_placeholder_for_min_from() -> None:
     assert selected == ["CEICEEEE", "CEICEEEE#2"]
 
 
-def test_select_required_courses_plain_min_from_does_not_use_placeholder_logic() -> None:
+def test_select_required_courses_plain_min_from_does_not_use_placeholder_logic() -> (
+    None
+):
     rules: dict[str, Any] = {
         "required": {
             "Electives": [
@@ -251,10 +325,38 @@ def test_select_required_courses_plain_min_from_does_not_use_placeholder_logic()
     }
     catalogue = Catalogue(
         [
-            CatalogueEntry(code="CEICEEEE", title="Elective Placeholder", career="UGRD", uoc=6, prerequisites="", level="Level 4"),
-            CatalogueEntry(code="TEST2001", title="A", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
-            CatalogueEntry(code="TEST2002", title="B", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
-            CatalogueEntry(code="TEST2003", title="C", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
+            CatalogueEntry(
+                code="CEICEEEE",
+                title="Elective Placeholder",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 4",
+            ),
+            CatalogueEntry(
+                code="TEST2001",
+                title="A",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 2",
+            ),
+            CatalogueEntry(
+                code="TEST2002",
+                title="B",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 2",
+            ),
+            CatalogueEntry(
+                code="TEST2003",
+                title="C",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 2",
+            ),
         ]
     )
 
@@ -278,9 +380,30 @@ def test_select_required_courses_can_opt_out_of_placeholder_preference() -> None
     feasible_counts = {"CEICEEEE": 5, "TEST2001": 2, "TEST2002": 0}
     catalogue = Catalogue(
         [
-            CatalogueEntry(code="CEICEEEE", title="Elective Placeholder", career="UGRD", uoc=6, prerequisites="", level="Level 4"),
-            CatalogueEntry(code="TEST2001", title="A", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
-            CatalogueEntry(code="TEST2002", title="B", career="UGRD", uoc=6, prerequisites="", level="Level 2"),
+            CatalogueEntry(
+                code="CEICEEEE",
+                title="Elective Placeholder",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 4",
+            ),
+            CatalogueEntry(
+                code="TEST2001",
+                title="A",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 2",
+            ),
+            CatalogueEntry(
+                code="TEST2002",
+                title="B",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 2",
+            ),
         ]
     )
 
@@ -295,7 +418,9 @@ def test_select_required_courses_can_opt_out_of_placeholder_preference() -> None
     assert selected == ["TEST2001"]
 
 
-def test_derive_fixed_constraints_maps_duplicate_placeholder_rows_to_instances() -> None:
+def test_derive_fixed_constraints_maps_duplicate_placeholder_rows_to_instances() -> (
+    None
+):
     slots = build_slots(_template_config(), "2026 T1")
     partial = [
         PartialPlanCourseRecord(
@@ -323,7 +448,9 @@ def test_derive_fixed_constraints_maps_duplicate_placeholder_rows_to_instances()
     assert constraints.fixed_assignments == {"CEICEEEE": 0, "CEICEEEE#2": 1}
 
 
-def test_derive_fixed_constraints_defers_duplicate_diagnostic_before_instance_resolution() -> None:
+def test_derive_fixed_constraints_defers_duplicate_diagnostic_before_instance_resolution() -> (
+    None
+):
     slots = build_slots(_template_config(), "2026 T1")
     partial = [
         PartialPlanCourseRecord(
@@ -352,7 +479,14 @@ def test_build_plan_document_strips_internal_assignment_suffixes() -> None:
     slots = build_slots(_template_config(), "2026 T1")
     catalogue = Catalogue(
         [
-            CatalogueEntry(code="CEICEEEE", title="Elective Placeholder", career="UGRD", uoc=6, prerequisites="", level="Level 4"),
+            CatalogueEntry(
+                code="CEICEEEE",
+                title="Elective Placeholder",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 4",
+            ),
         ]
     )
 
@@ -370,8 +504,7 @@ def test_build_plan_document_strips_internal_assignment_suffixes() -> None:
         "CEICEEEE",
     ]
     assert all(
-        assignment_course_code(course["code"]) == "CEICEEEE"
-        for course in courses
+        assignment_course_code(course["code"]) == "CEICEEEE" for course in courses
     )
 
 
@@ -383,9 +516,18 @@ def test_path_or_exit_raises_for_missing_file(tmp_path: Path) -> None:
 def test_evaluate_plan_cost_penalizes_unplaced_courses() -> None:
     slots = build_slots(_template_config(), "2026 T1")
     rules = {"required": {"L1": ["TEST1001"]}}
-    catalogue = Catalogue([
-        CatalogueEntry(code="TEST1001", title="A", career="UGRD", uoc=6, prerequisites="", level="Level 1"),
-    ])
+    catalogue = Catalogue(
+        [
+            CatalogueEntry(
+                code="TEST1001",
+                title="A",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 1",
+            ),
+        ]
+    )
     offerings = {"TEST1001": ["Term 1"]}
     steering = SteeringConfig()
 
@@ -420,10 +562,26 @@ def test_evaluate_plan_cost_penalizes_unplaced_courses() -> None:
 def test_evaluate_plan_cost_tracks_offering_and_prereq_violations() -> None:
     slots = build_slots(_template_config(), "2026 T1")
     rules = {"required": {"L1": ["TEST1001", "TEST1002"]}}
-    catalogue = Catalogue([
-        CatalogueEntry(code="TEST1001", title="A", career="UGRD", uoc=6, prerequisites="TEST1002", level="Level 1"),
-        CatalogueEntry(code="TEST1002", title="B", career="UGRD", uoc=6, prerequisites="", level="Level 1"),
-    ])
+    catalogue = Catalogue(
+        [
+            CatalogueEntry(
+                code="TEST1001",
+                title="A",
+                career="UGRD",
+                uoc=6,
+                prerequisites="TEST1002",
+                level="Level 1",
+            ),
+            CatalogueEntry(
+                code="TEST1002",
+                title="B",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 1",
+            ),
+        ]
+    )
     offerings = {
         "TEST1001": ["Term 1"],
         "TEST1002": ["Term 2"],
@@ -508,10 +666,26 @@ def test_extract_partial_plan_courses_ignores_prerequisites_field() -> None:
 def test_evaluate_plan_cost_counts_fixed_constraint_violations() -> None:
     slots = build_slots(_template_config(), "2026 T1")
     rules = {"required": {"L1": ["TEST1001", "TEST1002"]}}
-    catalogue = Catalogue([
-        CatalogueEntry(code="TEST1001", title="A", career="UGRD", uoc=6, prerequisites="", level="Level 1"),
-        CatalogueEntry(code="TEST1002", title="B", career="UGRD", uoc=6, prerequisites="", level="Level 1"),
-    ])
+    catalogue = Catalogue(
+        [
+            CatalogueEntry(
+                code="TEST1001",
+                title="A",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 1",
+            ),
+            CatalogueEntry(
+                code="TEST1002",
+                title="B",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 1",
+            ),
+        ]
+    )
     offerings = {
         "TEST1001": ["Term 1", "Term 2"],
         "TEST1002": ["Term 1", "Term 2"],
@@ -564,10 +738,26 @@ def test_evaluate_plan_cost_counts_fixed_constraint_violations() -> None:
 def test_evaluate_plan_cost_penalizes_courses_after_target_end_slot() -> None:
     slots = build_slots(_template_config(), "2026 T1")
     rules = {"required": {"L1": ["TEST1001", "TEST1002"]}}
-    catalogue = Catalogue([
-        CatalogueEntry(code="TEST1001", title="A", career="UGRD", uoc=6, prerequisites="", level="Level 1"),
-        CatalogueEntry(code="TEST1002", title="B", career="UGRD", uoc=6, prerequisites="", level="Level 1"),
-    ])
+    catalogue = Catalogue(
+        [
+            CatalogueEntry(
+                code="TEST1001",
+                title="A",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 1",
+            ),
+            CatalogueEntry(
+                code="TEST1002",
+                title="B",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 1",
+            ),
+        ]
+    )
     offerings = {
         "TEST1001": ["Term 1"],
         "TEST1002": ["Term 2"],
@@ -791,7 +981,10 @@ def test_load_catalogue_apply_overrides_false_ignores_file(tmp_path: Path) -> No
     )
     catalogue = load_catalogue(catalogue_file, apply_overrides=False)
     # original, unparseable handbook text is preserved
-    assert catalogue[CatalogueKey("CEIC3000", "UGRD")].prerequisites == "enrolled in program"
+    assert (
+        catalogue[CatalogueKey("CEIC3000", "UGRD")].prerequisites
+        == "enrolled in program"
+    )
 
 
 def test_load_catalogue_no_overrides_file_is_silent(tmp_path: Path) -> None:
@@ -799,15 +992,17 @@ def test_load_catalogue_no_overrides_file_is_silent(tmp_path: Path) -> None:
 
     catalogue_file = tmp_path / "catalogue.json"
     catalogue_file.write_text(
-        json.dumps([
-            {
-                "code": "CEIC3000",
-                "career": "UGRD",
-                "title": "C",
-                "uoc": 6,
-                "prerequisites": "CEIC1000",
-            }
-        ]),
+        json.dumps(
+            [
+                {
+                    "code": "CEIC3000",
+                    "career": "UGRD",
+                    "title": "C",
+                    "uoc": 6,
+                    "prerequisites": "CEIC1000",
+                }
+            ]
+        ),
         encoding="utf-8",
     )
     # No overrides file present — must not raise
@@ -870,7 +1065,9 @@ def test_load_catalogue_applies_extra_override_paths_last(tmp_path: Path) -> Non
     assert catalogue[CatalogueKey("CEIC3000", "UGRD")].prerequisites == "SCHOOL1000"
 
 
-def test_load_catalogue_adds_override_only_entries_from_extra_paths(tmp_path: Path) -> None:
+def test_load_catalogue_adds_override_only_entries_from_extra_paths(
+    tmp_path: Path,
+) -> None:
     import json
 
     catalogue_file = tmp_path / "catalogue.json"
@@ -992,7 +1189,9 @@ def test_run_planner_uses_output_dir_catalogue_overrides(
     monkeypatch.setattr(
         "transitionchecker.planner_engine.load_offerings", fake_load_offerings
     )
-    monkeypatch.setattr("transitionchecker.planner_engine.load_catalogue", fake_load_catalogue)
+    monkeypatch.setattr(
+        "transitionchecker.planner_engine.load_catalogue", fake_load_catalogue
+    )
 
     command = PlannerCommand(
         rule_path=rules_file,

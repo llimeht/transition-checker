@@ -203,9 +203,7 @@ def extract_template_configs_from_workbook(excel_path: Path) -> dict[str, Any]:
     return {"intakes": intakes}
 
 
-def lint_prerequisites(
-    catalogue: Catalogue, output: str | None = None
-) -> int:
+def lint_prerequisites(catalogue: Catalogue, output: str | None = None) -> int:
     """Lint prerequisites in the catalogue and report unrecognized ones."""
     from transitionchecker.prereq_engine import parse_prerequisite_field
 
@@ -350,7 +348,9 @@ def main(argv: list[str] | None = None) -> int:
     plans_dir = catalogue_file.parent
     templates_dir = template_file.parent
     school_override_file = (
-        excel_path.parent / "catalogue_overrides.json" if excel_path is not None else None
+        excel_path.parent / "catalogue_overrides.json"
+        if excel_path is not None
+        else None
     )
     snapshot_file = (
         Path(args.prereq_snapshot_output) if args.prereq_snapshot_output else None

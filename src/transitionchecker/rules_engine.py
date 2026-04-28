@@ -228,7 +228,9 @@ def _clause_summary(clause: dict[str, Any], max_items: int = 4) -> str:
                 opt_dict = cast(dict[str, Any], opt)
                 raw_and_val = opt_dict.get("and")
                 and_list: list[object] = (
-                    cast(list[object], raw_and_val) if isinstance(raw_and_val, list) else []
+                    cast(list[object], raw_and_val)
+                    if isinstance(raw_and_val, list)
+                    else []
                 )
                 labels.append(
                     "+".join(str(c) for c in and_list[:3]) if and_list else "..."
@@ -693,7 +695,9 @@ def extract_scheduled_courses(
                     career=career,
                 )
             except ValueError as exc:
-                raise RuleValidationError(f"plan.courses[{idx}].code", str(exc)) from exc
+                raise RuleValidationError(
+                    f"plan.courses[{idx}].code", str(exc)
+                ) from exc
 
             if career is not None and catalogue_entry is None:
                 raise RuleValidationError(
@@ -709,7 +713,9 @@ def extract_scheduled_courses(
             uoc = _parse_int_like(course_record.get("uoc"), f"plan.courses[{idx}].uoc")
 
             raw_prerequisites = course_record.get("prerequisites")
-            prerequisites = raw_prerequisites if isinstance(raw_prerequisites, str) else ""
+            prerequisites = (
+                raw_prerequisites if isinstance(raw_prerequisites, str) else ""
+            )
 
         scheduled_courses.append(
             ScheduledPlanCourse(

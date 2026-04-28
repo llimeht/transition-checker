@@ -133,13 +133,15 @@ def _extract_catalogue_from_sheet(
             else "."
         )
 
-        entries.append(CatalogueEntry(
-            code=course_code,
-            title=title,
-            career=career,
-            uoc=uoc,
-            prerequisites=prereq,
-        ))
+        entries.append(
+            CatalogueEntry(
+                code=course_code,
+                title=title,
+                career=career,
+                uoc=uoc,
+                prerequisites=prereq,
+            )
+        )
 
     catalogue = Catalogue(entries)
     print(f"Extracted {len(catalogue)} {label.lower()} entries")
@@ -210,7 +212,9 @@ def extract_catalogue_overrides(workbook: Any) -> list[dict[str, Any]]:
                 "prerequisites": prereq,
             }
             if len(row) > 5 and row[CATALOGUE_SHEET_COLUMNS["ToDo"]].value:
-                record["reason"] = str(row[CATALOGUE_SHEET_COLUMNS["ToDo"]].value).strip()
+                record["reason"] = str(
+                    row[CATALOGUE_SHEET_COLUMNS["ToDo"]].value
+                ).strip()
             records.append(record)
         print(f"Extracted {len(records)} local course overrides entries")
         return records

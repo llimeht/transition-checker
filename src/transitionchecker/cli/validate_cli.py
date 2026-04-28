@@ -280,15 +280,16 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         try:
-            plan_data = _as_json_object(json.loads(plan_file.read_text(encoding="utf-8")))
+            plan_data = _as_json_object(
+                json.loads(plan_file.read_text(encoding="utf-8"))
+            )
         except (json.JSONDecodeError, OSError):
             plan_data = None
 
         if plan_data is not None:
             courses = _as_object_dict_list(plan_data.get("courses", []))
             if not courses or all(
-                re.fullmatch(r"\[.*\]", str(c.get("code", "")).strip())
-                for c in courses
+                re.fullmatch(r"\[.*\]", str(c.get("code", "")).strip()) for c in courses
             ):
                 print(
                     f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'⊘ SKIP':<{status_col_width}}"

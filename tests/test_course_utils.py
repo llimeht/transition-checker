@@ -94,9 +94,15 @@ class TestCatalogueCaseInsensitivity:
     def _catalogue(self) -> Catalogue:
         return Catalogue(
             [
-                CatalogueEntry(code="CEIC1000", title="A", career="Undergraduate", uoc=6),
-                CatalogueEntry(code="CEIC1000", title="A PG", career="Postgraduate", uoc=6),
-                CatalogueEntry(code="MATH1131", title="B", career="Undergraduate", uoc=6),
+                CatalogueEntry(
+                    code="CEIC1000", title="A", career="Undergraduate", uoc=6
+                ),
+                CatalogueEntry(
+                    code="CEIC1000", title="A PG", career="Postgraduate", uoc=6
+                ),
+                CatalogueEntry(
+                    code="MATH1131", title="B", career="Undergraduate", uoc=6
+                ),
             ]
         )
 
@@ -127,7 +133,15 @@ class TestCatalogueCaseInsensitivity:
 
     def test_from_list_normalizes_code(self) -> None:
         cat = Catalogue.from_list(
-            [{"code": "ceic1000", "career": "Undergraduate", "title": "A", "uoc": 6, "prerequisites": ""}]
+            [
+                {
+                    "code": "ceic1000",
+                    "career": "Undergraduate",
+                    "title": "A",
+                    "uoc": 6,
+                    "prerequisites": "",
+                }
+            ]
         )
         assert len(cat.by_code("CEIC1000")) == 1
         assert len(cat.by_code("ceic1000")) == 1

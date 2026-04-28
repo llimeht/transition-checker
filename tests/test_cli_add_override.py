@@ -198,7 +198,9 @@ def test_normalizes_undergraduate_career_aliases(tmp_path: Path) -> None:
     assert data[0]["career"] == "Undergraduate"
 
 
-def test_normalizes_postgraduate_career_aliases_case_insensitively(tmp_path: Path) -> None:
+def test_normalizes_postgraduate_career_aliases_case_insensitively(
+    tmp_path: Path,
+) -> None:
     cat = _write_catalogue(tmp_path)
 
     code = add_override_cli.main(
