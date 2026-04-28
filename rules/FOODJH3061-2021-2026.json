@@ -59,8 +59,8 @@
         "Discipline electives": [
             {
                 "min": 3,
+                "placeholder": "FOODeeee",
                 "from": [
-                    "FOODeeee",
                     "BABS3031",
                     "BABS3071",
                     "BIOC3261",

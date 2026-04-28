@@ -71,16 +71,18 @@
         "Breadth electives": [
             {
                 "min": 1,
+                "placeholder": "CEICbbbb",
                 "from": [
-                    "CEICbbbb"
+                    "CEIC8104"
                 ]
             }
         ],
         "Depth electives": [
             {
                 "min": 1,
+                "placeholder": "CEICdddd",
                 "from": [
-                    "CEICdddd"
+                    "CEIC8102"
                 ]
             }
         ],

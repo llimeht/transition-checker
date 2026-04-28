@@ -67,8 +67,8 @@
         "Electives": [
             {
                 "min": 3,
+                "placeholder": "CEICeeee",
                 "from": [
-                    "CEICeeee",
                     "CEIC4951",
                     "CEIC4952",
                     "CEIC4953",

@@ -25,6 +25,7 @@
         "ADK Electives": [
             {
                 "min": 2,
+                "placeholder": "CEICKSadke",
                 "from": [
                     "CEIC4954",
                     "CEIC6711",

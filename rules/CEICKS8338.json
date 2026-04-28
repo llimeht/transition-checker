@@ -19,6 +19,7 @@
         "DK Electives": [
             {
                 "min": 4,
+                "placeholder": "CEICKSdke",
                 "from": [
                     "CEIC6712",
                     "CEIC6713",
@@ -50,6 +51,7 @@
         "ADK Electives": [
             {
                 "min": 2,
+                "placeholder": "CEICKSadke",
                 "from": [
                     "CEIC4954",
                     "CEIC6711",
