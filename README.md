@@ -24,6 +24,8 @@ The repository currently has three main workflows:
     - degree rules for each specialisation of interest (e.g. `CEICAH3707.json`); stored in `rules/`; where rules have changed over time, they can be `<stream><program>-<YYYY>-<YYYY>.json` like `CEICDH3707-2020-2025.json` to indicate the start and stop handbook years.
     - offerings list in `plans/offerings.json`; this can be copied from the output of `extract-plans` with some manual checking that the courses are indeed in the intended teaching periods. Use `add-offerings` to maintain and normalise this file.
 
+See [FILE-FORMATS.md](FILE-FORMATS.md) for examples of the JSON files used in `rules/` and `plans/`, including common formatting mistakes to avoid.
+
 
 Example setup:
 
