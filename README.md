@@ -20,14 +20,24 @@ The repository currently has three main workflows:
 - Python 3.11+
 - Project dependencies installed either system-wide or in a venv; dependencies are documented in `pyproject.toml`
 - Input files:
-    - standardised transition planning spreadsheet (e.g. `CEIC Program Sequence Mapping.xlsx`, fetched from canonical location on SharePoint); stored in `plans/<SCHOOL>/`
-    - degree rules for each specialisation of interest (e.g. `CEICAH3707.json`); stored in `rules/`; where rules have changed over time, they can be `<stream><program>-<YYYY>-<YYYY>.json` like `CEICDH3707-2020-2025.json` to indicate the start and stop handbook years.
+    - standardised transition planning spreadsheet (e.g. `CEIC Program Sequence Mapping.xlsx`, fetched from canonical location on SharePoint); stored in `plans/<SCHOOL>/`. These files are currently manually managed; we might change that some time soon.
+    - degree rules for each specialisation of interest (e.g. `CEICAH3707.json`); stored in `rules/`; where rules have changed over time, they can be `<stream><program>-<YYYY>-<YYYY>.json` like `CEICDH3707-2020-2025.json` to indicate the start and stop handbook years. The degree rules are stored in a separate repository for ease of management.
     - offerings list in `plans/offerings.json`; this can be copied from the output of `extract-plans` with some manual checking that the courses are indeed in the intended teaching periods. Use `add-offerings` to maintain and normalise this file.
 
 See [FILE-FORMATS.md](FILE-FORMATS.md) for examples of the JSON files used in `rules/` and `plans/`, including common formatting mistakes to avoid.
 
 
 Example setup:
+
+Obtain the source
+
+```bash
+git clone https://gitlab.cse.unsw.edu.au/SPrescott/transition-checker/
+cd transition-checker
+git clone https://gitlab.cse.unsw.edu.au/SPrescott/transition-checker-rules/ rules
+```
+
+Install the source into a Python virtual envrionment (will download the dependencies and create scripts)
 
 ```bash
 python3 -m venv .venv
