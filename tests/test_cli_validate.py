@@ -72,3 +72,82 @@ def test_main_returns_0_when_no_plan_files(
     summary = report["summary"]
     assert summary["total_plan_files"] == 0
     assert summary["failed"] == 0
+
+
+def test_main_filters_plan_files_by_glob(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    filtered_plan = out_dir / "CEICKS8338_2026_T1.json"
+    filtered_plan.write_text('{"courses": [{"code": "COMP1511"}]}', encoding="utf-8")
+    skipped_plan = out_dir / "CEICAH3707_2026_T1.json"
+    skipped_plan.write_text('{"courses": [{"code": "COMP1521"}]}', encoding="utf-8")
+
+    run_calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        run_calls.append(cmd)
+        if "extract_plans.py" in cmd[1] or "extract_template.py" in cmd[1]:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
+        if "degree_rules.py" in cmd[1]:
+            report: dict[str, object] = {
+                "valid": True,
+                "rule_failures": [],
+                "prerequisite_failures": [],
+                "unsupported_prerequisites": [],
+                "findings": [],
+            }
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(report),
+                stderr="",
+            )
+        if "offering_checker.py" in cmd[1]:
+            report: dict[str, object] = {"valid": True, "violations": []}
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(report),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    def fake_resolve_rule_file(
+        _program_code: str, _plan_stem: str, _script_dir: Path
+    ) -> Path:
+        return tmp_path / "rules" / "CEICKS8338.json"
+
+    monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
+    monkeypatch.setattr(validate_cli, "resolve_rule_file", fake_resolve_rule_file)
+
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "CEICKS8338.json").write_text("{}", encoding="utf-8")
+
+    code = validate_cli.main(
+        [
+            str(excel),
+            "--output-dir",
+            str(out_dir),
+            "--filter",
+            "CEICKS8338*",
+        ]
+    )
+
+    assert code == 0
+    degree_rule_calls = [cmd for cmd in run_calls if "degree_rules.py" in cmd[1]]
+    assert len(degree_rule_calls) == 1
+    assert degree_rule_calls[0][degree_rule_calls[0].index("--plan") + 1] == str(filtered_plan)
+
+    report = json.loads(
+        (out_dir / "mapping_validation_results.json").read_text(encoding="utf-8")
+    )
+    assert report["summary"]["total_plan_files"] == 1
+    assert [result["plan_file"] for result in report["results"]] == [str(filtered_plan)]

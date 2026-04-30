@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import argparse
+import fnmatch
 import re
 import subprocess
 import sys
@@ -74,6 +75,15 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         help=(
             "Directory for exported plan JSON and validation report "
             "(default: directory containing the Excel file)"
+        ),
+    )
+    parser.add_argument(
+        "--filter",
+        dest="plan_filter",
+        default=None,
+        help=(
+            "Glob pattern for exported plan filenames to validate "
+            "(for example: 'CEICKS8338*')"
         ),
     )
     return parser
@@ -227,6 +237,9 @@ def main(argv: list[str] | None = None) -> int:
         and not p.name.endswith("_offerings.json")
         and not p.name.endswith("_offering_violations.json")
         and not p.name.endswith(".degree_rules_overrides.json")
+        and (
+            args.plan_filter is None or fnmatch.fnmatch(p.stem, args.plan_filter)
+        )
     )
 
     if not plan_files:

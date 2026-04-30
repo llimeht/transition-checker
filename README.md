@@ -59,6 +59,12 @@ This will extract all plans from the spreadsheet and validate them against degre
 plan-validate 'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
 ```
 
+To validate only a subset of exported plans, pass a glob that matches the plan filename stem:
+
+```bash
+plan-validate 'plans/CEIC/CEIC Program Sequence Mapping.xlsx' --filter 'CEICKS8338*'
+```
+
 ### Check offering violations for a single plan
 
 Validate that every course in a plan is offered in its scheduled teaching period.
