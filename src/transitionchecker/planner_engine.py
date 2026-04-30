@@ -2407,6 +2407,11 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
     rules = load_rules(rule_path)
     offerings = load_offerings(offerings_path)
     extra_override_paths: list[Path] = []
+    school = rules.get("school")
+    if isinstance(school, str) and school.strip():
+        extra_override_paths.append(
+            catalogue_path.parent / school.strip() / "catalogue_overrides.json"
+        )
     if command.partial_plan_path is not None:
         extra_override_paths.append(
             command.partial_plan_path.parent / "catalogue_overrides.json"
