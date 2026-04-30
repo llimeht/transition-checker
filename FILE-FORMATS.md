@@ -42,6 +42,7 @@ Important fields:
 - `uoc`: total units of credit required.
 - `validity`: handbook year range that these rules pertain to, with `from` and `to` entries to specify the years (inclusive).
 - `required`: the course rule groups that must be satisfied.
+- `rpl`: optional flat list of course codes implicitly treated as already held for prerequisite/corequisite checks only.
 
 The program and specialisation details should be used to describe who these academic rules apply to. Ideally, they are the detaisl from the handbook as in the example below.
 
@@ -91,6 +92,7 @@ Notes:
 - An object with `"or"` means any one of those options can satisfy that requirement.
 - An object with `"and"` means all of the courses are needed to satisfy that requirement (this is needed inside an `or` clause if the student has a list-A vs list-B choice)
 - An object with `"min"` and `"from"` means a minimum number of choices from a list.
+- The optional `"rpl"` list seeds prerequisite/corequisite validation with implicitly granted courses (such as magic-backend codes that appear via RPL), but those courses do not count as satisfying `"required"` clauses unless they also appear in the student's actual completed or planned course history.
 - The name of each object inside `"required"` is informational only, but matching it against the handbook helps with clarity.
 - In groups of electives as illustrated above, the `"placeholder"` course code can be used in enrolment plans as a generic pseudo-course-code rather than specifying exact courses.
 - These files are usually edited carefully by hand - once created, they don't often need to be changed. If you do edit them by hand, be extra careful with brackets and commas.

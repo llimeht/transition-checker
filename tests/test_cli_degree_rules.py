@@ -299,6 +299,58 @@ def test_plan_validation_uses_catalogue_prerequisites(
     assert any("TEST2001" in failure for failure in payload["prerequisite_failures"])
 
 
+def test_plan_validation_uses_rules_rpl_for_prerequisites(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    plan_file = tmp_path / "plan.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "required": {"Level 1": ["TEST2001"]},
+                "rpl": ["TEST1001"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 1",
+                        "code": "TEST2001",
+                        "uoc": 6,
+                        "prerequisites": "TEST1001",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+            plan_report_json=True,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 0
+    payload = json.loads(out.getvalue())
+    assert payload["status"] == "PASS"
+    assert payload["prerequisite_failures"] == []
+    assert payload["rule_failures"] == []
+
+
 def test_plan_validation_uses_plan_dir_catalogue_overrides(
     tmp_path: Path,
 ) -> None:

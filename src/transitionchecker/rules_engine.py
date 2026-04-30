@@ -122,6 +122,7 @@ class RulesCommand:
 
 _CLAUSE_META_KEY = "_required_clause_meta"
 _MISSING_UOC_ATOM_RE = re.compile(r"\d+\s*uoc", re.IGNORECASE)
+_RPL_KEY = "rpl"
 
 
 def _is_placeholder_min_from(node: dict[str, Any]) -> bool:
@@ -476,6 +477,7 @@ def _collect_missing_atoms(
 
 def validate_scheduled_prerequisites(
     courses: list[ScheduledPlanCourse],
+    rpl_courses: Counter[str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Validate prerequisite/corequisite expressions against scheduled plan order.
 
@@ -483,7 +485,7 @@ def validate_scheduled_prerequisites(
     another, but they may satisfy corequisites.
     """
     failures, unsupported, _findings, _warnings = (
-        validate_scheduled_prerequisites_detailed(courses)
+        validate_scheduled_prerequisites_detailed(courses, rpl_courses=rpl_courses)
     )
     return failures, unsupported  # equivalences not threaded here (legacy path)
 
@@ -491,6 +493,7 @@ def validate_scheduled_prerequisites(
 def validate_scheduled_prerequisites_detailed(
     courses: list[ScheduledPlanCourse],
     equivalences: list[CourseEquivalence] | None = None,
+    rpl_courses: Counter[str] | None = None,
 ) -> tuple[list[str], list[str], list[ValidationFinding], list[ValidationWarning]]:
     """Validate scheduled prerequisites and return diagnostics plus findings.
 
@@ -500,8 +503,15 @@ def validate_scheduled_prerequisites_detailed(
             student holds the ``held`` code, ``equivalent_to`` is also treated as
             held during expression evaluation.  The raw accumulation counters are
             not mutated.
+        rpl_courses: Optional implicitly-held courses that count for prerequisite
+            and corequisite satisfaction without appearing in the plan itself.
     """
-    _equivalences: list[CourseEquivalence] = equivalences if equivalences is not None else []
+    _equivalences: list[CourseEquivalence] = (
+        equivalences if equivalences is not None else []
+    )
+    _rpl_courses: Counter[str] = (
+        Counter(rpl_courses) if rpl_courses is not None else Counter()
+    )
     failures: list[str] = []
     unsupported: list[str] = []
     findings: list[ValidationFinding] = []
@@ -551,6 +561,7 @@ def validate_scheduled_prerequisites_detailed(
                 continue
 
             _prior_expanded = _apply_equivalences(prior_courses, _equivalences)
+            _prior_expanded.update(_rpl_courses)
             if prereq_expr is not None and not evaluate_expression(
                 prereq_expr, _prior_expanded, prior_uoc
             ):
@@ -605,6 +616,7 @@ def validate_scheduled_prerequisites_detailed(
                 coreq_uoc = prior_uoc + group_uoc - current.uoc
 
                 _coreq_expanded = _apply_equivalences(coreq_courses, _equivalences)
+                _coreq_expanded.update(_rpl_courses)
                 if not evaluate_expression(coreq_expr, _coreq_expanded, coreq_uoc):
                     diagnosis = diagnose_expression(
                         coreq_expr, _coreq_expanded, coreq_uoc
@@ -771,6 +783,7 @@ def validate_plan_prerequisites(
     *,
     catalogue: Catalogue | None = None,
     career: str | None = None,
+    rpl_courses: Counter[str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Validate prerequisite and corequisite expressions for all plan courses.
 
@@ -780,7 +793,7 @@ def validate_plan_prerequisites(
         - ``unsupported`` contains expressions that could not be parsed.
     """
     courses = extract_scheduled_courses(plan_data, catalogue=catalogue, career=career)
-    return validate_scheduled_prerequisites(courses)
+    return validate_scheduled_prerequisites(courses, rpl_courses=rpl_courses)
 
 
 def validate_plan_prerequisites_detailed(
@@ -789,11 +802,16 @@ def validate_plan_prerequisites_detailed(
     catalogue: Catalogue | None = None,
     career: str | None = None,
     equivalences: list[CourseEquivalence] | None = None,
+    rpl_courses: Counter[str] | None = None,
 ) -> tuple[list[str], list[str], list[ValidationFinding], list[ValidationWarning]]:
     """Detailed schedule-aware prerequisite validation with structured output."""
 
     courses = extract_scheduled_courses(plan_data, catalogue=catalogue, career=career)
-    return validate_scheduled_prerequisites_detailed(courses, equivalences)
+    return validate_scheduled_prerequisites_detailed(
+        courses,
+        equivalences,
+        rpl_courses=rpl_courses,
+    )
 
 
 def _is_course_code(value: Any) -> bool:
@@ -909,10 +927,37 @@ def normalize_rules_config(config: dict[str, Any]) -> dict[str, Any]:
         ]
 
     data["required"] = normalized_required
+    if _RPL_KEY in data:
+        data[_RPL_KEY] = _normalize_rpl_config_value(data[_RPL_KEY])
     data["schemaVersion"] = 2
     if _CLAUSE_META_KEY in config:
         data[_CLAUSE_META_KEY] = deepcopy(config[_CLAUSE_META_KEY])
     return data
+
+
+def _normalize_rpl_config_value(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        raise RuleValidationError(_RPL_KEY, "rpl must be an array of course codes")
+
+    normalized: list[str] = []
+    entries = cast(list[object], value)
+    for idx, item in enumerate(entries):
+        if not isinstance(item, str) or not item.strip():
+            raise RuleValidationError(
+                f"{_RPL_KEY}[{idx}]", "rpl entries must be non-empty course codes"
+            )
+        normalized.append(_normalize_course_code(item))
+    return normalized
+
+
+def extract_rpl_courses(normalized_config: dict[str, Any]) -> Counter[str]:
+    """Extract normalized prereq-only RPL courses from validated rules config."""
+
+    raw_rpl = normalized_config.get(_RPL_KEY, [])
+    if raw_rpl is None:
+        return Counter()
+    normalized_rpl = _normalize_rpl_config_value(raw_rpl)
+    return Counter(normalized_rpl)
 
 
 def validate_canonical_expression(expr: RuleExpr, path: str = "<clause>") -> None:
@@ -1131,6 +1176,8 @@ def validate_rules_config(config: dict[str, Any]) -> dict[str, Any]:
 
         for idx, clause in enumerate(level_clauses):
             validate_canonical_expression(clause, f"required.{level_name}[{idx}]")
+
+    extract_rpl_courses(normalized)
 
     return normalized
 
@@ -1791,6 +1838,7 @@ def run_rules_command(
             completed_courses = extract_completed_courses(
                 cast(dict[str, Any], plan_data)
             )
+            rpl_courses = extract_rpl_courses(validated)
             (
                 prereq_failures,
                 prereq_unsupported,
@@ -1801,6 +1849,7 @@ def run_rules_command(
                 catalogue=catalogue,
                 career=rules_career,
                 equivalences=equivalences,
+                rpl_courses=rpl_courses,
             )
         except RuleValidationError as exc:
             print(f"Error: {exc}", file=stderr)

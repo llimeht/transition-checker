@@ -194,6 +194,39 @@ class TestValidatePlanPrerequisites:
         assert failures == []
         assert unsupported == []
 
+    def test_rpl_course_satisfies_missing_prerequisite(self) -> None:
+        plan: dict[str, Any] = {
+            "courses": [
+                {
+                    "year": 2026,
+                    "period": "Term 1",
+                    "course_n": "Course 1",
+                    "code": "TEST2001",
+                    "uoc": 6,
+                    "prerequisites": "TEST1001",
+                }
+            ]
+        }
+
+        failures, _unsupported, findings, warnings = (
+            validate_plan_prerequisites_detailed(plan)
+        )
+        assert failures
+        assert any(f["failure_id"] == "prereq:TEST2001>TEST1001" for f in findings)
+        assert not warnings
+
+        failures, unsupported, findings, warnings = (
+            validate_plan_prerequisites_detailed(
+                plan,
+                rpl_courses=Counter(["TEST1001"]),
+            )
+        )
+
+        assert not failures
+        assert not unsupported
+        assert not findings
+        assert not warnings
+
 
 class TestValidateRulesConfig:
     def test_valid_rules_accepted(self, rules_simple: dict[str, Any]) -> None:
@@ -241,6 +274,33 @@ class TestValidateRulesConfig:
 
         clause = validated["required"]["Electives"][0]
         assert clause["placeholder"] == "CEICEEEE"
+
+    def test_rpl_is_normalized_as_uppercase_course_codes(self) -> None:
+        validated = validate_rules_config(
+            {
+                "required": {"Level 1": ["TEST1001"]},
+                "rpl": [" test1001 ", "test1002"],
+            }
+        )
+
+        assert validated["rpl"] == ["TEST1001", "TEST1002"]
+
+    def test_rpl_must_be_array_of_course_codes(self) -> None:
+        with pytest.raises(RuleValidationError, match="rpl"):
+            validate_rules_config(
+                {
+                    "required": {"Level 1": ["TEST1001"]},
+                    "rpl": {"TEST1001": True},
+                }
+            )
+
+        with pytest.raises(RuleValidationError, match=r"rpl\[1\]"):
+            validate_rules_config(
+                {
+                    "required": {"Level 1": ["TEST1001"]},
+                    "rpl": ["TEST1001", 123],
+                }
+            )
 
 
 class TestEvaluateRequired:
@@ -332,6 +392,18 @@ class TestEvaluateRequired:
         result = evaluate_required(normalized, completed)
 
         assert not result["Electives"]
+
+    def test_rpl_does_not_satisfy_required_levels_by_itself(self) -> None:
+        normalized = validate_rules_config(
+            {
+                "required": {"Level 1": ["TEST1001"]},
+                "rpl": ["TEST1001"],
+            }
+        )
+
+        result = evaluate_required(normalized, Counter())
+
+        assert not result["Level 1"]
 
 
 class TestRuleFindingIds:
