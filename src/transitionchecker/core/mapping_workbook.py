@@ -64,6 +64,31 @@ class ProgramSheetHeader(TypedDict):
     uoc: int
 
 
+def is_placeholder_plan_code(value: object) -> bool:
+    """Return whether a workbook plan code cell is a placeholder token."""
+
+    if value is None:
+        return False
+    if isinstance(value, float) and pd.isna(value):
+        return False
+    code = str(value).strip()
+    return code.startswith("[") and code.endswith("]")
+
+
+def plan_has_exportable_content(plan: pd.DataFrame) -> bool:
+    """Return whether a plan contains at least one non-placeholder course code."""
+
+    if "Code" not in plan.columns:
+        return False
+
+    code_series = plan["Code"]
+    non_blank_codes = code_series[code_series.notna()]
+    if non_blank_codes.empty:
+        return False
+
+    return any(not is_placeholder_plan_code(code) for code in non_blank_codes)
+
+
 def find_catalogue_sheet(
     workbook: Any,
     sheet_names: tuple[str, ...] = HANDBOOK_CATALOGUE_SHEET_NAMES,

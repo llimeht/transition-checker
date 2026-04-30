@@ -19,6 +19,7 @@ from transitionchecker.core.mapping_workbook import (
     iter_plans,
     iter_program_sheets,
     extract_program_sheet_header,
+    plan_has_exportable_content,
 )
 from transitionchecker.utils.logging import configure_logging
 
@@ -338,6 +339,9 @@ def main(argv: list[str] | None = None) -> int:
         header = extract_program_sheet_header(df)
         for intake, plan in iter_plans(df):
             logger.info(f"  Intake {intake}")
+            if not plan_has_exportable_content(plan):
+                logger.debug("  Skipped (no exportable courses)")
+                continue
             offering = course_terms(plan)
             offerings.append(offering)
             path = export_plan(sheet_name, intake, header, plan, output_dir_path)

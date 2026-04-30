@@ -96,7 +96,7 @@ def test_main_filters_plan_files_by_glob(
                 args=cmd, returncode=0, stdout="", stderr=""
             )
         if "degree_rules.py" in cmd[1]:
-            report: dict[str, object] = {
+            degree_report: dict[str, object] = {
                 "valid": True,
                 "rule_failures": [],
                 "prerequisite_failures": [],
@@ -106,15 +106,15 @@ def test_main_filters_plan_files_by_glob(
             return subprocess.CompletedProcess(
                 args=cmd,
                 returncode=0,
-                stdout=json.dumps(report),
+                stdout=json.dumps(degree_report),
                 stderr="",
             )
         if "offering_checker.py" in cmd[1]:
-            report: dict[str, object] = {"valid": True, "violations": []}
+            offering_report: dict[str, object] = {"valid": True, "violations": []}
             return subprocess.CompletedProcess(
                 args=cmd,
                 returncode=0,
-                stdout=json.dumps(report),
+                stdout=json.dumps(offering_report),
                 stderr="",
             )
         raise AssertionError(f"Unexpected command: {cmd}")

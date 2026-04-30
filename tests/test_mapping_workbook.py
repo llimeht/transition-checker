@@ -10,6 +10,7 @@ from transitionchecker.core.mapping_workbook import (
     find_template_sheet,
     iter_plans,
     iter_program_sheets,
+    plan_has_exportable_content,
 )
 
 
@@ -94,6 +95,54 @@ def test_iter_plans_groups_blocks_and_skips_end_marker() -> None:
             "Prerequisites": "",
         }
     ]
+
+
+def test_plan_has_exportable_content_rejects_placeholder_only_plan() -> None:
+    plan = pd.DataFrame(
+        [
+            {
+                "EnrolYear": "Y1",
+                "Year": 2026,
+                "Period": "Term 1",
+                "CourseN": "Course 1",
+                "Code": "[CEIC0000]",
+                "Title": "Placeholder",
+                "UoC": 0,
+                "Prerequisites": "",
+            }
+        ]
+    )
+
+    assert not plan_has_exportable_content(plan)
+
+
+def test_plan_has_exportable_content_accepts_real_course_rows() -> None:
+    plan = pd.DataFrame(
+        [
+            {
+                "EnrolYear": "Y1",
+                "Year": 2026,
+                "Period": "Term 1",
+                "CourseN": "Course 1",
+                "Code": "[CEIC0000]",
+                "Title": "Placeholder",
+                "UoC": 0,
+                "Prerequisites": "",
+            },
+            {
+                "EnrolYear": "Y1",
+                "Year": 2026,
+                "Period": "Term 1",
+                "CourseN": "Course 2",
+                "Code": "CEIC1000",
+                "Title": "Intro",
+                "UoC": 6,
+                "Prerequisites": "",
+            },
+        ]
+    )
+
+    assert plan_has_exportable_content(plan)
 
 
 def test_find_template_sheet_returns_single_match() -> None:
