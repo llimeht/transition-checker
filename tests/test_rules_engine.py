@@ -9,6 +9,7 @@ import pytest
 
 from transitionchecker.core.catalogue import Catalogue, CatalogueEntry
 from transitionchecker.rules_engine import (
+    _apply_equivalences,  # pyright: ignore[reportPrivateUsage]
     RuleValidationError,
     extract_scheduled_courses,
     report_plan_detailed,
@@ -451,3 +452,69 @@ class TestPrerequisiteFindingDecomposition:
             f.get("non_overrideable_reason") == "unsupported_syntax"
             for f in unsupported_findings
         )
+
+
+class TestCourseEquivalences:
+    def test_equivalence_satisfies_prerequisite_with_pseudo_code(self) -> None:
+        plan: dict[str, Any] = {
+            "courses": [
+                {
+                    "year": 2026,
+                    "period": "Term 1",
+                    "course_n": "Course 1",
+                    "code": "TEST1001CEIC",
+                    "uoc": 6,
+                    "prerequisites": "",
+                },
+                {
+                    "year": 2026,
+                    "period": "Term 2",
+                    "course_n": "Course 1",
+                    "code": "TEST4001",
+                    "uoc": 6,
+                    "prerequisites": "TEST1001",
+                },
+            ]
+        }
+
+        failures, _unsupported, _findings, _warnings = (
+            validate_plan_prerequisites_detailed(plan)
+        )
+        assert failures
+
+        failures, unsupported, findings, warnings = (
+            validate_plan_prerequisites_detailed(
+                plan,
+                equivalences=[
+                    {"held": "TEST1001CEIC", "equivalent_to": "TEST1001"}
+                ],
+            )
+        )
+
+        assert not failures
+        assert not unsupported
+        assert not findings
+        assert not warnings
+
+    def test_equivalence_satisfies_rule_with_pseudo_code(self) -> None:
+        rules: dict[str, Any] = {
+            "schemaVersion": 2,
+            "required": {"Level 1": ["TEST1001"]},
+        }
+        validated = validate_rules_config(rules)
+        completed = Counter(["TEST1001CEIC"])
+
+        failures, findings, warnings = report_plan_detailed(validated, completed)
+        assert failures
+        assert any(f["failure_id"] == "rule:TEST1001" for f in findings)
+        assert not warnings
+
+        expanded = _apply_equivalences(
+            completed,
+            [{"held": "TEST1001CEIC", "equivalent_to": "TEST1001"}],
+        )
+        failures, findings, warnings = report_plan_detailed(validated, expanded)
+
+        assert not failures
+        assert not findings
+        assert not warnings

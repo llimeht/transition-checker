@@ -226,7 +226,58 @@ Important warning:
 - If the filename is wrong, the override file will be ignored.
 - To remove overrides, edit the file by hand.
 
-## 4. Catalogue override files
+## 4. Course equivalence files
+
+Purpose:
+
+- Declares that holding one course also counts as holding another course, for the purposes of degree-rule and prerequisite checking.
+- Useful when courses have been renamed, replaced, or a school-local pseudo-course code (e.g. `DESN2000CEIC`) should satisfy rules written in terms of a standard code (e.g. `DESN2000`).
+- Does **not** affect the catalogue, plan data, or UoC counts — equivalences are applied only at expression evaluation time.
+
+Path patterns (both optional; both are loaded and their lists concatenated — they are additive):
+
+```text
+plans/degree_rules_equivalences.json
+plans/<school>/degree_rules_equivalences.json
+```
+
+Top-level shape:
+
+- List
+
+Important fields in each list item:
+
+- `held`: required; course code (or pseudo-code) that the student holds in their plan.
+- `equivalent_to`: required; code that `held` is treated as during evaluation.
+- `reason`: optional note for humans.
+
+The mapping is **directional** — `held → equivalent_to`.  For symmetric equivalence, add two entries.
+
+Copy-paste example:
+
+```json
+[
+  {
+    "held": "DESN2000CEIC",
+    "equivalent_to": "DESN2000",
+    "reason": "CEIC local variant of DESN2000; counts toward same rules"
+  },
+  {
+    "held": "DESN1000",
+    "equivalent_to": "ENGG1000",
+    "reason": "DESN1000 replaced ENGG1000 in rules"
+  }
+]
+```
+
+Important warnings:
+
+- `held` and `equivalent_to` values are normalized to uppercase on load; `"desn2000ceic"` and `"DESN2000CEIC"` are treated identically.
+- Pseudo-codes (codes that do not match the standard `[A-Z]{4}[0-9]{4}` pattern) are fully supported.
+- Entries with missing or empty `held` / `equivalent_to` are skipped and a validation warning is emitted.
+- To remove an equivalence, delete the entry by hand.
+
+## 5. Catalogue override files
 
 Purpose:
 
@@ -278,7 +329,7 @@ Important warnings:
 - If both contain an override for the same `code` and `career`, the school-local file wins.
 - Rather than editing by hand, you can use the `add-overrides` tool.
 
-## 5. Offerings file
+## 6. Offerings file
 
 Purpose:
 

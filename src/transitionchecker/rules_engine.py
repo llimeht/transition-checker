@@ -70,6 +70,19 @@ class ClauseMeta(TypedDict, total=False):
     non_overrideable_reason: str
 
 
+class CourseEquivalence(TypedDict, total=False):
+    """A directional course equivalence used during rule/prereq checking.
+
+    If a student holds ``held``, it also counts as holding ``equivalent_to``
+    for the purposes of expression evaluation.  The mapping is applied at
+    evaluation time only; the raw plan data is never mutated.
+    """
+
+    held: str  # required
+    equivalent_to: str  # required
+    reason: str  # optional
+
+
 @dataclass(frozen=True)
 class ScheduledPlanCourse:
     """Normalized in-plan course record used for chronological validation."""
@@ -472,13 +485,23 @@ def validate_scheduled_prerequisites(
     failures, unsupported, _findings, _warnings = (
         validate_scheduled_prerequisites_detailed(courses)
     )
-    return failures, unsupported
+    return failures, unsupported  # equivalences not threaded here (legacy path)
 
 
 def validate_scheduled_prerequisites_detailed(
     courses: list[ScheduledPlanCourse],
+    equivalences: list[CourseEquivalence] | None = None,
 ) -> tuple[list[str], list[str], list[ValidationFinding], list[ValidationWarning]]:
-    """Validate scheduled prerequisites and return diagnostics plus findings."""
+    """Validate scheduled prerequisites and return diagnostics plus findings.
+
+    Args:
+        courses: Chronologically-sorted scheduled course records.
+        equivalences: Optional list of directional course equivalences.  When a
+            student holds the ``held`` code, ``equivalent_to`` is also treated as
+            held during expression evaluation.  The raw accumulation counters are
+            not mutated.
+    """
+    _equivalences: list[CourseEquivalence] = equivalences if equivalences is not None else []
     failures: list[str] = []
     unsupported: list[str] = []
     findings: list[ValidationFinding] = []
@@ -527,10 +550,11 @@ def validate_scheduled_prerequisites_detailed(
                 )
                 continue
 
+            _prior_expanded = _apply_equivalences(prior_courses, _equivalences)
             if prereq_expr is not None and not evaluate_expression(
-                prereq_expr, prior_courses, prior_uoc
+                prereq_expr, _prior_expanded, prior_uoc
             ):
-                diagnosis = diagnose_expression(prereq_expr, prior_courses, prior_uoc)
+                diagnosis = diagnose_expression(prereq_expr, _prior_expanded, prior_uoc)
                 prereq_text = expression_to_text(prereq_expr)
                 failure_msg = (
                     f"[Prerequisite] {course_label}: {prereq_text} - {diagnosis}"
@@ -538,7 +562,7 @@ def validate_scheduled_prerequisites_detailed(
                 failures.append(failure_msg)
 
                 missing_atoms = _collect_missing_atoms(
-                    prereq_expr, prior_courses, prior_uoc
+                    prereq_expr, _prior_expanded, prior_uoc
                 )
                 for atom in missing_atoms:
                     if atom == "__ONEOF__":
@@ -580,9 +604,10 @@ def validate_scheduled_prerequisites_detailed(
                         del coreq_courses[current.code]
                 coreq_uoc = prior_uoc + group_uoc - current.uoc
 
-                if not evaluate_expression(coreq_expr, coreq_courses, coreq_uoc):
+                _coreq_expanded = _apply_equivalences(coreq_courses, _equivalences)
+                if not evaluate_expression(coreq_expr, _coreq_expanded, coreq_uoc):
                     diagnosis = diagnose_expression(
-                        coreq_expr, coreq_courses, coreq_uoc
+                        coreq_expr, _coreq_expanded, coreq_uoc
                     )
                     coreq_text = expression_to_text(coreq_expr)
                     failure_msg = (
@@ -591,7 +616,7 @@ def validate_scheduled_prerequisites_detailed(
                     failures.append(failure_msg)
 
                     missing_atoms = _collect_missing_atoms(
-                        coreq_expr, coreq_courses, coreq_uoc
+                        coreq_expr, _coreq_expanded, coreq_uoc
                     )
                     for atom in missing_atoms:
                         if atom == "__ONEOF__":
@@ -763,11 +788,12 @@ def validate_plan_prerequisites_detailed(
     *,
     catalogue: Catalogue | None = None,
     career: str | None = None,
+    equivalences: list[CourseEquivalence] | None = None,
 ) -> tuple[list[str], list[str], list[ValidationFinding], list[ValidationWarning]]:
     """Detailed schedule-aware prerequisite validation with structured output."""
 
     courses = extract_scheduled_courses(plan_data, catalogue=catalogue, career=career)
-    return validate_scheduled_prerequisites_detailed(courses)
+    return validate_scheduled_prerequisites_detailed(courses, equivalences)
 
 
 def _is_course_code(value: Any) -> bool:
@@ -1462,6 +1488,114 @@ def _load_overrides(plan_file: Path) -> tuple[set[str], list[ValidationWarning]]
     return ids, warnings
 
 
+def _load_equivalences_one_file(
+    path: Path,
+) -> tuple[list[CourseEquivalence], list[ValidationWarning]]:
+    """Load equivalences from a single JSON file, returning entries and warnings."""
+    if not path.is_file():
+        return [], []
+
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except json.JSONDecodeError as exc:
+        return [], [
+            _make_warning(
+                "invalid_equivalences_file",
+                f"Could not parse equivalences JSON: {exc}",
+                location=str(path),
+            )
+        ]
+
+    if not isinstance(raw, list):
+        return [], [
+            _make_warning(
+                "invalid_equivalences_file",
+                "Equivalences file must contain a JSON list",
+                location=str(path),
+            )
+        ]
+
+    entries: list[CourseEquivalence] = []
+    warnings: list[ValidationWarning] = []
+    for idx, item in enumerate(cast(list[object], raw)):
+        if not isinstance(item, dict):
+            warnings.append(
+                _make_warning(
+                    "invalid_equivalence_entry",
+                    "Equivalence entry must be an object",
+                    location=f"{path}[{idx}]",
+                )
+            )
+            continue
+
+        item_dict = cast(dict[str, object], item)
+        held = item_dict.get("held")
+        equivalent_to = item_dict.get("equivalent_to")
+        if not isinstance(held, str) or not held.strip():
+            warnings.append(
+                _make_warning(
+                    "invalid_equivalence_entry",
+                    "Equivalence entry requires non-empty 'held'",
+                    location=f"{path}[{idx}]",
+                )
+            )
+            continue
+        if not isinstance(equivalent_to, str) or not equivalent_to.strip():
+            warnings.append(
+                _make_warning(
+                    "invalid_equivalence_entry",
+                    "Equivalence entry requires non-empty 'equivalent_to'",
+                    location=f"{path}[{idx}]",
+                )
+            )
+            continue
+
+        entry: CourseEquivalence = {
+            "held": _normalize_course_code(held),
+            "equivalent_to": _normalize_course_code(equivalent_to),
+        }
+        reason = item_dict.get("reason")
+        if isinstance(reason, str) and reason.strip():
+            entry["reason"] = reason.strip()
+        entries.append(entry)
+
+    return entries, warnings
+
+
+def _load_equivalences_from_dir(
+    plan_dir: Path,
+) -> tuple[list[CourseEquivalence], list[ValidationWarning]]:
+    """Load additive equivalence lists from global and school-level files."""
+    all_entries: list[CourseEquivalence] = []
+    all_warnings: list[ValidationWarning] = []
+    for candidate in (
+        plan_dir.parent / "degree_rules_equivalences.json",
+        plan_dir / "degree_rules_equivalences.json",
+    ):
+        entries, warnings = _load_equivalences_one_file(candidate)
+        all_entries.extend(entries)
+        all_warnings.extend(warnings)
+    return all_entries, all_warnings
+
+
+def _apply_equivalences(
+    completed: Counter[str],
+    equivalences: list[CourseEquivalence],
+) -> Counter[str]:
+    """Return a new Counter with equivalences applied."""
+    if not equivalences:
+        return Counter(completed)
+
+    result: Counter[str] = Counter(completed)
+    for equivalence in equivalences:
+        held = equivalence.get("held", "")
+        equivalent_to = equivalence.get("equivalent_to", "")
+        if held and held in completed:
+            result[equivalent_to] += completed[held]
+    return result
+
+
 def _write_new_overrides(
     plan_file: Path, new_ids: tuple[str, ...]
 ) -> list[ValidationWarning]:
@@ -1649,6 +1783,10 @@ def run_rules_command(
                 print(f"Error: {exc}", file=stderr)
                 return 1
 
+        equivalences, equivalence_warnings = _load_equivalences_from_dir(
+            command.plan_file.parent
+        )
+
         try:
             completed_courses = extract_completed_courses(
                 cast(dict[str, Any], plan_data)
@@ -1662,18 +1800,21 @@ def run_rules_command(
                 cast(dict[str, Any], plan_data),
                 catalogue=catalogue,
                 career=rules_career,
+                equivalences=equivalences,
             )
         except RuleValidationError as exc:
             print(f"Error: {exc}", file=stderr)
             return 1
 
+        rules_completed_courses = _apply_equivalences(completed_courses, equivalences)
         rule_failures, rule_findings, generated_rule_warnings = report_plan_detailed(
             validated,
-            completed_courses,
+            rules_completed_courses,
         )
 
         all_findings = [*rule_findings, *prereq_findings]
         warnings: list[ValidationWarning] = [
+            *equivalence_warnings,
             *rule_warnings,
             *generated_rule_warnings,
             *prereq_warnings,
