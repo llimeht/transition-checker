@@ -449,6 +449,7 @@ def main(argv: list[str] | None = None) -> int:
 
         results.append(failed_entry)
         detail_lines: list[str] = []
+        accepted_findings = [f for f in structured_findings if f.get("accepted")]
 
         if rule_failures or prereq_failures or unsupported_prereqs:
             # Use structured findings when available so failure_ids are shown
@@ -478,7 +479,7 @@ def main(argv: list[str] | None = None) -> int:
                         detail_lines.append(
                             f"    \u2192 degree-rules {rule_file_rel} --plan {plan_file_rel} --add-override '{fid}'"
                         )
-            elif rule_failures:
+            elif not structured_findings and rule_failures:
                 detail_lines.append(f"rule_failures={len(rule_failures)}")
                 for failure in rule_failures:
                     detail_lines.append(f"  - {failure}")
@@ -495,7 +496,7 @@ def main(argv: list[str] | None = None) -> int:
                         detail_lines.append(
                             f"    \u2192 degree-rules {rule_file_rel} --plan {plan_file_rel} --add-override '{fid}'"
                         )
-            elif prereq_failures:
+            elif not structured_findings and prereq_failures:
                 detail_lines.append(f"prerequisite_failures={len(prereq_failures)}")
                 for failure in prereq_failures:
                     detail_lines.append(f"  - {failure}")
@@ -508,7 +509,7 @@ def main(argv: list[str] | None = None) -> int:
                     fid = str(f.get("failure_id", ""))
                     msg = str(f.get("message", ""))
                     detail_lines.append(f"  - [{fid}] {msg}" if fid else f"  - {msg}")
-            elif unsupported_prereqs:
+            elif not structured_findings and unsupported_prereqs:
                 detail_lines.append(
                     f"unsupported_prerequisites={len(unsupported_prereqs)}"
                 )
@@ -545,6 +546,15 @@ def main(argv: list[str] | None = None) -> int:
                     detail_lines.append(
                         f"  - {code}: {error_type} (planned {planned_period})"
                     )
+
+        if accepted_findings:
+            detail_lines.append(f"overridden_findings={len(accepted_findings)}")
+            for f in accepted_findings:
+                fid = str(f.get("failure_id", ""))
+                msg = str(f.get("message", ""))
+                detail_lines.append(
+                    f"  - (overridden) [{fid}] {msg}" if fid else f"  - (overridden) {msg}"
+                )
 
         if rule_process_error_output and not detail_lines:
             detail_lines.append(rule_process_error_output)
