@@ -97,6 +97,9 @@ def build_year_structure(plan: pd.DataFrame, intake: str) -> list[dict[str, Any]
         lambda: defaultdict(int)
     )
 
+    prev_enrol_year: str | None = None
+    prev_year_value: int | None = None
+
     for _, row in plan.iterrows():
         enrol_year = str(row.get("EnrolYear", "")).strip()
         year_value = _to_int(row.get("Year"))
@@ -109,6 +112,17 @@ def build_year_structure(plan: pd.DataFrame, intake: str) -> list[dict[str, Any]
         if m is None:
             continue
         course_n = int(m.group())
+        # If enrol_year changes but the calendar year hasn't, it is a data
+        # error in the source sheet — clamp back to the previous enrol_year.
+        if (
+            prev_enrol_year is not None
+            and prev_year_value is not None
+            and year_value == prev_year_value
+            and enrol_year != prev_enrol_year
+        ):
+            enrol_year = prev_enrol_year
+        prev_enrol_year = enrol_year
+        prev_year_value = year_value
         current = grouping[(enrol_year, year_value)][period]
         grouping[(enrol_year, year_value)][period] = max(current, course_n)
 
