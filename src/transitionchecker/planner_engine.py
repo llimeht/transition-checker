@@ -235,6 +235,7 @@ class PlannerCommand:
     seed: int = 1337
     career: str | None = None
     no_placeholders: bool = False
+    show_nonstandard_periods: bool = False
     output_path: Path | None = None
     verbose: int = 0
 
@@ -2321,6 +2322,8 @@ def assignments_signature(assignments: dict[str, int]) -> str:
 def render_csv_rows(
     slots: list[Slot],
     options: list[dict[str, int]],
+    *,
+    show_nonstandard_periods: bool = False,
 ) -> list[list[str]]:
     """Render solution assignments into the exported CSV row layout."""
 
@@ -2333,6 +2336,17 @@ def render_csv_rows(
             slot_codes.sort()
         by_option_slot.append(mapping)
 
+    all_used_slot_idxs: set[int] = set()
+    for mapping in by_option_slot:
+        all_used_slot_idxs.update(mapping.keys())
+
+    if all_used_slot_idxs:
+        used_slots_ordered = [s for s in slots if s.slot_idx in all_used_slot_idxs]
+        first_used = used_slots_ordered[0].slot_idx if used_slots_ordered else None
+        last_used = used_slots_ordered[-1].slot_idx if used_slots_ordered else None
+    else:
+        first_used = last_used = None
+
     rows: list[list[str]] = []
     header = ["Year", "Period", "Course Row"] + [
         f"Option {idx}" for idx in range(1, len(options) + 1)
@@ -2344,7 +2358,19 @@ def render_csv_rows(
             by_option_slot[option_idx].get(slot.slot_idx, [])
             for option_idx in range(len(options))
         ]
-        max_rows = max((len(courses) for courses in courses_per_option), default=1)
+        assigned_count = max(
+            (len(courses) for courses in courses_per_option), default=0
+        )
+        if assigned_count == 0:
+            include_empty = (
+                show_nonstandard_periods
+                and _is_nonstandard_period(slot.canonical_period)
+                and first_used is not None
+                and first_used <= slot.slot_idx <= last_used  # type: ignore[operator]
+            )
+            if not include_empty:
+                continue
+        max_rows = max(assigned_count, slot.max_slots)
         year_label = f"{slot.enrol_year} ({slot.calendar_year})"
 
         for row_idx in range(max_rows):
@@ -2636,7 +2662,7 @@ def run_planner(command: PlannerCommand, *, stdout: TextIO, stderr: TextIO) -> i
     top_k = ranked[: max(1, int(command.num_solutions))]
     options = [item[0] for item in top_k]
 
-    rows = render_csv_rows(slots, options)
+    rows = render_csv_rows(slots, options, show_nonstandard_periods=command.show_nonstandard_periods)
     write_csv(rows, command.output_path, stdout)
 
     if command.verbose >= 1:

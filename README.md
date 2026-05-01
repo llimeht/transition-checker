@@ -147,11 +147,13 @@ map-maker \
   --num-solutions 4 \
   --restarts 12 \
   --iterations 200 \
+  --show-nonstandard-periods \
   --output plans/CEIC/options.csv \
   -v
 ```
 
 Copy whichever version of this plan you like back into the planning spreadsheet.
+The `--show-nonstandard-periods` option includes summer and winter terms so that the rows should exactly match the spreadsheet format.
 
 ### Use steering hints to tune a plan
 

@@ -127,6 +127,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Prefer concrete electives from the rule pool instead of declared placeholders",
     )
+    parser.add_argument(
+        "--show-nonstandard-periods",
+        action="store_true",
+        help="Include Summer/Winter term rows in the output even when no courses are scheduled in them",
+    )
     parser.add_argument("--output", help="Output CSV path (stdout if omitted)")
     parser.add_argument(
         "-v",
@@ -158,6 +163,7 @@ def main() -> int:
         ruin_fraction=args.ruin_fraction,
         seed=args.seed,
         no_placeholders=args.no_placeholders,
+        show_nonstandard_periods=args.show_nonstandard_periods,
         output_path=Path(args.output) if args.output else None,
         verbose=args.verbose,
     )
