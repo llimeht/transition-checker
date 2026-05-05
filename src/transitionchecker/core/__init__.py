@@ -16,6 +16,7 @@ from .course_utils import (
     looks_like_course,
     normalize_course_code,
 )
+from .offerings_output import format_offerings_summary, write_offerings_csv
 from .period_utils import (
     canonical_period,
     is_nonstandard_period,
@@ -33,6 +34,7 @@ __all__ = [
     "canonical_period",
     "ensure_catalogue_courses_for_career",
     "ensure_catalogue_has_career",
+    "format_offerings_summary",
     "get_catalogue_entry_for_career",
     "is_nonstandard_period",
     "natural_sort_key",
@@ -45,4 +47,5 @@ __all__ = [
     "resolve_rules_career",
     "as_json_object",
     "as_text",
+    "write_offerings_csv",
 ]

@@ -288,6 +288,15 @@ add-offerings plans/offerings.json --schedule CEIC2001 T1 T3
 
 Periods are accepted in any alias form (`T1`, `term 1`, `S2`, `semester 2`, `summer`, etc.) and stored in canonical display form. Unknown period names cause a non-zero exit and leave the file unchanged.
 
+An list of intended teaching periods can be exported, with an optional filter pattern
+for which courses to invlude, and output either as plan text on the terminal or as CSV.
+
+```bash
+add-offerings plans/offerings.json --show '*'
+add-offerings plans/offerings.json --show 'CEIC*'
+add-offerings plans/offerings.json --show 'CEIC*' --output offerings.csv
+```
+
 
 ### Override an prerequisite information in the catalogue
 

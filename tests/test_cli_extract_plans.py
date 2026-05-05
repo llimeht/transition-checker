@@ -71,7 +71,7 @@ def test_main_runs_export_flow_and_writes_offerings(
         return out_dir / "mapping_offerings.json"
 
     def fake_write_offerings_csv(
-        _summary: dict[str, set[str]], _excel: Path, _output_dir: Path
+        _summary: dict[str, set[str]], _output_path: Path
     ) -> Path:
         return out_dir / "mapping_offerings.csv"
 
@@ -157,7 +157,7 @@ def test_main_skips_placeholder_only_plans_before_export(
         return out_dir / "mapping_offerings.json"
 
     def fake_write_offerings_csv(
-        _summary: dict[str, set[str]], _excel: Path, _output_dir: Path
+        _summary: dict[str, set[str]], _output_path: Path
     ) -> Path:
         return out_dir / "mapping_offerings.csv"
 

@@ -14,6 +14,10 @@ from typing import Any, TypedDict
 import warnings
 
 import pandas as pd
+from transitionchecker.core.offerings_output import (
+    format_offerings_summary,
+    write_offerings_csv,
+)
 from transitionchecker.core.mapping_workbook import (
     ProgramSheetHeader,
     iter_plans,
@@ -79,25 +83,6 @@ def summarise_offerings(offerings: list[dict[str, set[str]]]) -> dict[str, set[s
     return summary
 
 
-def format_offerings_summary(summary: dict[str, set[str]]) -> str:
-    """Format offerings summary as aligned plain text.
-
-    Args:
-        summary: Mapping of course code to offered periods.
-
-    Returns:
-        Multi-line human-readable summary string.
-    """
-    lines: list[str] = []
-    for course in sorted(summary.keys()):
-        periods = summary[course]
-        pdtxt = sorted([p for p in periods if not p.startswith("Term ")])
-        if not pdtxt:
-            continue
-        lines.append(f"{course:14} {' '.join(pdtxt)}")
-    return "\n".join(lines)
-
-
 def write_offerings_file(
     summary: dict[str, set[str]], excel_filename: Path, output_dir: Path
 ) -> Path:
@@ -123,36 +108,6 @@ def write_offerings_file(
     with open(filepath, "w", encoding="utf-8") as fh:
         json.dump(offerings_dict, fh, indent=2)
 
-    return filepath
-
-
-def write_offerings_csv(
-    summary: dict[str, set[str]], excel_filename: Path, output_dir: Path
-) -> Path:
-    """Write offerings summary as a course-by-period CSV matrix.
-
-    Args:
-        summary: Mapping of course code to offered periods.
-        excel_filename: Source workbook path used to derive output filename.
-        output_dir: Destination directory for output file.
-
-    Returns:
-        Path to the generated CSV file.
-    """
-    base_name = excel_filename.stem
-    filepath = output_dir / f"{base_name}_offerings.csv"
-
-    all_periods = sorted({period for periods in summary.values() for period in periods})
-    courses = sorted(summary.keys())
-    rows: list[dict[str, str]] = []
-    for course in courses:
-        row = {"course": course}
-        for period in all_periods:
-            row[period] = "Y" if period in summary[course] else ""
-        rows.append(row)
-
-    columns = ["course", *all_periods]
-    pd.DataFrame(rows, columns=columns).to_csv(filepath, index=False)
     return filepath
 
 
@@ -356,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         offerings_summary, excel_file, output_dir_path
     )
     offerings_csv_path = write_offerings_csv(
-        offerings_summary, excel_file, output_dir_path
+        offerings_summary, output_dir_path / f"{excel_file.stem}_offerings.csv"
     )
     logger.info(f"Offerings summary written to: {offerings_path}")
     logger.info(f"Offerings CSV written to: {offerings_csv_path}")

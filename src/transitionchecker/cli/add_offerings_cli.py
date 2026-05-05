@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import sys
 from pathlib import Path
@@ -8,10 +9,12 @@ from typing import TypedDict, cast
 
 from transitionchecker.core import (
     canonical_period,
+    format_offerings_summary,
     natural_sort_key,
     normalize_course_code,
     period_display_label,
     period_rank,
+    write_offerings_csv,
 )
 
 
@@ -99,6 +102,40 @@ def write_offerings(offerings_file: Path, offerings: dict[str, list[str]]) -> No
         fh.write("\n")
 
 
+def _select_offerings(
+    offerings: dict[str, list[str]], course_glob: str
+) -> dict[str, list[str]]:
+    return {
+        course: periods
+        for course, periods in offerings.items()
+        if fnmatch.fnmatchcase(course, course_glob)
+    }
+
+
+def _show_mode(offerings_file: Path, course_glob: str, output_path: Path | None) -> int:
+    raw_offerings = load_offerings(offerings_file)
+    normalized = _normalize_offerings(raw_offerings)
+
+    if normalized["errors"]:
+        for error in normalized["errors"]:
+            print(f"Error: {error}", file=sys.stderr)
+        return 1
+
+    matching_offerings = _select_offerings(normalized["offerings"], course_glob)
+    if output_path is not None:
+        write_offerings_csv(matching_offerings, output_path)
+        print(f"Wrote CSV: {output_path}", file=sys.stderr)
+        return 0
+
+    summary_text = format_offerings_summary(matching_offerings)
+    if summary_text:
+        print(summary_text)
+    else:
+        print(f"No matching courses for glob: {course_glob}")
+
+    return 0
+
+
 def _validate_mode(offerings_file: Path) -> int:
     raw_offerings = load_offerings(offerings_file)
     normalized = _normalize_offerings(raw_offerings)
@@ -146,11 +183,16 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         epilog=(
             "Examples:\n"
             "  add-offerings plans/offerings.json --validate\n"
-            "  add-offerings plans/offerings.json --schedule ABCD1234 T1 S1"
+            "  add-offerings plans/offerings.json --schedule ABCD1234 T1 S1\n"
+            "  add-offerings plans/offerings.json --show 'COMP*' --output offerings.csv"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("offerings_file", help="Path to offerings JSON file")
+    parser.add_argument(
+        "--output",
+        help="Write --show results to the given CSV file",
+    )
 
     mode_group = parser.add_mutually_exclusive_group(required=True)
     mode_group.add_argument(
@@ -164,6 +206,11 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         metavar="VALUE",
         help="Add an offering as: --schedule COURSE_CODE PERIOD [PERIOD ...]",
     )
+    mode_group.add_argument(
+        "--show",
+        metavar="GLOB",
+        help="Show offerings for all course codes matching the glob",
+    )
 
     return parser
 
@@ -173,10 +220,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     offerings_file = Path(args.offerings_file).resolve()
+    output_path = Path(args.output).resolve() if args.output else None
 
     try:
+        if output_path is not None and not args.show:
+            parser.error("--output can only be used with --show")
+
         if args.validate:
             return _validate_mode(offerings_file)
+
+        if args.show:
+            return _show_mode(offerings_file, cast(str, args.show), output_path)
 
         schedule_values = cast(list[str] | None, args.schedule)
         if not schedule_values or len(schedule_values) < 2:
