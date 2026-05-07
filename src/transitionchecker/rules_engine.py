@@ -844,6 +844,7 @@ def normalize_clause(clause: Any) -> RuleExpr:
     if isinstance(clause, dict):
         operator_clause = dict(cast(dict[str, Any], clause))
         operator_clause.pop("id", None)
+        operator_clause.pop("_comment", None)
         keys = set(operator_clause.keys())
 
         if keys == {"min", "from"} or keys == {"min", "from", "placeholder"}:
