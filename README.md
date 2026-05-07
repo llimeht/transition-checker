@@ -1,6 +1,11 @@
-# UNSW 3+ to Flex-Semester transition-checker
+# Unofficial UNSW 3+ to Flex-Semester transition-checker
 
 Utilities for validating degree rules, extracting planning templates, and generating candidate degree plans.
+
+These utilities are entirely unofficial and are designed to help staff plan enrolment sequences.
+They do not replace careful consideration of the academic rules in the handbook, checking the intended
+offerings for courses in each teaching period, or academic judgement about what allowances might be made
+to help with the transition.
 
 The repository currently has three main workflows:
 
