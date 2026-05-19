@@ -347,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
             plan_report.get("unsupported_prerequisites", [])
         )
         structured_findings = _as_object_dict_list(plan_report.get("findings", []))
+        structured_warnings = _as_object_dict_list(plan_report.get("warnings", []))
         plan_is_valid = (
             bool(plan_report.get("valid")) if plan_report else result.returncode == 0
         )
@@ -418,6 +419,8 @@ def main(argv: list[str] | None = None) -> int:
                     "rule_failures": rule_failures,
                     "prerequisite_failures": prereq_failures,
                     "unsupported_prerequisites": unsupported_prereqs,
+                    "findings": structured_findings,
+                    "warnings": structured_warnings,
                     "offering_violations": offering_violations,
                 }
             )
@@ -442,6 +445,8 @@ def main(argv: list[str] | None = None) -> int:
             "rule_failures": rule_failures,
             "prerequisite_failures": prereq_failures,
             "unsupported_prerequisites": unsupported_prereqs,
+            "findings": structured_findings,
+            "warnings": structured_warnings,
             "offering_violations": offering_violations,
         }
         if rule_process_error_output:
@@ -451,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
         detail_lines: list[str] = []
         accepted_findings = [f for f in structured_findings if f.get("accepted")]
 
-        if rule_failures or prereq_failures or unsupported_prereqs:
+        if structured_findings or rule_failures or prereq_failures or unsupported_prereqs:
             # Use structured findings when available so failure_ids are shown
             active_findings = [f for f in structured_findings if not f.get("accepted")]
             rule_finding_lines = [
