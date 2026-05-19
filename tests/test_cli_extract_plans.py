@@ -183,3 +183,39 @@ def test_main_skips_placeholder_only_plans_before_export(
     assert code == 0
     assert export_calls == []
     assert offering_calls == []
+
+
+def test_plan_to_dict_skips_whitespace_code_rows() -> None:
+    plan = pd.DataFrame(
+        [
+            {
+                "EnrolYear": "Year 1",
+                "Year": 2028,
+                "Period": "Semester 2",
+                "CourseN": "Course 1",
+                "Code": "   ",
+                "Title": "",
+                "UoC": 0,
+                "Prerequisites": "",
+            },
+            {
+                "EnrolYear": "Year 1",
+                "Year": 2028,
+                "Period": "Semester 2",
+                "CourseN": "Course 2",
+                "Code": "MATH1231",
+                "Title": "Mathematics 1B",
+                "UoC": 6,
+                "Prerequisites": ".",
+            },
+        ]
+    )
+    header: ProgramSheetHeader = {
+        "program": "TEST1000",
+        "career": "Undergraduate",
+        "uoc": 48,
+    }
+
+    payload = extract_plans_cli.plan_to_dict("Sheet1", "2028 S2", header, plan)
+
+    assert [course["code"] for course in payload["courses"]] == ["MATH1231"]

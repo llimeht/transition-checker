@@ -145,6 +145,35 @@ def test_plan_has_exportable_content_accepts_real_course_rows() -> None:
     assert plan_has_exportable_content(plan)
 
 
+def test_plan_has_exportable_content_rejects_placeholder_and_whitespace_rows() -> None:
+    plan = pd.DataFrame(
+        [
+            {
+                "EnrolYear": "Y1",
+                "Year": 2026,
+                "Period": "Term 1",
+                "CourseN": "Course 1",
+                "Code": "[CEIC0000]",
+                "Title": "Placeholder",
+                "UoC": 0,
+                "Prerequisites": "",
+            },
+            {
+                "EnrolYear": "Y1",
+                "Year": 2026,
+                "Period": "Term 1",
+                "CourseN": "Course 2",
+                "Code": "   ",
+                "Title": "",
+                "UoC": 0,
+                "Prerequisites": "",
+            },
+        ]
+    )
+
+    assert not plan_has_exportable_content(plan)
+
+
 def test_find_template_sheet_returns_single_match() -> None:
     template_df = pd.DataFrame(columns=["col0"])
 

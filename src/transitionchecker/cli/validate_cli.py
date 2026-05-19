@@ -47,6 +47,18 @@ def _as_object_dict_list(value: object) -> list[dict[str, object]]:
     return dict_items
 
 
+def _should_skip_placeholder_plan(courses: list[dict[str, object]]) -> bool:
+    """Return whether plan courses are empty or template placeholders only."""
+
+    # Ignore blank/whitespace codes exported from sparse workbook rows.
+    normalized_codes = [str(c.get("code", "")).strip() for c in courses]
+    non_blank_codes = [code for code in normalized_codes if code]
+    if not non_blank_codes:
+        return True
+
+    return all(re.fullmatch(r"\[.*\]", code) for code in non_blank_codes)
+
+
 def _build_cli_parser() -> argparse.ArgumentParser:
     """Create the command-line parser for validation workflow.
 
@@ -301,9 +313,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if plan_data is not None:
             courses = _as_object_dict_list(plan_data.get("courses", []))
-            if not courses or all(
-                re.fullmatch(r"\[.*\]", str(c.get("code", "")).strip()) for c in courses
-            ):
+            if _should_skip_placeholder_plan(courses):
                 print(
                     f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'⊘ SKIP':<{status_col_width}}"
                 )

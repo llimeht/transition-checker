@@ -63,7 +63,10 @@ def course_terms(plan: pd.DataFrame) -> dict[str, set[str]]:
     for _, row in plan.iterrows():
         if pd.isna(row.Code):
             continue
-        offering[row.Code].add(row.Period)
+        code = str(row.Code).strip()
+        if not code:
+            continue
+        offering[code].add(row.Period)
     return offering
 
 
@@ -171,6 +174,9 @@ def plan_to_dict(
     for idx, row in plan.iterrows():
         if pd.isna(row["Code"]):
             continue
+        code = _to_string(row["Code"]).strip()
+        if not code:
+            continue
         try:
             courses.append(
                 {
@@ -178,7 +184,7 @@ def plan_to_dict(
                     "year": _to_int(row["Year"]),
                     "period": _to_string(row["Period"]),
                     "course_n": _to_string(row["CourseN"]),
-                    "code": str(row["Code"]),
+                    "code": code,
                     "title": _to_string(row["Title"]),
                     "uoc": _to_int(row["UoC"], default=0),
                     "prerequisites": _to_string(row["Prerequisites"]),

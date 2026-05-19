@@ -81,12 +81,19 @@ def plan_has_exportable_content(plan: pd.DataFrame) -> bool:
     if "Code" not in plan.columns:
         return False
 
-    code_series = plan["Code"]
-    non_blank_codes = code_series[code_series.notna()]
-    if non_blank_codes.empty:
-        return False
+    for raw_code in plan["Code"]:
+        if raw_code is None:
+            continue
+        if isinstance(raw_code, float) and pd.isna(raw_code):
+            continue
 
-    return any(not is_placeholder_plan_code(code) for code in non_blank_codes)
+        code = str(raw_code).strip()
+        if not code:
+            continue
+        if not is_placeholder_plan_code(code):
+            return True
+
+    return False
 
 
 def find_catalogue_sheet(
