@@ -124,6 +124,8 @@ _CLAUSE_META_KEY = "_required_clause_meta"
 _MISSING_UOC_ATOM_RE = re.compile(r"\d+\s*uoc", re.IGNORECASE)
 _RPL_KEY = "rpl"
 _DOUBLE_COUNTED_KEY = "double-counted"
+_SHARED_COURSES_KEY = "shared-courses"
+_OVER_DOUBLE_COUNT_LIMIT_KEY = "over-double-count-limit"
 
 
 def _is_placeholder_min_from(node: dict[str, Any]) -> bool:
@@ -931,9 +933,24 @@ def normalize_rules_config(config: dict[str, Any]) -> dict[str, Any]:
     data["required"] = normalized_required
     if _RPL_KEY in data:
         data[_RPL_KEY] = _normalize_rpl_config_value(data[_RPL_KEY])
+
     if _DOUBLE_COUNTED_KEY in data:
-        data[_DOUBLE_COUNTED_KEY] = _normalize_double_counted_config_value(
-            data[_DOUBLE_COUNTED_KEY]
+        # Backward-compatible migration from legacy top-level key.
+        if _SHARED_COURSES_KEY not in data:
+            data[_SHARED_COURSES_KEY] = {_DOUBLE_COUNTED_KEY: data[_DOUBLE_COUNTED_KEY]}
+        else:
+            shared = cast(dict[str, Any], data[_SHARED_COURSES_KEY])
+            if _DOUBLE_COUNTED_KEY in shared:
+                raise RuleValidationError(
+                    _SHARED_COURSES_KEY,
+                    "double-counted declared in both top-level and shared-courses",
+                )
+            shared[_DOUBLE_COUNTED_KEY] = data[_DOUBLE_COUNTED_KEY]
+        data.pop(_DOUBLE_COUNTED_KEY, None)
+
+    if _SHARED_COURSES_KEY in data:
+        data[_SHARED_COURSES_KEY] = _normalize_shared_courses_config_value(
+            data[_SHARED_COURSES_KEY]
         )
     data["schemaVersion"] = 2
     if _CLAUSE_META_KEY in config:
@@ -984,6 +1001,161 @@ def _normalize_double_counted_config_value(value: Any) -> list[str]:
     return normalized
 
 
+def _normalize_over_double_count_limit_value(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise RuleValidationError(
+            f"{_SHARED_COURSES_KEY}.{_OVER_DOUBLE_COUNT_LIMIT_KEY}",
+            "over-double-count-limit must be an array",
+        )
+
+    selectors: list[dict[str, Any]] = []
+    entries = cast(list[object], value)
+    for idx, item in enumerate(entries):
+        path = f"{_SHARED_COURSES_KEY}.{_OVER_DOUBLE_COUNT_LIMIT_KEY}[{idx}]"
+        if not isinstance(item, dict):
+            raise RuleValidationError(path, "entry must be an object")
+
+        raw_selector = cast(dict[str, object], item)
+        placeholder_raw = raw_selector.get("placeholder")
+        if not isinstance(placeholder_raw, str) or not placeholder_raw.strip():
+            raise RuleValidationError(
+                f"{path}.placeholder",
+                "placeholder must be a non-empty course code",
+            )
+        placeholder = _normalize_course_code(placeholder_raw)
+
+        from_raw = raw_selector.get("from")
+        if not isinstance(from_raw, list):
+            raise RuleValidationError(f"{path}.from", "from must be an array")
+
+        normalized_from: list[str] = []
+        seen: set[str] = set()
+        for from_idx, from_item in enumerate(cast(list[object], from_raw)):
+            if not isinstance(from_item, str) or not from_item.strip():
+                raise RuleValidationError(
+                    f"{path}.from[{from_idx}]",
+                    "from entries must be non-empty course codes",
+                )
+            code = _normalize_course_code(from_item)
+            if code in seen:
+                raise RuleValidationError(
+                    f"{path}.from[{from_idx}]",
+                    f"duplicate course code '{code}' in from",
+                )
+            seen.add(code)
+            normalized_from.append(code)
+
+        if not normalized_from:
+            raise RuleValidationError(f"{path}.from", "from must not be empty")
+
+        selectors.append({"placeholder": placeholder, "from": normalized_from})
+
+    return selectors
+
+
+def _normalize_shared_courses_config_value(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise RuleValidationError(_SHARED_COURSES_KEY, "shared-courses must be an object")
+
+    shared = cast(dict[str, object], value)
+    allowed = {_DOUBLE_COUNTED_KEY, _OVER_DOUBLE_COUNT_LIMIT_KEY}
+    for key in shared.keys():
+        if key not in allowed:
+            raise RuleValidationError(
+                f"{_SHARED_COURSES_KEY}.{key}",
+                "unsupported shared-courses key",
+            )
+
+    normalized: dict[str, Any] = {}
+    if _DOUBLE_COUNTED_KEY in shared:
+        normalized[_DOUBLE_COUNTED_KEY] = _normalize_double_counted_config_value(
+            shared[_DOUBLE_COUNTED_KEY]
+        )
+    if _OVER_DOUBLE_COUNT_LIMIT_KEY in shared:
+        normalized[_OVER_DOUBLE_COUNT_LIMIT_KEY] = (
+            _normalize_over_double_count_limit_value(
+                shared[_OVER_DOUBLE_COUNT_LIMIT_KEY]
+            )
+        )
+
+    return normalized
+
+
+def _shared_courses_config(normalized_config: dict[str, Any]) -> dict[str, Any]:
+    shared = normalized_config.get(_SHARED_COURSES_KEY, {})
+    if shared is None:
+        return {}
+    return _normalize_shared_courses_config_value(shared)
+
+
+def _collect_expression_course_codes(expr: RuleExpr) -> set[str]:
+    if _is_course_code(expr):
+        return {cast(str, expr)}
+    if not isinstance(expr, dict):
+        return set()
+
+    node = expr
+    codes: set[str] = set()
+    if set(node.keys()) == {"uoc"}:
+        return codes
+
+    if set(node.keys()) == {"min", "from"} or _is_placeholder_min_from(node):
+        for child in cast(list[RuleExpr], node["from"]):
+            codes.update(_collect_expression_course_codes(child))
+        if _is_placeholder_min_from(node):
+            codes.add(cast(str, node["placeholder"]))
+        return codes
+
+    if len(node) == 1:
+        op = next(iter(node.keys()))
+        if op in {"and", "or"}:
+            for child in cast(list[RuleExpr], node[op]):
+                codes.update(_collect_expression_course_codes(child))
+    return codes
+
+
+def _collect_placeholder_clauses(
+    normalized_config: dict[str, Any],
+) -> dict[str, list[tuple[str, int, dict[str, Any]]]]:
+    placeholders: dict[str, list[tuple[str, int, dict[str, Any]]]] = {}
+    required = normalized_config.get("required", {})
+    if not isinstance(required, dict):
+        return placeholders
+
+    for level_name, clauses in cast(dict[str, Any], required).items():
+        if not isinstance(clauses, list):
+            continue
+        for idx, clause in enumerate(cast(list[RuleExpr], clauses), start=1):
+            if not isinstance(clause, dict) or not _is_placeholder_min_from(clause):
+                continue
+            placeholder = cast(str, clause["placeholder"])
+            placeholders.setdefault(placeholder, []).append(
+                (level_name, idx, clause)
+            )
+
+    return placeholders
+
+
+def _compute_over_double_count_limit_requirements(
+    normalized_config: dict[str, Any],
+    consumed_courses: Counter[str],
+) -> dict[str, int]:
+    shared = _shared_courses_config(normalized_config)
+    selectors = cast(list[dict[str, Any]], shared.get(_OVER_DOUBLE_COUNT_LIMIT_KEY, []))
+    requirements: dict[str, int] = {}
+
+    for selector in selectors:
+        placeholder = cast(str, selector["placeholder"])
+        selector_courses = cast(list[str], selector["from"])
+        extra_needed = sum(
+            1 for course in selector_courses if consumed_courses[course] >= 2
+        )
+        if extra_needed > 0:
+            requirements[placeholder] = requirements.get(placeholder, 0) + extra_needed
+
+    return requirements
+
+
 def _remaining_after_consumption(
     remaining: Counter[str],
     consumed: Counter[str],
@@ -1020,6 +1192,7 @@ def _consume_required_expression(
             )
         return completed_uoc >= threshold, Counter()
 
+    consumed: Counter[str]
     if set(node.keys()) == {"min", "from"} or _is_placeholder_min_from(node):
         min_count = cast(int, node["min"])
         from_exprs = cast(list[RuleExpr], node["from"])
@@ -1027,7 +1200,7 @@ def _consume_required_expression(
             cast(str, node["placeholder"]) if _is_placeholder_min_from(node) else None
         )
 
-        consumed: Counter[str] = Counter()
+        consumed = Counter()
         temp_remaining = Counter(remaining_courses)
         satisfied = 0
 
@@ -1060,7 +1233,7 @@ def _consume_required_expression(
     op = next(iter(node.keys()))
     children = cast(list[RuleExpr], node[op])
     if op == "and":
-        consumed: Counter[str] = Counter()
+        consumed = Counter()
         temp_remaining = Counter(remaining_courses)
         for child in children:
             child_satisfied, child_consumed = _consume_required_expression(
@@ -1094,8 +1267,10 @@ def _required_course_capacity(
 ) -> Counter[str]:
     """Build per-course capacity used for required-clause consumption."""
     capacity = Counter(completed_courses)
-    raw_double_counted = normalized_config.get(_DOUBLE_COUNTED_KEY, [])
-    double_counted = _normalize_double_counted_config_value(raw_double_counted)
+    shared = _shared_courses_config(normalized_config)
+    double_counted = _normalize_double_counted_config_value(
+        shared.get(_DOUBLE_COUNTED_KEY, [])
+    )
 
     for course in double_counted:
         if capacity[course] > 0:
@@ -1294,6 +1469,7 @@ def evaluate_required(
 
     result: dict[str, bool] = {}
     remaining_courses = _required_course_capacity(normalized_config, completed_courses)
+    consumed_courses: Counter[str] = Counter()
     for level_name, clauses in required_levels.items():
         level_clauses = cast(list[RuleExpr], clauses)
         level_passed = True
@@ -1306,8 +1482,38 @@ def evaluate_required(
                 level_passed = False
                 continue
             remaining_courses = _remaining_after_consumption(remaining_courses, consumed)
+            consumed_courses.update(consumed)
 
         result[level_name] = level_passed
+
+    extra_requirements = _compute_over_double_count_limit_requirements(
+        normalized_config,
+        consumed_courses,
+    )
+    placeholder_clauses = _collect_placeholder_clauses(normalized_config)
+    for placeholder, extra_needed in extra_requirements.items():
+        candidate_clauses = placeholder_clauses.get(placeholder, [])
+        if len(candidate_clauses) != 1:
+            continue
+
+        level_name, _clause_idx, clause = candidate_clauses[0]
+        extra_clause: RuleExpr = {
+            "min": extra_needed,
+            "from": cast(list[RuleExpr], clause["from"]),
+            "placeholder": placeholder,
+        }
+        is_satisfied, consumed_extra = _consume_required_expression(
+            extra_clause,
+            remaining_courses,
+        )
+        if is_satisfied:
+            remaining_courses = _remaining_after_consumption(
+                remaining_courses,
+                consumed_extra,
+            )
+            continue
+
+        result[level_name] = False
 
     return result
 
@@ -1342,6 +1548,34 @@ def validate_rules_config(config: dict[str, Any]) -> dict[str, Any]:
 
         for idx, clause in enumerate(level_clauses):
             validate_canonical_expression(clause, f"required.{level_name}[{idx}]")
+
+    placeholder_clauses = _collect_placeholder_clauses(normalized)
+    shared = _shared_courses_config(normalized)
+    selectors = cast(list[dict[str, Any]], shared.get(_OVER_DOUBLE_COUNT_LIMIT_KEY, []))
+    for idx, selector in enumerate(selectors):
+        selector_path = f"{_SHARED_COURSES_KEY}.{_OVER_DOUBLE_COUNT_LIMIT_KEY}[{idx}]"
+        placeholder = cast(str, selector["placeholder"])
+        candidate_clauses = placeholder_clauses.get(placeholder, [])
+        if len(candidate_clauses) != 1:
+            raise RuleValidationError(
+                f"{selector_path}.placeholder",
+                (
+                    "placeholder must match exactly one required min/from clause "
+                    "with the same placeholder"
+                ),
+            )
+
+        _, _, clause = candidate_clauses[0]
+        available_codes = _collect_expression_course_codes(cast(RuleExpr, clause))
+        for course_idx, course in enumerate(cast(list[str], selector["from"])):
+            if course not in available_codes:
+                raise RuleValidationError(
+                    f"{selector_path}.from[{course_idx}]",
+                    (
+                        f"course '{course}' is not available in the target placeholder "
+                        f"clause '{placeholder}'"
+                    ),
+                )
 
     extract_rpl_courses(normalized)
 
@@ -1537,6 +1771,7 @@ def report_plan_detailed(
     warnings: list[ValidationWarning] = []
     clause_meta_map = _as_clause_meta_map(normalized_config)
     remaining_courses = _required_course_capacity(normalized_config, completed_courses)
+    consumed_courses: Counter[str] = Counter()
 
     required = cast(dict[str, Any], normalized_config.get("required", {}))
     for level_name, clauses in required.items():
@@ -1551,6 +1786,7 @@ def report_plan_detailed(
                     remaining_courses,
                     consumed,
                 )
+                consumed_courses.update(consumed)
                 continue
 
             rule_text = expression_to_text(clause)
@@ -1597,6 +1833,48 @@ def report_plan_detailed(
             if not overrideable and isinstance(reason, str) and reason:
                 finding["non_overrideable_reason"] = reason
             findings.append(finding)
+
+    extra_requirements = _compute_over_double_count_limit_requirements(
+        normalized_config,
+        consumed_courses,
+    )
+    placeholder_clauses = _collect_placeholder_clauses(normalized_config)
+    for placeholder, extra_needed in extra_requirements.items():
+        candidate_clauses = placeholder_clauses.get(placeholder, [])
+        if len(candidate_clauses) != 1:
+            continue
+
+        level_name, clause_idx, clause = candidate_clauses[0]
+        extra_clause: RuleExpr = {
+            "min": extra_needed,
+            "from": cast(list[RuleExpr], clause["from"]),
+            "placeholder": placeholder,
+        }
+        is_satisfied, consumed_extra = _consume_required_expression(
+            extra_clause,
+            remaining_courses,
+        )
+        if is_satisfied:
+            remaining_courses = _remaining_after_consumption(
+                remaining_courses,
+                consumed_extra,
+            )
+            continue
+
+        message = (
+            f"[{level_name}] clause {clause_idx}: over-double-count-limit requires "
+            f"{extra_needed} additional elective(s) for placeholder {placeholder}"
+        )
+        failures.append(message)
+        findings.append(
+            {
+                "failure_id": f"rule:over-double-count-limit:{placeholder}",
+                "kind": "rule",
+                "message": message,
+                "overrideable": True,
+                "accepted": False,
+            }
+        )
 
     return failures, findings, warnings
 

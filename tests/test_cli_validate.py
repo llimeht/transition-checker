@@ -298,3 +298,76 @@ def test_main_skips_placeholder_plan_with_blank_rows(
     assert report["summary"]["failed"] == 0
     assert report["summary"]["skipped_placeholder"] == 1
     assert report["results"][0]["status"] == "skipped_placeholder"
+
+
+def test_main_surfaces_degree_rules_process_error_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    plan_file = out_dir / "MATSM13132+CEICM13132_2023_T1.json"
+    plan_file.write_text(
+        json.dumps({"courses": [{"code": "TEST1001"}]}),
+        encoding="utf-8",
+    )
+
+    def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        if "extract_plans.py" in cmd[1] or "extract_template.py" in cmd[1]:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+        if "degree_rules.py" in cmd[1]:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=1,
+                stdout="",
+                stderr=(
+                    "Validation failed: shared-courses.over-limit-double-counted: "
+                    "unsupported shared-courses key"
+                ),
+            )
+        if "offering_checker.py" in cmd[1]:
+            offering_report: dict[str, object] = {"valid": True, "violations": []}
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(offering_report),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    def fake_resolve_rule_file(
+        _program_code: str,
+        _plan_stem: str,
+        _script_dir: Path,
+    ) -> Path:
+        return tmp_path / "rules" / "MATSM13132+CEICM13132.json"
+
+    monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
+    monkeypatch.setattr(validate_cli, "resolve_rule_file", fake_resolve_rule_file)
+
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "MATSM13132+CEICM13132.json").write_text("{}", encoding="utf-8")
+
+    code = validate_cli.main([str(excel), "--output-dir", str(out_dir), "--filter", "MATS*"])
+
+    assert code == 1
+    output = capsys.readouterr().out
+    assert "rule_process_error=1" in output
+    assert "shared-courses.over-limit-double-counted" in output
+
+    report = json.loads(
+        (out_dir / "mapping_validation_results.json").read_text(encoding="utf-8")
+    )
+    entry = report["results"][0]
+    assert entry["status"] == "failed"
+    assert "shared-courses.over-limit-double-counted" in entry["error_output"]

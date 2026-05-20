@@ -306,18 +306,39 @@ class TestValidateRulesConfig:
         validated = validate_rules_config(
             {
                 "required": {"Level 1": ["TEST1001"]},
+                "shared-courses": {
+                    "double-counted": [" test1001 ", "test1002"],
+                },
+            }
+        )
+
+        assert validated["shared-courses"]["double-counted"] == [
+            "TEST1001",
+            "TEST1002",
+        ]
+
+    def test_legacy_top_level_double_counted_is_migrated(self) -> None:
+        validated = validate_rules_config(
+            {
+                "required": {"Level 1": ["TEST1001"]},
                 "double-counted": [" test1001 ", "test1002"],
             }
         )
 
-        assert validated["double-counted"] == ["TEST1001", "TEST1002"]
+        assert "double-counted" not in validated
+        assert validated["shared-courses"]["double-counted"] == [
+            "TEST1001",
+            "TEST1002",
+        ]
 
     def test_double_counted_must_be_array_of_unique_course_codes(self) -> None:
         with pytest.raises(RuleValidationError, match="double-counted"):
             validate_rules_config(
                 {
                     "required": {"Level 1": ["TEST1001"]},
-                    "double-counted": {"TEST1001": True},
+                    "shared-courses": {
+                        "double-counted": {"TEST1001": True},
+                    },
                 }
             )
 
@@ -325,7 +346,9 @@ class TestValidateRulesConfig:
             validate_rules_config(
                 {
                     "required": {"Level 1": ["TEST1001"]},
-                    "double-counted": ["TEST1001", 123],
+                    "shared-courses": {
+                        "double-counted": ["TEST1001", 123],
+                    },
                 }
             )
 
@@ -333,7 +356,89 @@ class TestValidateRulesConfig:
             validate_rules_config(
                 {
                     "required": {"Level 1": ["TEST1001"]},
-                    "double-counted": ["TEST1001", "test1001"],
+                    "shared-courses": {
+                        "double-counted": ["TEST1001", "test1001"],
+                    },
+                }
+            )
+
+    def test_over_double_count_limit_selectors_are_normalized(self) -> None:
+        validated = validate_rules_config(
+            {
+                "required": {
+                    "Electives": [
+                        {
+                            "min": 2,
+                            "placeholder": "ceiceeee",
+                            "from": ["test2001", "test2002", "test2003"],
+                        }
+                    ]
+                },
+                "shared-courses": {
+                    "over-double-count-limit": [
+                        {
+                            "placeholder": "ceiceeee",
+                            "from": [" test2001 ", "test2002"],
+                        }
+                    ]
+                },
+            }
+        )
+
+        assert validated["shared-courses"]["over-double-count-limit"] == [
+            {
+                "placeholder": "CEICEEEE",
+                "from": ["TEST2001", "TEST2002"],
+            }
+        ]
+
+    def test_over_double_count_limit_requires_matching_placeholder_clause(self) -> None:
+        with pytest.raises(RuleValidationError, match="placeholder"):
+            validate_rules_config(
+                {
+                    "required": {
+                        "Electives": [
+                            {
+                                "min": 2,
+                                "placeholder": "CEICEEEE",
+                                "from": ["TEST2001", "TEST2002"],
+                            }
+                        ]
+                    },
+                    "shared-courses": {
+                        "over-double-count-limit": [
+                            {
+                                "placeholder": "NOTHERE",
+                                "from": ["TEST2001"],
+                            }
+                        ]
+                    },
+                }
+            )
+
+    def test_over_double_count_limit_requires_selector_courses_from_placeholder_pool(
+        self,
+    ) -> None:
+        with pytest.raises(RuleValidationError, match="not available"):
+            validate_rules_config(
+                {
+                    "required": {
+                        "Electives": [
+                            {
+                                "min": 2,
+                                "placeholder": "CEICEEEE",
+                                "from": ["TEST2001", "TEST2002"],
+                            }
+                        ]
+                    },
+                    "shared-courses": {
+                        "over-double-count-limit": [
+                            {
+                                "placeholder": "CEICEEEE",
+                                "from": ["TEST9999"],
+                            }
+                        ]
+                    },
                 }
             )
 
@@ -462,7 +567,7 @@ class TestEvaluateRequired:
                     "Category A": ["TEST1001"],
                     "Category B": ["TEST1001"],
                 },
-                "double-counted": ["TEST1001"],
+                "shared-courses": {"double-counted": ["TEST1001"]},
             }
         )
 
@@ -479,7 +584,7 @@ class TestEvaluateRequired:
                     "Category B": ["TEST1001"],
                     "Category C": ["TEST1001"],
                 },
-                "double-counted": ["TEST1001"],
+                "shared-courses": {"double-counted": ["TEST1001"]},
             }
         )
 
@@ -489,8 +594,123 @@ class TestEvaluateRequired:
         assert result["Category B"]
         assert not result["Category C"]
 
+    def test_over_double_count_limit_adds_extra_obligation(self) -> None:
+        normalized = validate_rules_config(
+            {
+                "required": {
+                    "Category A": ["TEST1001"],
+                    "Category B": ["TEST1001"],
+                    "Electives": [
+                        {
+                            "min": 2,
+                            "placeholder": "CEICEEEE",
+                            "from": ["TEST1001", "TEST2001", "TEST2002"],
+                        }
+                    ],
+                },
+                "shared-courses": {
+                    "double-counted": ["TEST1001"],
+                    "over-double-count-limit": [
+                        {
+                            "placeholder": "CEICEEEE",
+                            "from": ["TEST1001"],
+                        }
+                    ],
+                },
+            }
+        )
+
+        # TEST1001 is used twice across required levels, so it creates +1 elective debt.
+        result = evaluate_required(normalized, Counter(["TEST1001", "TEST2001"]))
+
+        assert result["Category A"]
+        assert result["Category B"]
+        assert not result["Electives"]
+
+    def test_over_double_count_limit_passes_when_extra_pool_exists(self) -> None:
+        normalized = validate_rules_config(
+            {
+                "required": {
+                    "Category A": ["TEST1001"],
+                    "Category B": ["TEST1001"],
+                    "Electives": [
+                        {
+                            "min": 2,
+                            "placeholder": "CEICEEEE",
+                            "from": [
+                                "TEST1001",
+                                "TEST2001",
+                                "TEST2002",
+                                "TEST2003",
+                            ],
+                        }
+                    ],
+                },
+                "shared-courses": {
+                    "double-counted": ["TEST1001"],
+                    "over-double-count-limit": [
+                        {
+                            "placeholder": "CEICEEEE",
+                            "from": ["TEST1001"],
+                        }
+                    ],
+                },
+            }
+        )
+
+        result = evaluate_required(
+            normalized,
+            Counter(["TEST1001", "TEST2001", "TEST2002", "TEST2003"]),
+        )
+
+        assert result["Category A"]
+        assert result["Category B"]
+        assert result["Electives"]
+
 
 class TestRuleFindingIds:
+    def test_over_double_count_limit_failure_is_reported(self) -> None:
+        validated = validate_rules_config(
+            {
+                "required": {
+                    "Category A": ["TEST1001"],
+                    "Category B": ["TEST1001"],
+                    "Electives": [
+                        {
+                            "id": "CEIC_ELECTIVE_POOL",
+                            "min": 2,
+                            "placeholder": "CEICEEEE",
+                            "from": [
+                                "TEST1001",
+                                "TEST2001",
+                                "TEST2002",
+                                "TEST2003",
+                            ],
+                        }
+                    ],
+                },
+                "shared-courses": {
+                    "double-counted": ["TEST1001"],
+                    "over-double-count-limit": [
+                        {
+                            "placeholder": "CEICEEEE",
+                            "from": ["TEST1001"],
+                        }
+                    ],
+                },
+            }
+        )
+        _legacy, findings, warnings = report_plan_detailed(
+            validated,
+            Counter(["TEST1001", "TEST2001", "TEST2002"]),
+        )
+
+        assert not warnings
+        assert any(
+            f["failure_id"] == "rule:over-double-count-limit:CEICEEEE"
+            for f in findings
+        )
+
     def test_named_subset_ids_are_overrideable(
         self,
         rules_with_subset_ids: dict[str, Any],

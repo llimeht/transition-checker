@@ -659,6 +659,95 @@ def test_plan_validation_single_use_course_fails_later_overlap_clause(
     assert any("[Category B]" in failure for failure in payload["rule_failures"])
 
 
+def test_plan_validation_over_double_count_limit_reports_extra_obligation(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    plan_file = tmp_path / "plan.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "required": {
+                    "Category A": ["TEST1001"],
+                    "Category B": ["TEST1001"],
+                    "Electives": [
+                        {
+                            "min": 2,
+                            "placeholder": "CEICEEEE",
+                            "from": ["TEST1001", "TEST2001", "TEST2002"],
+                        }
+                    ],
+                },
+                "shared-courses": {
+                    "double-counted": ["TEST1001"],
+                    "over-double-count-limit": [
+                        {
+                            "placeholder": "CEICEEEE",
+                            "from": ["TEST1001"],
+                        }
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 1",
+                        "code": "TEST1001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                    {
+                        "year": 2026,
+                        "period": "Term 2",
+                        "course_n": "Course 2",
+                        "code": "TEST2001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                    {
+                        "year": 2026,
+                        "period": "Term 3",
+                        "course_n": "Course 3",
+                        "code": "TEST2002",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+            plan_report_json=True,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 1
+    payload = json.loads(out.getvalue())
+    assert payload["status"] == "FAIL"
+    assert any(
+        "over-double-count-limit requires 1 additional elective(s)"
+        in failure
+        for failure in payload["rule_failures"]
+    )
+
+
 def test_plan_output_shows_unsupported_syntax_separately(
     tmp_path: Path,
 ) -> None:
