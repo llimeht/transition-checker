@@ -606,6 +606,59 @@ def test_plan_validation_counts_repeated_placeholder_rows_for_placeholder_clause
     assert payload["rule_failures"] == []
 
 
+def test_plan_validation_single_use_course_fails_later_overlap_clause(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    plan_file = tmp_path / "plan.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "required": {
+                    "Category A": ["TEST1001"],
+                    "Category B": ["TEST1001"],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 1",
+                        "code": "TEST1001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+            plan_report_json=True,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 1
+    payload = json.loads(out.getvalue())
+    assert payload["status"] == "FAIL"
+    assert any("[Category B]" in failure for failure in payload["rule_failures"])
+
+
 def test_plan_output_shows_unsupported_syntax_separately(
     tmp_path: Path,
 ) -> None:

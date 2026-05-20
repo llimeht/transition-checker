@@ -123,6 +123,7 @@ class RulesCommand:
 _CLAUSE_META_KEY = "_required_clause_meta"
 _MISSING_UOC_ATOM_RE = re.compile(r"\d+\s*uoc", re.IGNORECASE)
 _RPL_KEY = "rpl"
+_DOUBLE_COUNTED_KEY = "double-counted"
 
 
 def _is_placeholder_min_from(node: dict[str, Any]) -> bool:
@@ -930,6 +931,10 @@ def normalize_rules_config(config: dict[str, Any]) -> dict[str, Any]:
     data["required"] = normalized_required
     if _RPL_KEY in data:
         data[_RPL_KEY] = _normalize_rpl_config_value(data[_RPL_KEY])
+    if _DOUBLE_COUNTED_KEY in data:
+        data[_DOUBLE_COUNTED_KEY] = _normalize_double_counted_config_value(
+            data[_DOUBLE_COUNTED_KEY]
+        )
     data["schemaVersion"] = 2
     if _CLAUSE_META_KEY in config:
         data[_CLAUSE_META_KEY] = deepcopy(config[_CLAUSE_META_KEY])
@@ -949,6 +954,154 @@ def _normalize_rpl_config_value(value: Any) -> list[str]:
             )
         normalized.append(_normalize_course_code(item))
     return normalized
+
+
+def _normalize_double_counted_config_value(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        raise RuleValidationError(
+            _DOUBLE_COUNTED_KEY,
+            "double-counted must be an array of course codes",
+        )
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    entries = cast(list[object], value)
+    for idx, item in enumerate(entries):
+        if not isinstance(item, str) or not item.strip():
+            raise RuleValidationError(
+                f"{_DOUBLE_COUNTED_KEY}[{idx}]",
+                "double-counted entries must be non-empty course codes",
+            )
+        code = _normalize_course_code(item)
+        if code in seen:
+            raise RuleValidationError(
+                f"{_DOUBLE_COUNTED_KEY}[{idx}]",
+                f"duplicate course code '{code}' in double-counted",
+            )
+        seen.add(code)
+        normalized.append(code)
+
+    return normalized
+
+
+def _remaining_after_consumption(
+    remaining: Counter[str],
+    consumed: Counter[str],
+) -> Counter[str]:
+    updated = Counter(remaining)
+    for course, amount in consumed.items():
+        updated[course] -= amount
+        if updated[course] <= 0:
+            updated.pop(course, None)
+    return updated
+
+
+def _consume_required_expression(
+    expr: RuleExpr,
+    remaining_courses: Counter[str],
+    completed_uoc: int = 0,
+) -> tuple[bool, Counter[str]]:
+    """Try to satisfy one expression from remaining required-course capacity."""
+    if _is_course_code(expr):
+        course = cast(str, expr)
+        if remaining_courses[course] <= 0:
+            return False, Counter()
+        return True, Counter({course: 1})
+
+    if not isinstance(expr, dict):
+        raise RuleValidationError("<eval>", "invalid expression shape")
+
+    node = expr
+    if set(node.keys()) == {"uoc"}:
+        threshold = node["uoc"]
+        if not isinstance(threshold, int) or threshold < 0:
+            raise RuleValidationError(
+                "<eval>.uoc", "'uoc' must be a non-negative integer"
+            )
+        return completed_uoc >= threshold, Counter()
+
+    if set(node.keys()) == {"min", "from"} or _is_placeholder_min_from(node):
+        min_count = cast(int, node["min"])
+        from_exprs = cast(list[RuleExpr], node["from"])
+        placeholder = (
+            cast(str, node["placeholder"]) if _is_placeholder_min_from(node) else None
+        )
+
+        consumed: Counter[str] = Counter()
+        temp_remaining = Counter(remaining_courses)
+        satisfied = 0
+
+        for child in from_exprs:
+            child_satisfied, child_consumed = _consume_required_expression(
+                child,
+                temp_remaining,
+                completed_uoc,
+            )
+            if not child_satisfied:
+                continue
+            consumed.update(child_consumed)
+            temp_remaining = _remaining_after_consumption(temp_remaining, child_consumed)
+            satisfied += 1
+            if satisfied >= min_count:
+                return True, consumed
+
+        if placeholder is not None and satisfied < min_count:
+            required_placeholder = min_count - satisfied
+            available_placeholder = temp_remaining[placeholder]
+            if available_placeholder >= required_placeholder:
+                consumed[placeholder] += required_placeholder
+                return True, consumed
+
+        return False, Counter()
+
+    if len(node) != 1:
+        raise RuleValidationError("<eval>", "invalid expression shape")
+
+    op = next(iter(node.keys()))
+    children = cast(list[RuleExpr], node[op])
+    if op == "and":
+        consumed: Counter[str] = Counter()
+        temp_remaining = Counter(remaining_courses)
+        for child in children:
+            child_satisfied, child_consumed = _consume_required_expression(
+                child,
+                temp_remaining,
+                completed_uoc,
+            )
+            if not child_satisfied:
+                return False, Counter()
+            consumed.update(child_consumed)
+            temp_remaining = _remaining_after_consumption(temp_remaining, child_consumed)
+        return True, consumed
+
+    if op == "or":
+        for child in children:
+            child_satisfied, child_consumed = _consume_required_expression(
+                child,
+                remaining_courses,
+                completed_uoc,
+            )
+            if child_satisfied:
+                return True, child_consumed
+        return False, Counter()
+
+    raise RuleValidationError("<eval>", f"unknown operator '{op}'")
+
+
+def _required_course_capacity(
+    normalized_config: dict[str, Any],
+    completed_courses: Counter[str],
+) -> Counter[str]:
+    """Build per-course capacity used for required-clause consumption."""
+    capacity = Counter(completed_courses)
+    raw_double_counted = normalized_config.get(_DOUBLE_COUNTED_KEY, [])
+    double_counted = _normalize_double_counted_config_value(raw_double_counted)
+
+    for course in double_counted:
+        if capacity[course] > 0:
+            capacity[course] = 2
+
+    return capacity
 
 
 def extract_rpl_courses(normalized_config: dict[str, Any]) -> Counter[str]:
@@ -1140,9 +1293,21 @@ def evaluate_required(
         _REQUIRED_VALIDATION_CACHE.add(cfg_id)
 
     result: dict[str, bool] = {}
+    remaining_courses = _required_course_capacity(normalized_config, completed_courses)
     for level_name, clauses in required_levels.items():
         level_clauses = cast(list[RuleExpr], clauses)
-        result[level_name] = evaluate_level(level_clauses, completed_courses)
+        level_passed = True
+        for clause in level_clauses:
+            clause_passed, consumed = _consume_required_expression(
+                clause,
+                remaining_courses,
+            )
+            if not clause_passed:
+                level_passed = False
+                continue
+            remaining_courses = _remaining_after_consumption(remaining_courses, consumed)
+
+        result[level_name] = level_passed
 
     return result
 
@@ -1371,22 +1536,31 @@ def report_plan_detailed(
     findings: list[ValidationFinding] = []
     warnings: list[ValidationWarning] = []
     clause_meta_map = _as_clause_meta_map(normalized_config)
+    remaining_courses = _required_course_capacity(normalized_config, completed_courses)
 
     required = cast(dict[str, Any], normalized_config.get("required", {}))
     for level_name, clauses in required.items():
         level_clauses = cast(list[RuleExpr], clauses)
         for idx, clause in enumerate(level_clauses, start=1):
-            if evaluate_expression(clause, completed_courses):
+            clause_passed, consumed = _consume_required_expression(
+                clause,
+                remaining_courses,
+            )
+            if clause_passed:
+                remaining_courses = _remaining_after_consumption(
+                    remaining_courses,
+                    consumed,
+                )
                 continue
 
             rule_text = expression_to_text(clause)
-            diagnosis = diagnose_expression(clause, completed_courses)
+            diagnosis = diagnose_expression(clause, remaining_courses)
             failures.append(
                 f"[{level_name}] clause {idx}: {rule_text} \u2014 {diagnosis}"
             )
 
             atomic_findings = _emit_atomic_rule_findings(
-                clause, completed_courses, level_name, idx
+                clause, remaining_courses, level_name, idx
             )
             if atomic_findings:
                 findings.extend(atomic_findings)

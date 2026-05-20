@@ -302,6 +302,41 @@ class TestValidateRulesConfig:
                 }
             )
 
+    def test_double_counted_is_normalized_as_uppercase_course_codes(self) -> None:
+        validated = validate_rules_config(
+            {
+                "required": {"Level 1": ["TEST1001"]},
+                "double-counted": [" test1001 ", "test1002"],
+            }
+        )
+
+        assert validated["double-counted"] == ["TEST1001", "TEST1002"]
+
+    def test_double_counted_must_be_array_of_unique_course_codes(self) -> None:
+        with pytest.raises(RuleValidationError, match="double-counted"):
+            validate_rules_config(
+                {
+                    "required": {"Level 1": ["TEST1001"]},
+                    "double-counted": {"TEST1001": True},
+                }
+            )
+
+        with pytest.raises(RuleValidationError, match=r"double-counted\[1\]"):
+            validate_rules_config(
+                {
+                    "required": {"Level 1": ["TEST1001"]},
+                    "double-counted": ["TEST1001", 123],
+                }
+            )
+
+        with pytest.raises(RuleValidationError, match="duplicate"):
+            validate_rules_config(
+                {
+                    "required": {"Level 1": ["TEST1001"]},
+                    "double-counted": ["TEST1001", "test1001"],
+                }
+            )
+
 
 class TestEvaluateRequired:
     def test_passing_plan(self, rules_simple: dict[str, Any]) -> None:
@@ -404,6 +439,55 @@ class TestEvaluateRequired:
         result = evaluate_required(normalized, Counter())
 
         assert not result["Level 1"]
+
+    def test_overlapping_course_defaults_to_single_use_top_down(self) -> None:
+        normalized = validate_rules_config(
+            {
+                "required": {
+                    "Category A": ["TEST1001"],
+                    "Category B": ["TEST1001"],
+                }
+            }
+        )
+
+        result = evaluate_required(normalized, Counter(["TEST1001"]))
+
+        assert result["Category A"]
+        assert not result["Category B"]
+
+    def test_double_counted_course_can_be_used_twice(self) -> None:
+        normalized = validate_rules_config(
+            {
+                "required": {
+                    "Category A": ["TEST1001"],
+                    "Category B": ["TEST1001"],
+                },
+                "double-counted": ["TEST1001"],
+            }
+        )
+
+        result = evaluate_required(normalized, Counter(["TEST1001"]))
+
+        assert result["Category A"]
+        assert result["Category B"]
+
+    def test_double_counted_capacity_stops_at_two_uses(self) -> None:
+        normalized = validate_rules_config(
+            {
+                "required": {
+                    "Category A": ["TEST1001"],
+                    "Category B": ["TEST1001"],
+                    "Category C": ["TEST1001"],
+                },
+                "double-counted": ["TEST1001"],
+            }
+        )
+
+        result = evaluate_required(normalized, Counter(["TEST1001"]))
+
+        assert result["Category A"]
+        assert result["Category B"]
+        assert not result["Category C"]
 
 
 class TestRuleFindingIds:
