@@ -58,6 +58,7 @@ def test_main_builds_command_and_returns_runner_code(
         ruin_fraction=0.2,
         seed=99,
         no_placeholders=True,
+        show_nonstandard_periods=False,
         output="out.csv",
         verbose=2,
     )
@@ -108,6 +109,7 @@ def test_main_returns_1_when_runner_raises(
         ruin_fraction=0.3,
         seed=1,
         no_placeholders=False,
+        show_nonstandard_periods=False,
         output=None,
         verbose=0,
     )
