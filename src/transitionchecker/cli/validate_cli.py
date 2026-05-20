@@ -531,6 +531,10 @@ def main(argv: list[str] | None = None) -> int:
                 for failure in unsupported_prereqs:
                     detail_lines.append(f"  - {failure}")
 
+        if rule_process_error_output:
+            detail_lines.append("rule_process_error=1")
+            detail_lines.append(f"  - {rule_process_error_output}")
+
         if offering_violations:
             detail_lines.append(f"offering_violations={len(offering_violations)}")
             for viol in offering_violations:
