@@ -38,6 +38,7 @@ def test_main_builds_rules_command_and_returns_runner_code(
             "--plan",
             "plans/plan.json",
             "--plan-report-json",
+            "--plan-report-allocations",
             "-v",
         ]
     )
@@ -49,6 +50,7 @@ def test_main_builds_rules_command_and_returns_runner_code(
     assert command.plan_file == Path("plans/plan.json")
     assert command.catalogue_file == Path("plans/catalogue.json")
     assert command.plan_report_json is True
+    assert command.plan_report_allocations is True
     assert command.render_rules_text is False
     assert command.show_plan_warnings is True
 
@@ -118,6 +120,422 @@ def test_plan_report_json_includes_status_findings_warnings(
     assert "prerequisite_failures" in payload
     assert "unsupported_prerequisites" in payload
     assert any(w["code"] == "missing_rule_id" for w in payload["warnings"])
+    assert "bucket_allocations" not in payload
+    assert "shared_course_allocations" not in payload
+    assert "unmatched_courses" not in payload
+
+
+def test_plan_report_json_includes_bucket_allocations_when_requested(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    plan_file = tmp_path / "plan.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "required": {
+                    "Category A": ["TEST1001"],
+                    "Category B": ["TEST1001"],
+                    "Electives": [
+                        {
+                            "min": 2,
+                            "placeholder": "CEICEEEE",
+                            "from": ["TEST1001", "TEST2001", "TEST2002"],
+                        }
+                    ],
+                },
+                "shared-courses": {
+                    "double-counted": ["TEST1001"],
+                    "over-double-count-limit": [
+                        {
+                            "placeholder": "CEICEEEE",
+                            "from": ["TEST1001"],
+                        }
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 1",
+                        "code": "TEST1001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                    {
+                        "year": 2026,
+                        "period": "Term 2",
+                        "course_n": "Course 2",
+                        "code": "TEST2001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                    {
+                        "year": 2026,
+                        "period": "Term 3",
+                        "course_n": "Course 3",
+                        "code": "TEST2002",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+            plan_report_json=True,
+            plan_report_allocations=True,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 1
+    payload = json.loads(out.getvalue())
+    assert "bucket_allocations" in payload
+    assert "shared_course_allocations" in payload
+    assert "unmatched_courses" in payload
+    assert payload["bucket_allocations"]["Category A"][0]["allocated_courses"] == [
+        "TEST1001"
+    ]
+    assert payload["bucket_allocations"]["Category B"][0]["allocated_courses"] == [
+        "TEST1001"
+    ]
+    assert payload["bucket_allocations"]["Electives"][0]["allocated_courses"] == [
+        "TEST2001",
+        "TEST2002",
+    ]
+    assert payload["bucket_allocations"]["Electives"][1]["reason"] == (
+        "over-double-count-limit"
+    )
+    assert payload["bucket_allocations"]["Electives"][1]["placeholder"] == "CEICEEEE"
+    assert payload["bucket_allocations"]["Electives"][1]["allocated_courses"] == []
+    assert payload["shared_course_allocations"]["double_counted"] == [
+        {
+            "course": "TEST1001",
+            "allocation_count": 2,
+            "is_shared": True,
+            "allocated_to": [
+                {
+                    "bucket": "Category A",
+                    "clause": 1,
+                    "rule": "TEST1001",
+                },
+                {
+                    "bucket": "Category B",
+                    "clause": 1,
+                    "rule": "TEST1001",
+                },
+            ],
+        }
+    ]
+    assert payload["shared_course_allocations"]["over_double_count_limit"] == [
+        {
+            "placeholder": "CEICEEEE",
+            "from": ["TEST1001"],
+            "triggered_by": ["TEST1001"],
+            "extra_required": 1,
+            "selector_allocation_counts": {"TEST1001": 2},
+            "selector_allocated_to": {
+                "TEST1001": [
+                    {
+                        "bucket": "Category A",
+                        "clause": 1,
+                        "rule": "TEST1001",
+                    },
+                    {
+                        "bucket": "Category B",
+                        "clause": 1,
+                        "rule": "TEST1001",
+                    },
+                ]
+            },
+            "extra_allocated_courses": [],
+            "allocated_to": [
+                {
+                    "bucket": "Electives",
+                    "clause": 1,
+                    "rule": "AT LEAST 1 OF (TEST1001, TEST2001, TEST2002) [placeholder CEICEEEE]",
+                }
+            ],
+        }
+    ]
+    assert payload["unmatched_courses"] == []
+
+
+def test_plan_report_allocations_include_over_double_count_limit_courses(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    plan_file = tmp_path / "plan.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "required": {
+                    "Category A": ["TEST1001"],
+                    "Category B": ["TEST1001"],
+                    "Electives": [
+                        {
+                            "min": 1,
+                            "placeholder": "CEICEEEE",
+                            "from": ["TEST1001", "TEST2001", "TEST2002"],
+                        }
+                    ],
+                },
+                "shared-courses": {
+                    "double-counted": ["TEST1001"],
+                    "over-double-count-limit": [
+                        {
+                            "placeholder": "CEICEEEE",
+                            "from": ["TEST1001"],
+                        }
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 1",
+                        "code": "TEST1001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                    {
+                        "year": 2026,
+                        "period": "Term 2",
+                        "course_n": "Course 2",
+                        "code": "TEST2001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                    {
+                        "year": 2026,
+                        "period": "Term 3",
+                        "course_n": "Course 3",
+                        "code": "TEST2002",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+            plan_report_json=True,
+            plan_report_allocations=True,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 0
+    payload = json.loads(out.getvalue())
+    assert payload["bucket_allocations"]["Electives"][1]["allocated_courses"] == [
+        "TEST2002"
+    ]
+    assert payload["shared_course_allocations"]["over_double_count_limit"] == [
+        {
+            "placeholder": "CEICEEEE",
+            "from": ["TEST1001"],
+            "triggered_by": ["TEST1001"],
+            "extra_required": 1,
+            "selector_allocation_counts": {"TEST1001": 2},
+            "selector_allocated_to": {
+                "TEST1001": [
+                    {
+                        "bucket": "Category A",
+                        "clause": 1,
+                        "rule": "TEST1001",
+                    },
+                    {
+                        "bucket": "Category B",
+                        "clause": 1,
+                        "rule": "TEST1001",
+                    },
+                ]
+            },
+            "extra_allocated_courses": ["TEST2002"],
+            "allocated_to": [
+                {
+                    "bucket": "Electives",
+                    "clause": 1,
+                    "rule": "AT LEAST 1 OF (TEST1001, TEST2001, TEST2002) [placeholder CEICEEEE]",
+                }
+            ],
+        }
+    ]
+
+
+def test_plan_report_allocations_preserve_partial_matches_for_failed_bucket(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    plan_file = tmp_path / "plan.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "required": {
+                    "Foundation": ["TEST1001", "TEST1002"],
+                    "Electives": [
+                        {
+                            "min": 3,
+                            "placeholder": "TESTEEEE",
+                            "from": ["TEST1001", "TEST1002", "TEST2001"],
+                        }
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 1",
+                        "code": "TEST1001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                    {
+                        "year": 2026,
+                        "period": "Term 2",
+                        "course_n": "Course 2",
+                        "code": "TEST1002",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                    {
+                        "year": 2026,
+                        "period": "Term 3",
+                        "course_n": "Course 3",
+                        "code": "TEST2001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+            plan_report_json=True,
+            plan_report_allocations=True,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 1
+    payload = json.loads(out.getvalue())
+    assert payload["status"] == "FAIL"
+    assert payload["bucket_allocations"]["Electives"][0]["allocated_courses"] == [
+        "TEST2001"
+    ]
+
+
+def test_plan_report_allocations_include_unmatched_courses(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    plan_file = tmp_path / "plan.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "required": {
+                    "Level 1": ["TEST1001"],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 1",
+                        "course_n": "Course 1",
+                        "code": "TEST1001",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                    {
+                        "year": 2026,
+                        "period": "Term 2",
+                        "course_n": "Course 2",
+                        "code": "TEST9999",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+            plan_report_json=True,
+            plan_report_allocations=True,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 0
+    payload = json.loads(out.getvalue())
+    assert payload["unmatched_courses"] == ["TEST9999"]
+    assert payload["shared_course_allocations"] == {
+        "double_counted": [],
+        "over_double_count_limit": [],
+    }
 
 
 def test_plan_warnings_hidden_without_verbose(

@@ -46,6 +46,14 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         help="With --plan, print machine-readable validation JSON",
     )
     parser.add_argument(
+        "--plan-report-allocations",
+        action="store_true",
+        help=(
+            "With --plan-report-json, include per-bucket course allocations "
+            "for required clauses"
+        ),
+    )
+    parser.add_argument(
         "--add-override",
         metavar="FAILURE_ID",
         action="append",
@@ -77,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         plan_file=Path(args.plan) if args.plan else None,
         catalogue_file=Path(args.catalogue) if args.plan else None,
         plan_report_json=args.plan_report_json,
+        plan_report_allocations=args.plan_report_allocations,
         render_rules_text=args.plan is None and args.verbose > 0,
         show_plan_warnings=args.verbose > 0,
         add_overrides=tuple(args.add_overrides),

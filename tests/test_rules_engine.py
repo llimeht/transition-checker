@@ -700,7 +700,7 @@ class TestRuleFindingIds:
                 },
             }
         )
-        _legacy, findings, warnings = report_plan_detailed(
+        _legacy, findings, warnings, _allocations = report_plan_detailed(
             validated,
             Counter(["TEST1001", "TEST2001", "TEST2002"]),
         )
@@ -719,7 +719,10 @@ class TestRuleFindingIds:
         validated = validate_rules_config(rules_with_subset_ids)
         completed = Counter(["TEST1001", "TEST3001"])
 
-        _legacy, findings, warnings = report_plan_detailed(validated, completed)
+        _legacy, findings, warnings, _allocations = report_plan_detailed(
+            validated,
+            completed,
+        )
 
         failure_ids = {f["failure_id"] for f in findings}
         assert "rule:PATHWAY_TEST200x" in failure_ids
@@ -741,7 +744,10 @@ class TestRuleFindingIds:
         validated = validate_rules_config(rules_without_subset_ids)
         completed = Counter(["TEST1001", "TEST3001"])
 
-        _legacy, findings, warnings = report_plan_detailed(validated, completed)
+        _legacy, findings, warnings, _allocations = report_plan_detailed(
+            validated,
+            completed,
+        )
 
         missing_id_warnings = [w for w in warnings if w["code"] == "missing_rule_id"]
         assert missing_id_warnings
@@ -880,7 +886,10 @@ class TestCourseEquivalences:
         validated = validate_rules_config(rules)
         completed = Counter(["TEST1001CEIC"])
 
-        failures, findings, warnings = report_plan_detailed(validated, completed)
+        failures, findings, warnings, _allocations = report_plan_detailed(
+            validated,
+            completed,
+        )
         assert failures
         assert any(f["failure_id"] == "rule:TEST1001" for f in findings)
         assert not warnings
@@ -889,7 +898,10 @@ class TestCourseEquivalences:
             completed,
             [{"held": "TEST1001CEIC", "equivalent_to": "TEST1001"}],
         )
-        failures, findings, warnings = report_plan_detailed(validated, expanded)
+        failures, findings, warnings, _allocations = report_plan_detailed(
+            validated,
+            expanded,
+        )
 
         assert not failures
         assert not findings

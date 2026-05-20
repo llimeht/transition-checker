@@ -115,6 +115,7 @@ class RulesCommand:
     plan_file: Path | None = None
     catalogue_file: Path | None = None
     plan_report_json: bool = False
+    plan_report_allocations: bool = False
     render_rules_text: bool = False
     show_plan_warnings: bool = False
     add_overrides: tuple[str, ...] = ()
@@ -1172,6 +1173,8 @@ def _consume_required_expression(
     expr: RuleExpr,
     remaining_courses: Counter[str],
     completed_uoc: int = 0,
+    *,
+    preserve_partial_consumption: bool = False,
 ) -> tuple[bool, Counter[str]]:
     """Try to satisfy one expression from remaining required-course capacity."""
     if _is_course_code(expr):
@@ -1209,6 +1212,7 @@ def _consume_required_expression(
                 child,
                 temp_remaining,
                 completed_uoc,
+                preserve_partial_consumption=preserve_partial_consumption,
             )
             if not child_satisfied:
                 continue
@@ -1224,8 +1228,10 @@ def _consume_required_expression(
             if available_placeholder >= required_placeholder:
                 consumed[placeholder] += required_placeholder
                 return True, consumed
+            if preserve_partial_consumption and available_placeholder > 0:
+                consumed[placeholder] += available_placeholder
 
-        return False, Counter()
+        return (False, consumed) if preserve_partial_consumption else (False, Counter())
 
     if len(node) != 1:
         raise RuleValidationError("<eval>", "invalid expression shape")
@@ -1240,9 +1246,14 @@ def _consume_required_expression(
                 child,
                 temp_remaining,
                 completed_uoc,
+                preserve_partial_consumption=preserve_partial_consumption,
             )
             if not child_satisfied:
-                return False, Counter()
+                return (
+                    (False, consumed)
+                    if preserve_partial_consumption
+                    else (False, Counter())
+                )
             consumed.update(child_consumed)
             temp_remaining = _remaining_after_consumption(temp_remaining, child_consumed)
         return True, consumed
@@ -1253,6 +1264,7 @@ def _consume_required_expression(
                 child,
                 remaining_courses,
                 completed_uoc,
+                preserve_partial_consumption=preserve_partial_consumption,
             )
             if child_satisfied:
                 return True, child_consumed
@@ -1720,10 +1732,153 @@ def report_plan(
     Returns:
         List of human-readable failure strings.
     """
-    failures, _findings, _warnings = report_plan_detailed(
+    failures, _findings, _warnings, _bucket_allocations = report_plan_detailed(
         normalized_config, completed_courses
     )
     return failures
+
+
+def _expanded_consumed_courses(consumed: Counter[str]) -> list[str]:
+    courses: list[str] = []
+    for course in sorted(consumed.keys()):
+        courses.extend([course] * consumed[course])
+    return courses
+
+
+def _collect_reported_allocation_usage(
+    bucket_allocations: dict[str, list[dict[str, Any]]],
+) -> tuple[Counter[str], dict[str, list[dict[str, Any]]]]:
+    usage: Counter[str] = Counter()
+    locations: dict[str, list[dict[str, Any]]] = {}
+
+    for bucket_name, entries in bucket_allocations.items():
+        for entry in entries:
+            clause = entry.get("clause")
+            rule = entry.get("rule")
+            reason = entry.get("reason")
+            allocated_courses_raw = entry.get("allocated_courses", [])
+            if not isinstance(allocated_courses_raw, list):
+                continue
+            allocated_courses = cast(list[object], allocated_courses_raw)
+            for course in allocated_courses:
+                if not isinstance(course, str):
+                    continue
+                usage[course] += 1
+                location: dict[str, Any] = {
+                    "bucket": bucket_name,
+                    "clause": clause,
+                }
+                if isinstance(rule, str) and rule:
+                    location["rule"] = rule
+                if isinstance(reason, str) and reason:
+                    location["reason"] = reason
+                locations.setdefault(course, []).append(location)
+
+    return usage, locations
+
+
+def _build_shared_course_allocations_report(
+    normalized_config: dict[str, Any],
+    bucket_allocations: dict[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
+    shared = _shared_courses_config(normalized_config)
+    usage, locations = _collect_reported_allocation_usage(bucket_allocations)
+
+    double_counted = _normalize_double_counted_config_value(
+        shared.get(_DOUBLE_COUNTED_KEY, [])
+    )
+    over_limit = cast(list[dict[str, Any]], shared.get(_OVER_DOUBLE_COUNT_LIMIT_KEY, []))
+
+    over_limit_entries: list[dict[str, Any]] = []
+    for entries in bucket_allocations.values():
+        for entry in entries:
+            if entry.get("reason") != "over-double-count-limit":
+                continue
+            over_limit_entries.append(entry)
+
+    double_counted_report: list[dict[str, Any]] = [
+        {
+            "course": course,
+            "allocation_count": usage[course],
+            "is_shared": usage[course] >= 2,
+            "allocated_to": locations.get(course, []),
+        }
+        for course in double_counted
+    ]
+
+    over_double_count_limit_report: list[dict[str, Any]] = []
+    for selector in over_limit:
+        placeholder = cast(str, selector["placeholder"])
+        selector_courses = cast(list[str], selector["from"])
+        triggered_by = sorted(
+            course for course in selector_courses if usage[course] >= 2
+        )
+        selector_allocation_counts = {
+            course: usage[course] for course in selector_courses
+        }
+        selector_allocated_to = {
+            course: locations.get(course, [])
+            for course in selector_courses
+            if usage[course] > 0
+        }
+        matching_entries = [
+            entry
+            for entry in over_limit_entries
+            if entry.get("placeholder") == placeholder
+        ]
+        extra_allocated_courses: list[str] = []
+        allocated_to: list[dict[str, Any]] = []
+        for entry in matching_entries:
+            raw_allocated = entry.get("allocated_courses", [])
+            if not isinstance(raw_allocated, list):
+                continue
+            allocated_list = cast(list[object], raw_allocated)
+            extra_allocated_courses.extend(
+                course for course in allocated_list if isinstance(course, str)
+            )
+            allocated_location: dict[str, Any] = {}
+            bucket = entry.get("bucket")
+            clause = entry.get("clause")
+            rule = entry.get("rule")
+            if isinstance(bucket, str) and bucket:
+                allocated_location["bucket"] = bucket
+            if isinstance(clause, int):
+                allocated_location["clause"] = clause
+            if isinstance(rule, str) and rule:
+                allocated_location["rule"] = rule
+            if allocated_location:
+                allocated_to.append(allocated_location)
+
+        over_double_count_limit_report.append(
+            {
+                "placeholder": placeholder,
+                "from": selector_courses,
+                "triggered_by": triggered_by,
+                "extra_required": len(triggered_by),
+                "selector_allocation_counts": selector_allocation_counts,
+                "selector_allocated_to": selector_allocated_to,
+                "extra_allocated_courses": sorted(extra_allocated_courses),
+                "allocated_to": allocated_to,
+            }
+        )
+
+    return {
+        "double_counted": double_counted_report,
+        "over_double_count_limit": over_double_count_limit_report,
+    }
+
+
+def _compute_unmatched_courses(
+    completed_courses: Counter[str],
+    bucket_allocations: dict[str, list[dict[str, Any]]],
+) -> list[str]:
+    usage, _locations = _collect_reported_allocation_usage(bucket_allocations)
+    unmatched = Counter(completed_courses)
+    for course, amount in usage.items():
+        unmatched[course] -= amount
+        if unmatched[course] <= 0:
+            unmatched.pop(course, None)
+    return _expanded_consumed_courses(unmatched)
 
 
 def _emit_atomic_rule_findings(
@@ -1763,7 +1918,14 @@ def _emit_atomic_rule_findings(
 def report_plan_detailed(
     normalized_config: dict[str, Any],
     completed_courses: Counter[str],
-) -> tuple[list[str], list[ValidationFinding], list[ValidationWarning]]:
+    *,
+    include_bucket_allocations: bool = False,
+) -> tuple[
+    list[str],
+    list[ValidationFinding],
+    list[ValidationWarning],
+    dict[str, list[dict[str, Any]]] | None,
+]:
     """Build legacy and structured rule findings for one plan."""
 
     failures: list[str] = []
@@ -1772,6 +1934,9 @@ def report_plan_detailed(
     clause_meta_map = _as_clause_meta_map(normalized_config)
     remaining_courses = _required_course_capacity(normalized_config, completed_courses)
     consumed_courses: Counter[str] = Counter()
+    bucket_allocations: dict[str, list[dict[str, Any]]] | None = (
+        {} if include_bucket_allocations else None
+    )
 
     required = cast(dict[str, Any], normalized_config.get("required", {}))
     for level_name, clauses in required.items():
@@ -1781,6 +1946,24 @@ def report_plan_detailed(
                 clause,
                 remaining_courses,
             )
+            report_consumed = consumed
+            if include_bucket_allocations and not clause_passed:
+                _ignored_passed, report_consumed = _consume_required_expression(
+                    clause,
+                    remaining_courses,
+                    preserve_partial_consumption=True,
+                )
+            if bucket_allocations is not None:
+                bucket_entries = bucket_allocations.setdefault(level_name, [])
+                bucket_entries.append(
+                    {
+                        "clause": idx,
+                        "rule": expression_to_text(clause),
+                        "allocated_courses": _expanded_consumed_courses(
+                            report_consumed
+                        ),
+                    }
+                )
             if clause_passed:
                 remaining_courses = _remaining_after_consumption(
                     remaining_courses,
@@ -1854,12 +2037,48 @@ def report_plan_detailed(
             extra_clause,
             remaining_courses,
         )
+        report_consumed_extra = consumed_extra
+        if include_bucket_allocations and not is_satisfied:
+            _ignored_passed, report_consumed_extra = _consume_required_expression(
+                extra_clause,
+                remaining_courses,
+                preserve_partial_consumption=True,
+            )
         if is_satisfied:
             remaining_courses = _remaining_after_consumption(
                 remaining_courses,
                 consumed_extra,
             )
+            if bucket_allocations is not None:
+                bucket_entries = bucket_allocations.setdefault(level_name, [])
+                bucket_entries.append(
+                    {
+                        "bucket": level_name,
+                        "clause": clause_idx,
+                        "rule": expression_to_text(extra_clause),
+                        "allocated_courses": _expanded_consumed_courses(
+                            report_consumed_extra
+                        ),
+                        "reason": "over-double-count-limit",
+                        "placeholder": placeholder,
+                    }
+                )
             continue
+
+        if bucket_allocations is not None:
+            bucket_entries = bucket_allocations.setdefault(level_name, [])
+            bucket_entries.append(
+                {
+                    "bucket": level_name,
+                    "clause": clause_idx,
+                    "rule": expression_to_text(extra_clause),
+                    "allocated_courses": _expanded_consumed_courses(
+                        report_consumed_extra
+                    ),
+                    "reason": "over-double-count-limit",
+                    "placeholder": placeholder,
+                }
+            )
 
         message = (
             f"[{level_name}] clause {clause_idx}: over-double-count-limit requires "
@@ -1876,7 +2095,7 @@ def report_plan_detailed(
             }
         )
 
-    return failures, findings, warnings
+    return failures, findings, warnings, bucket_allocations
 
 
 def extract_completed_courses(plan_data: dict[str, Any]) -> Counter[str]:
@@ -2309,9 +2528,15 @@ def run_rules_command(
             return 1
 
         rules_completed_courses = _apply_equivalences(completed_courses, equivalences)
-        rule_failures, rule_findings, generated_rule_warnings = report_plan_detailed(
+        (
+            rule_failures,
+            rule_findings,
+            generated_rule_warnings,
+            bucket_allocations,
+        ) = report_plan_detailed(
             validated,
             rules_completed_courses,
+            include_bucket_allocations=command.plan_report_allocations,
         )
 
         all_findings = [*rule_findings, *prereq_findings]
@@ -2343,6 +2568,19 @@ def run_rules_command(
                 "findings": all_findings,
                 "warnings": warnings,
             }
+            if command.plan_report_allocations:
+                allocation_report = bucket_allocations or {}
+                report_payload["bucket_allocations"] = allocation_report
+                report_payload["shared_course_allocations"] = (
+                    _build_shared_course_allocations_report(
+                        validated,
+                        allocation_report,
+                    )
+                )
+                report_payload["unmatched_courses"] = _compute_unmatched_courses(
+                    rules_completed_courses,
+                    allocation_report,
+                )
             print(json.dumps(report_payload, indent=2), file=stdout)
             return 0 if is_valid else 1
 
