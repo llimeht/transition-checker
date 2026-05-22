@@ -13,6 +13,7 @@ from transitionchecker.rules_engine import (
     RuleValidationError,
     extract_scheduled_courses,
     report_plan_detailed,
+    validate_nonstandard_periods,
     validate_plan_prerequisites,
     validate_plan_prerequisites_detailed,
     validate_rules_config,
@@ -834,6 +835,75 @@ class TestPrerequisiteFindingDecomposition:
             f.get("non_overrideable_reason") == "unsupported_syntax"
             for f in unsupported_findings
         )
+
+
+class TestValidateNonstandardPeriods:
+    def _make_plan(self, *period_entries: tuple[int, str, str]) -> dict[str, Any]:
+        """Build a minimal plan with courses in the given (year, period, code) tuples."""
+        return {
+            "courses": [
+                {
+                    "year": year,
+                    "period": period,
+                    "course_n": f"Course {i + 1}",
+                    "code": code,
+                    "uoc": 6,
+                    "prerequisites": "",
+                }
+                for i, (year, period, code) in enumerate(period_entries)
+            ]
+        }
+
+    def test_standard_period_produces_no_findings(self) -> None:
+        plan = self._make_plan((2026, "Term 1", "TEST1001"))
+        courses = extract_scheduled_courses(plan)
+        findings = validate_nonstandard_periods(courses)
+        assert findings == []
+
+    def test_summer_term_produces_finding(self) -> None:
+        plan = self._make_plan((2026, "Summer Term", "TEST1001"))
+        courses = extract_scheduled_courses(plan)
+        findings = validate_nonstandard_periods(courses)
+        assert len(findings) == 1
+        f = findings[0]
+        assert f["failure_id"] == "nonstandard-period:TEST1001"
+        assert f["kind"] == "nonstandard_period"
+        assert f["overrideable"] is True
+        assert f["accepted"] is False
+        assert "TEST1001" in f["message"]
+        assert "non-standard" in f["message"]
+
+    def test_winter_term_produces_finding(self) -> None:
+        plan = self._make_plan((2026, "Winter Term", "TEST2001"))
+        courses = extract_scheduled_courses(plan)
+        findings = validate_nonstandard_periods(courses)
+        assert len(findings) == 1
+        assert findings[0]["failure_id"] == "nonstandard-period:TEST2001"
+
+    def test_only_nonstandard_courses_flagged(self) -> None:
+        plan = self._make_plan(
+            (2026, "Term 1", "TEST1001"),
+            (2026, "Summer Term", "TEST1002"),
+            (2026, "Term 2", "TEST1003"),
+            (2026, "Winter Term", "TEST1004"),
+        )
+        courses = extract_scheduled_courses(plan)
+        findings = validate_nonstandard_periods(courses)
+        assert len(findings) == 2
+        ids = {f["failure_id"] for f in findings}
+        assert ids == {"nonstandard-period:TEST1002", "nonstandard-period:TEST1004"}
+
+    def test_findings_appear_in_validate_plan_prerequisites_detailed(self) -> None:
+        plan = self._make_plan(
+            (2026, "Term 1", "TEST1001"),
+            (2026, "Summer Term", "TEST1002"),
+        )
+        _failures, _unsupported, findings, _warnings = (
+            validate_plan_prerequisites_detailed(plan)
+        )
+        nonstandard = [f for f in findings if f["kind"] == "nonstandard_period"]
+        assert len(nonstandard) == 1
+        assert nonstandard[0]["failure_id"] == "nonstandard-period:TEST1002"
 
 
 class TestCourseEquivalences:

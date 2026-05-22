@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NotRequired, TextIO, TypedDict, cast
 
-from transitionchecker.core import period_rank
+from transitionchecker.core import is_nonstandard_period, period_rank
 from transitionchecker.core.catalogue import (
     Catalogue,
     CatalogueEntry,
@@ -673,6 +673,33 @@ def validate_scheduled_prerequisites_detailed(
     return failures, unsupported, findings, warnings
 
 
+def validate_nonstandard_periods(
+    courses: list[ScheduledPlanCourse],
+) -> list[ValidationFinding]:
+    """Return findings for any courses scheduled in non-standard teaching periods.
+
+    Non-standard periods are summer term and winter term.  Each finding is
+    overrideable via the plan's sidecar ``.degree_rules_overrides.json`` file
+    using the ``failure_id`` ``nonstandard-period:{COURSE_CODE}``.
+    """
+    findings: list[ValidationFinding] = []
+    for course in courses:
+        if is_nonstandard_period(course.period):
+            findings.append(
+                {
+                    "failure_id": f"nonstandard-period:{course.code}",
+                    "kind": "nonstandard_period",
+                    "message": (
+                        f"{course.code} ({course.year} {course.period}): "
+                        "scheduled in non-standard teaching period"
+                    ),
+                    "overrideable": True,
+                    "accepted": False,
+                }
+            )
+    return findings
+
+
 def extract_scheduled_courses(
     plan_data: dict[str, Any],
     *,
@@ -811,11 +838,15 @@ def validate_plan_prerequisites_detailed(
     """Detailed schedule-aware prerequisite validation with structured output."""
 
     courses = extract_scheduled_courses(plan_data, catalogue=catalogue, career=career)
-    return validate_scheduled_prerequisites_detailed(
-        courses,
-        equivalences,
-        rpl_courses=rpl_courses,
+    nonstandard_findings = validate_nonstandard_periods(courses)
+    failures, unsupported, prereq_findings, warnings = (
+        validate_scheduled_prerequisites_detailed(
+            courses,
+            equivalences,
+            rpl_courses=rpl_courses,
+        )
     )
+    return failures, unsupported, [*nonstandard_findings, *prereq_findings], warnings
 
 
 def _is_course_code(value: Any) -> bool:
@@ -2592,6 +2623,9 @@ def run_rules_command(
             if f["kind"].startswith("prereq") or f["kind"].startswith("coreq")
         ]
         active_unsup = [f for f in active_findings if f["kind"] == "unsupported_syntax"]
+        active_nonstandard = [
+            f for f in active_findings if f["kind"] == "nonstandard_period"
+        ]
 
         if active_rule:
             print(
@@ -2607,6 +2641,14 @@ def run_rules_command(
                 file=stdout,
             )
             for f in active_prereq:
+                print(f"  [{f['failure_id']}] {f['message']}", file=stdout)
+
+        if active_nonstandard:
+            print(
+                f"Plan has {len(active_nonstandard)} non-standard teaching period(s):",
+                file=stdout,
+            )
+            for f in active_nonstandard:
                 print(f"  [{f['failure_id']}] {f['message']}", file=stdout)
 
         if active_unsup:

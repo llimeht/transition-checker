@@ -483,6 +483,11 @@ def main(argv: list[str] | None = None) -> int:
                 for f in active_findings
                 if str(f.get("kind", "")) == "unsupported_syntax"
             ]
+            nonstandard_finding_lines = [
+                f
+                for f in active_findings
+                if str(f.get("kind", "")) == "nonstandard_period"
+            ]
 
             if rule_finding_lines:
                 detail_lines.append(f"rule_failures={len(rule_finding_lines)}")
@@ -530,6 +535,19 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 for failure in unsupported_prereqs:
                     detail_lines.append(f"  - {failure}")
+
+            if nonstandard_finding_lines:
+                detail_lines.append(
+                    f"nonstandard_period_failures={len(nonstandard_finding_lines)}"
+                )
+                for f in nonstandard_finding_lines:
+                    fid = str(f.get("failure_id", ""))
+                    msg = str(f.get("message", ""))
+                    detail_lines.append(f"  - [{fid}] {msg}" if fid else f"  - {msg}")
+                    if fid and f.get("overrideable"):
+                        detail_lines.append(
+                            f"    \u2192 degree-rules {rule_file_rel} --plan {plan_file_rel} --add-override '{fid}'"
+                        )
 
         if rule_process_error_output:
             detail_lines.append("rule_process_error=1")
