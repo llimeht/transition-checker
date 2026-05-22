@@ -538,6 +538,80 @@ def test_plan_report_allocations_include_unmatched_courses(
     }
 
 
+def test_plan_report_unmatched_courses_respects_equivalence_aliases(
+    tmp_path: Path,
+) -> None:
+    rules_file = tmp_path / "rules.json"
+    plan_dir = tmp_path / "CEIC"
+    plan_dir.mkdir(parents=True)
+    plan_file = plan_dir / "plan.json"
+    equivalences_file = tmp_path / "degree_rules_equivalences.json"
+
+    rules_file.write_text(
+        json.dumps(
+            {
+                "required": {
+                    "Level 2": [
+                        {
+                            "or": ["DESN2000", "DESN2000ceic"],
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "courses": [
+                    {
+                        "year": 2026,
+                        "period": "Term 3",
+                        "course_n": "Course 1",
+                        "code": "DESN2000ceic",
+                        "uoc": 6,
+                        "prerequisites": ".",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    equivalences_file.write_text(
+        json.dumps(
+            [
+                {
+                    "held": "DESN2000CEIC",
+                    "equivalent_to": "DESN2000",
+                    "reason": "alias",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    out = StringIO()
+    err = StringIO()
+    exit_code = run_rules_command(
+        RulesCommand(
+            rules_file=rules_file,
+            plan_file=plan_file,
+            plan_report_json=True,
+            plan_report_allocations=True,
+        ),
+        stdout=out,
+        stderr=err,
+    )
+
+    assert exit_code == 0
+    payload = json.loads(out.getvalue())
+    assert payload["bucket_allocations"]["Level 2"][0]["allocated_courses"] == [
+        "DESN2000"
+    ]
+    assert payload["unmatched_courses"] == []
+
+
 def test_plan_warnings_hidden_without_verbose(
     tmp_path: Path,
     rules_without_subset_ids: dict[str, Any],

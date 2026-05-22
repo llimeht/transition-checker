@@ -1900,15 +1900,50 @@ def _build_shared_course_allocations_report(
 
 
 def _compute_unmatched_courses(
-    completed_courses: Counter[str],
+    held_courses: Counter[str],
     bucket_allocations: dict[str, list[dict[str, Any]]],
+    equivalences: list[CourseEquivalence] | None = None,
 ) -> list[str]:
     usage, _locations = _collect_reported_allocation_usage(bucket_allocations)
-    unmatched = Counter(completed_courses)
+    unmatched = Counter(held_courses)
+    held_by_equivalent: dict[str, list[str]] = {}
+
+    for equivalence in equivalences or []:
+        held = equivalence.get("held")
+        equivalent_to = equivalence.get("equivalent_to")
+        if not held or not equivalent_to:
+            continue
+        held_by_equivalent.setdefault(equivalent_to, []).append(held)
+
+    for equivalent_to, held_codes in held_by_equivalent.items():
+        held_by_equivalent[equivalent_to] = sorted(set(held_codes))
+
     for course, amount in usage.items():
-        unmatched[course] -= amount
-        if unmatched[course] <= 0:
-            unmatched.pop(course, None)
+        remaining = amount
+
+        direct = unmatched.get(course, 0)
+        if direct > 0:
+            consumed = min(direct, remaining)
+            unmatched[course] -= consumed
+            if unmatched[course] <= 0:
+                unmatched.pop(course, None)
+            remaining -= consumed
+
+        if remaining <= 0:
+            continue
+
+        for held_code in held_by_equivalent.get(course, []):
+            held_amount = unmatched.get(held_code, 0)
+            if held_amount <= 0:
+                continue
+            consumed = min(held_amount, remaining)
+            unmatched[held_code] -= consumed
+            if unmatched[held_code] <= 0:
+                unmatched.pop(held_code, None)
+            remaining -= consumed
+            if remaining <= 0:
+                break
+
     return _expanded_consumed_courses(unmatched)
 
 
@@ -2609,8 +2644,9 @@ def run_rules_command(
                     )
                 )
                 report_payload["unmatched_courses"] = _compute_unmatched_courses(
-                    rules_completed_courses,
+                    completed_courses,
                     allocation_report,
+                    equivalences,
                 )
             print(json.dumps(report_payload, indent=2), file=stdout)
             return 0 if is_valid else 1
