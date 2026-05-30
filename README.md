@@ -39,7 +39,7 @@ Obtain the source
 ```bash
 git clone https://github.com/llimeht/transition-checker/
 cd transition-checker
-git clone https://github.com/llimeht/transition-checker-rules/transition-checker-rules/ rules
+git clone https://github.com/llimeht/transition-checker-rules/ rules
 ```
 
 Install the source into a Python virtual envrionment (will download the dependencies and create scripts)
