@@ -20,6 +20,10 @@ The repository currently has three main workflows:
 
 3. Analyse enrolment sequences to plan clash free course combinations (CFCCs) to provide timetabling information (`cfcc-summary`)
 
+Users of these tools might also be interested in
+[https://github.com/llimeht/sequence-visualiser](Sequence Visualiser)
+for turning the sequence outputs from this tool into HTML or PDF enrolment plans.
+
 ## Requirements
 
 - Python 3.11+
