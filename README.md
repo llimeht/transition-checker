@@ -46,13 +46,15 @@ cd transition-checker
 git clone https://github.com/llimeht/transition-checker-rules/ rules
 ```
 
-Install the source into a Python virtual envrionment (will download the dependencies and create scripts)
+Install the source into a Python virtual environment (will download the dependencies and create scripts)
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
+. .venv/bin/activate
 pip install -e .
 ```
+
+The middle command of `. .venv/bin/activate` to activate the venv temporarily adds the venv with the installed tools to your execution environment; it needs to be repeated each time you start a new terminal.
 
 All the examples below assume that the package has been installed; the entry point scripts are used.
 
@@ -124,13 +126,13 @@ Plan has 1 prerequisite/corequisite violation(s):
 ```
 
 And you can then make a permanent override of this error with `--add-override` if you've made
-the academic decision that this is OK for the students, justifed for this transition,
+the academic decision that this is OK for the students, justified for this transition,
 and will be handled via advice/individual approvals, rather than a rule change in the handbook:
 
 ```bash
 degree-rules \
     rules/TESTAH1234-2020-2025.json \
-    --plan plans/TEST/TESTAH1234_2025_T2.json
+    --plan plans/TEST/TESTAH1234_2025_T2.json \
     --add-override 'prereq:TEST4000>96uoc'
 ```
 ```
@@ -144,51 +146,65 @@ The above override was created in `plans/TEST/TESTAH1234_2025_T2.degree_rules_ov
 
 ## Making enrolment plans
 
-With degree rules, prereq information, and offerings, the tool actually has enough information
-to try to make progression plans, including across the calendar transition.
+With degree rules, prereq information, offerings, and available teaching periods,
+the tool actually has enough information to try to make progression plans,
+including across the calendar transition.
+
+It's worth noting that generating enrolment plans
+(a) is not deterministic because there are many different options,
+(b) can be an overconstrained problem such that there is not actually a possible solution, and
+(c) might have a solution but the algorithm might not find it within the allowed time/iterations you've permitted it.
+
+It is therefore worth asking the tool to try generating a few different enrolment plans and then academic judgement
+can be used to select the best one. If you get back fewer solutions than you asked for, it's because the solver
+ended up with the exact same solution more than once.
+
+The `map-maker` needs to extract some data from the mapping spreadsheet as a starting point:
+
+```bash
+extract-template \
+  --catalogue-output plans/catalogue.json \
+  --template-output templates/template_configs.json \
+  plans/plans/CEIC/CEIC\ Program\ Sequence\ Mapping.xlsx
+```
 
 ### Generate one or more plan options
+
+By default the plans are printed to the terminal in CSV format that you can paste into a spreadsheet to inspect and
+tweak if necessary.
 
 ```bash
 map-maker \
   --rule rules/CEICDH3707-2026-2029.json \
   --intake "2026 T1" \
   --num-solutions 4 \
-  --restarts 12 \
+  --restarts 4 \
   --iterations 200 \
-  --show-nonstandard-periods \
-  --output plans/CEIC/options.csv \
-  -v
+  --show-nonstandard-periods
 ```
 
 Copy whichever version of this plan you like back into the planning spreadsheet.
-The `--show-nonstandard-periods` option includes summer and winter terms so that the rows should exactly match the spreadsheet format.
 
-### Use steering hints to tune a plan
+Add `--output some-sequences.csv` to the above command to get the output placed into a CSV file.
 
-```bash
-map-maker \
-  --rule rules/CEICDH3707-2026-2029.json \
-  --intake "2026 T1" \
-  --steering templates/map_steering.json \
-  --target-end "2029 S2" \
-  --output /tmp/plan.csv \
-  -v
-```
+Add `-v` (for verbose output) to include some technical information about the relative scoring of the plans that have been
+made, and highlight any potential validation errors already detected in trying to find a solution.
 
-`--target-end` is an optional indication of when the plan should try to ensure that a student
-has completed the plan.
-Accepts a full intake-style boundary (e.g., `"2027 Term 3"` or `"2028 S1"`).
-The planner applies the steering weight `post_target_period_penalty` to each course scheduled
-*after* that exact slot; setting this option will cause the planner to use Summer/Winter terms
-rather than allowing the enrolment to spill into additional regular teaching periods.
+The `--show-nonstandard-periods` option includes summer and winter terms so that the rows should exactly match the mapping spreadsheet format to let you paste in the course codes more easily.
+
 
 ### Use a partial plan as a basis for a full plan
 
-Build the partial plan (say, for up to 2027 based on previously published enrolment sequences)
-in the Excel file with the plans.
+There are many cases where it is appropriate to pre-populate part of the enrolment plan with a sequence of courses,
+for example, using already published enrolment sequences that get to the end of 2027.
 
-Export all the plans (including the partial plan):
+`map-maker` can be fed this partial plan - start by populating this published enrolment sequence into the the Excel file with
+the enrolment plans. Note that any teaching period with *any* courses in it will be left untouched in trying to complete
+the enrolment plan.
+
+As well as the template data (see `extract-template` above), the tool now needs the partial plans.
+Export all the plans (including the partial plan) using either the same `plan-validate` commands from earlier,
+or directly with `extract-plans`:
 
 ```bash
 extract-plans \
@@ -202,40 +218,42 @@ Complete the partial plan:
 map-maker \
   --rule rules/CEICDH3707-2020-2025.json \
   --intake "2025 T3" \
-  --steering templates/map_steering.json \
-  --output /tmp/plan.csv \
+  --target-end "2029 S1" \
+  --partial-plan plans/CEIC/CEICAH3707_2025_T3.json \
+  --show-nonstandard-periods \
   -v
 ```
 
-Copy whichever version of this plan you like back into the spreadsheet.
+Once again, copy whichever version of this plan you like back into the spreadsheet.
 
-### Steering configuration to tune `map-maker` behaviour
+`--target-end` is an optional indication of when the plan should try to ensure that a student
+has completed the plan.
+Accepts a full intake-style boundary (e.g., `"2027 Term 3"` or `"2028 S1"`).
+The planner applies the steering weight `post_target_period_penalty` to each course scheduled
+*after* that exact slot; setting this option will cause the planner to use Summer/Winter terms
+rather than allowing the enrolment to spill into additional regular teaching periods.
+This is just another penalty term against possible solutions and like all the other weightings
+included in the solver, this is not a hard constraint and can be violated if there is no choice.
+
+
+### Steering hints to tune `map-maker` behaviour
 
 The optional steering file can influence plan shape without changing the rule set.
+
+The default steering file is `templates/map_steering.json` but alternative files can be specified
+via the `--steering templates/masters_programs_steering.json` option.
+
+The steering file allows tweaking of all weightings that are used in the optimisation. Hopefully,
+the defaults are fine for most users.
 
 Typical uses:
 
 - prefer a year or period for a course
 - prefer one branch of an `or` clause
-- encourage one course to appear before another
+- encourage one course to appear before another (as a 'soft' prereq)
 
-Example branch preference:
+An example steering file is provided (`map_steering_example.json`). As `json` format does not support comments, all they keys starting with `_` are comments to document the file; they can be left there as they are ignored when it is read in.
 
-```json
-{
-  "branch_preferences": [
-    {
-      "courses": ["CHEM1811", "CHEM1821"],
-      "weight": -50.0
-    }
-  ]
-}
-```
-
-Interpretation:
-
-- negative weight: prefer that branch
-- positive weight: avoid that branch
 
 ### Search Tuning Notes
 
@@ -248,7 +266,7 @@ The most important planner controls are:
 
 Practical guidance:
 
-- increase `--restarts` when you want more diversity
+- increase `--restarts` when you want more options to choose from - there are 4 different algorithms for getting a starting position prior to the refining step, and many academic rules are so highly constrained that more than 4 restarts will not produce any additional sequences
 - increase `--iterations` when each restart should search more deeply
 - reduce `--patience` when long runs stall too often
 
@@ -298,7 +316,7 @@ add-offerings plans/offerings.json --schedule CEIC2001 T1 T3
 Periods are accepted in any alias form (`T1`, `term 1`, `S2`, `semester 2`, `summer`, etc.) and stored in canonical display form. Unknown period names cause a non-zero exit and leave the file unchanged.
 
 An list of intended teaching periods can be exported, with an optional filter pattern
-for which courses to invlude, and output either as plan text on the terminal or as CSV.
+for which courses to include, and output either as plan text on the terminal or as CSV.
 
 ```bash
 add-offerings plans/offerings.json --show '*'
@@ -389,7 +407,7 @@ as an unsupported prerequisite in validation output; it is skipped when trying
 to apply the rules. Requirements that exist in the handbook that are known to be
 unsupported include:
 
- - Must be enrollmed in program 9999; Admission to program 9999.
+ - Must be enrolled in program 9999; Admission to program 9999.
  - Enrolment in a ABCD major
  - Must have completed at least XX UoC in program 9999; completed at least XX UoC of School of XYZ courses; completed at least XX UoC of ABCD (prefix) courses
  - Must have a WAM of XX or above
@@ -456,6 +474,11 @@ The project is configured for strict mypy in `pyproject.toml`.
 The project has a reasonable test coverage to help prevent regressions.
 A test-driven approach to fixing bugs (and adding features!) is appreciated.
 The test suite can be run using `python -m pytest`.
+
+## To-do
+
+ - rebuild based on STU055 for prereq information (currently using STU054)
+ - validate no overloading in enrolment sequence
 
 ## Licence and credits
 

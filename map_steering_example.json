@@ -1,0 +1,105 @@
+{
+  "_comment": "Optional steering config for map-maker. Remove keys you do not need.",
+  "_weights_comment": "All weights are additive penalties in the objective. Higher value = stronger pressure to avoid that condition.",
+  "_weight_tiers": {
+    "requirement": "1000+ : treat as near-hard constraints (must almost never be broken).",
+    "strong_preference": "200-600 : strong policy preference, broken only when needed.",
+    "hint": "40-180 : directional steering, should guide but not dominate feasibility.",
+    "nudge": "5-30 : tie-breakers and gentle bias only."
+  },
+  "_calibration_notes": {
+    "hard_channel": [
+      "offering_violation",
+      "prerequisite_violation",
+      "required_clause_violation",
+      "unplaced_course"
+    ],
+    "policy_channel": [
+      "slot_overload",
+      "summer_term_penalty",
+      "winter_term_penalty",
+      "post_target_period_penalty"
+    ],
+    "hint_channel": [
+      "course_hints.*.hint_weight",
+      "implicit_year_hint_weight",
+      "placeholder_same_period_penalty"
+    ],
+    "year_taper": "For explicit and implicit year hints: exact year = 0 penalty, +/-1 year = 0.25x, beyond +/-1 = 1.0x."
+  },
+  "_soft_precedence_comment": "Soft precedence rules let you prefer course order without hard constraints. If both are placed: before<after -> 0 penalty, same slot -> 0.5*weight, inverted -> 1.0*weight.",
+  "soft_precedence_rules": [
+    {
+      "before": "ABCD2100",
+      "after": "ABCD2200",
+      "weight": 200.0
+    },
+  ],
+  "_branch_preferences_comment": "Branch preferences steer the selection of OR-clause options in degree requirements during course selection. When a degree rule has an OR clause (e.g., choose either CHEM1811+CHEM1821 or CHEM1011+CHEM1021), branch preferences influence which branch gets chosen. Specify a list of courses and a weight: negative weight = prefer this branch, positive weight = avoid it. Matching is based on course subset; if ALL courses in the preference appear in an OR option, the weight is applied to that option's cost.",
+  "branch_preferences": [
+    {
+      "_comment": "Prefer Eng Chem options over regular chem.",
+      "courses": ["CHEM1811", "CHEM1821"],
+      "weight": -50.0
+    }
+  ],
+  "_weight_docs": {
+    "offering_violation": "Penalty per course placed in a period where it is not offered.",
+    "prerequisite_violation": "Penalty per failed prerequisite/corequisite check in the generated plan.",
+    "required_clause_violation": "Penalty per failed rule-group (for example a required level/elective clause not satisfied).",
+    "unplaced_course": "Penalty per required course that could not be placed into any slot.",
+    "slot_overload": "Penalty per course above max_slots in a period.",
+    "summer_term_penalty": "Penalty per course scheduled in Summer Term.",
+    "winter_term_penalty": "Penalty per course scheduled in Winter Term.",
+    "post_target_period_penalty": "Penalty per course scheduled after the target end period (enabled with --target-end-period).",
+    "uoc_imbalance": "Multiplier on UOC standard deviation across all periods (encourages balanced study load).",
+    "slot_delay": "Penalty per slot index for each placed course (encourages earlier placement overall).",
+    "used_slot_penalty": "Penalty per distinct period used (encourages tighter/compact plans).",
+    "placeholder_same_period_penalty": "Penalty when multiple placeholder courses (FREE*/GENED*) are in the same period.",
+    "implicit_year_hint_weight": "Low-weight implicit year preference from course code level. Applied with taper: 0 at exact year, 0.25x at +/-1 year, full weight beyond +/-1."
+  },
+  "weights": {
+    "offering_violation": 1000.0,
+    "prerequisite_violation": 1000.0,
+    "required_clause_violation": 1000.0,
+    "unplaced_course": 5000.0,
+    "slot_overload": 500.0,
+    "summer_term_penalty": 600.0,
+    "winter_term_penalty": 500.0,
+    "post_target_period_penalty": 1000.0,
+    "uoc_imbalance": 3.0,
+    "slot_delay": 15.0,
+    "used_slot_penalty": 4.0,
+    "placeholder_same_period_penalty": 150.0,
+    "implicit_year_hint_weight": 20.0
+  },
+  "course_hints": {
+    "CEICeeee": {
+      "_comment": "Put electives in later years.",
+      "preferred_year_number": 4,
+      "hint_weight": 50.0
+    },
+    "ABCD3000": {
+      "_comment": "Increase weighting for this course to be in 3rd year.",
+      "preferred_year_number": 3,
+      "hint_weight": 300.0
+    },
+    "FREE1": {
+      "_comment": "Encourage students to hold free electives / gen eds to later in sequence to give maximum flexibility.",
+      "preferred_year_number": 3,
+      "hint_weight": 100.0
+    },
+    "FREE2": {
+      "preferred_year_number": 4,
+        "hint_weight": 100.0
+    },
+    "GENED1": {
+      "preferred_year_number": 3,
+      "hint_weight": 100.0
+    },
+    "GENED2": {
+      "preferred_year_number": 4,
+      "hint_weight": 100.0
+    }
+  }
+}

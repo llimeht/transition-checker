@@ -2411,7 +2411,7 @@ def path_or_exit(path: Path, label: str) -> Path:
     if path.is_file():
         return path
     raise FileNotFoundError(
-        f"Missing {label}: {path}. If extracted artifacts are missing, run extract_template.py first."
+        f"Missing {label}: {path}. If extracted artifacts are missing, run extract-template first."
     )
 
 
