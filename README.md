@@ -29,12 +29,11 @@ for turning the sequence outputs from this tool into HTML or PDF enrolment plans
 - Python 3.11+
 - Project dependencies installed either system-wide or in a venv; dependencies are documented in `pyproject.toml`
 - Input files:
-    - standardised transition planning spreadsheet (e.g. `CEIC Program Sequence Mapping.xlsx`, fetched from canonical location on SharePoint); stored in `plans/<SCHOOL>/`. These files are currently manually managed; we might change that some time soon.
-    - degree rules for each specialisation of interest (e.g. `CEICAH3707.json`); stored in `rules/`; where rules have changed over time, they can be `<stream><program>-<YYYY>-<YYYY>.json` like `CEICDH3707-2020-2025.json` to indicate the start and stop handbook years. The degree rules are stored in a separate repository for ease of management.
-    - offerings list in `plans/offerings.json`; this can be copied from the output of `extract-plans` with some manual checking that the courses are indeed in the intended teaching periods. Use `add-offerings` to maintain and normalise this file.
+  - standardised transition planning spreadsheet (e.g. `CEIC Program Sequence Mapping.xlsx`, fetched from canonical location on SharePoint); stored in `plans/<SCHOOL>/`. These files are currently manually managed; we might change that some time soon.
+  - degree rules for each specialisation of interest (e.g. `CEICAH3707.json`); stored in `rules/`; where rules have changed over time, they can be `<stream><program>-<YYYY>-<YYYY>.json` like `CEICDH3707-2020-2025.json` to indicate the start and stop handbook years. The degree rules are stored in a separate repository for ease of management.
+  - offerings list in `plans/offerings.json`; this can be copied from the output of `extract-plans` with some manual checking that the courses are indeed in the intended teaching periods. Use `add-offerings` to maintain and normalise this file.
 
 See [FILE-FORMATS.md](FILE-FORMATS.md) for examples of the JSON files used in `rules/` and `plans/`, including common formatting mistakes to avoid.
-
 
 Example setup:
 
@@ -57,8 +56,6 @@ pip install -e .
 The middle command of `. .venv/bin/activate` to activate the venv temporarily adds the venv with the installed tools to your execution environment; it needs to be repeated each time you start a new terminal.
 
 All the examples below assume that the package has been installed; the entry point scripts are used.
-
-
 
 ## Checking enrolment plans
 
@@ -120,7 +117,8 @@ degree-rules \
     rules/TESTAH1234-2020-2025.json \
     --plan plans/TEST/TESTAH1234_2025_T2.json
 ```
-```
+
+```text
 Plan has 1 prerequisite/corequisite violation(s):
   [prereq:TEST4000>96uoc] TEST4000 (2027 Term 1): missing 96uoc (has 84uoc)
 ```
@@ -135,14 +133,14 @@ degree-rules \
     --plan plans/TEST/TESTAH1234_2025_T2.json \
     --add-override 'prereq:TEST4000>96uoc'
 ```
-```
+
+```text
 Plan status: ACCEPTED
 ```
 
 The overrides are stored next to the plans (with `degree_rules_overrides` included in the filename)
 and can be edited/deleted by hand.
 The above override was created in `plans/TEST/TESTAH1234_2025_T2.degree_rules_overrides.json`
-
 
 ## Making enrolment plans
 
@@ -192,7 +190,6 @@ made, and highlight any potential validation errors already detected in trying t
 
 The `--show-nonstandard-periods` option includes summer and winter terms so that the rows should exactly match the mapping spreadsheet format to let you paste in the course codes more easily.
 
-
 ### Use a partial plan as a basis for a full plan
 
 There are many cases where it is appropriate to pre-populate part of the enrolment plan with a sequence of courses,
@@ -235,7 +232,6 @@ rather than allowing the enrolment to spill into additional regular teaching per
 This is just another penalty term against possible solutions and like all the other weightings
 included in the solver, this is not a hard constraint and can be violated if there is no choice.
 
-
 ### Steering hints to tune `map-maker` behaviour
 
 The optional steering file can influence plan shape without changing the rule set.
@@ -253,7 +249,6 @@ Typical uses:
 - encourage one course to appear before another (as a 'soft' prereq)
 
 An example steering file is provided (`map_steering_example.json`). As `json` format does not support comments, all they keys starting with `_` are comments to document the file; they can be left there as they are ignored when it is read in.
-
 
 ### Search Tuning Notes
 
@@ -296,7 +291,6 @@ The objective combines hard-leaning penalties and softer steering penalties, inc
 - course-level hints into a particular year, implicitly based on the first digit of the course code or explicitly via steering.
 - soft precedence rules for preferred course sequencing
 
-
 ## Data, data sources, and data curation
 
 ### Manage the offerings list
@@ -323,7 +317,6 @@ add-offerings plans/offerings.json --show '*'
 add-offerings plans/offerings.json --show 'CEIC*'
 add-offerings plans/offerings.json --show 'CEIC*' --output offerings.csv
 ```
-
 
 ### Override an prerequisite information in the catalogue
 
@@ -407,20 +400,19 @@ as an unsupported prerequisite in validation output; it is skipped when trying
 to apply the rules. Requirements that exist in the handbook that are known to be
 unsupported include:
 
- - Must be enrolled in program 9999; Admission to program 9999.
- - Enrolment in a ABCD major
- - Must have completed at least XX UoC in program 9999; completed at least XX UoC of School of XYZ courses; completed at least XX UoC of ABCD (prefix) courses
- - Must have a WAM of XX or above
- - Only single and double degree School of XYZ students
- - This course is by application only
- - Enrolled in the final term of the program
- - Minimum mark of XX in ABCD1234
- - Must have completed XYZ test.
+- Must be enrolled in program 9999; Admission to program 9999.
+- Enrolment in a ABCD major
+- Must have completed at least XX UoC in program 9999; completed at least XX UoC of School of XYZ courses; completed at least XX UoC of ABCD (prefix) courses
+- Must have a WAM of XX or above
+- Only single and double degree School of XYZ students
+- This course is by application only
+- Enrolled in the final term of the program
+- Minimum mark of XX in ABCD1234
+- Must have completed XYZ test.
 
  Mixing these types of requirements in with an otherwise simple prerequisite expression might cause the entire field to be ignored.
 
  (We believe that some of these maturity requirements also cannot be implemented by UNSW's own systems.)
-
 
 ### Validating syntax and interpretation of prereq fields
 
@@ -444,7 +436,6 @@ The snapshot contains:
 - metadata (source catalogue path, generation timestamp, entry count, parser marker)
 - one entry per course with raw `prerequisites`, parsed `prereq_expr`, parsed `coreq_expr`, and parser `error`, and some `salvage` keys that show partial parser recovery information and classification.
 
-
 ### Obtain course metadata from the UNSW Handbook
 
 This downloads handbook course pages, extracts the embedded JSON payload from each
@@ -464,7 +455,6 @@ Use `--career undergraduate` or `--career postgraduate` depending on which handb
 
 (Note that the main spreadsheets now contain direct dumps of all fields from the STU054 report that should already contain this information and this tool is now of limited use.)
 
-
 ## Contributing
 
 Please do! The code is type annotated and is clean with `mypy --strict` and `ruff format`.
@@ -477,8 +467,8 @@ The test suite can be run using `python -m pytest`.
 
 ## To-do
 
- - rebuild based on STU055 for prereq information (currently using STU054)
- - validate no overloading in enrolment sequence
+- rebuild based on STU055 for prereq information (currently using STU054)
+- validate no overloading in enrolment sequence
 
 ## Licence and credits
 

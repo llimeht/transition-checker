@@ -184,7 +184,7 @@ Notes:
 
 Purpose:
 
-- Stores accepted exceptions for a specific plan: when academic judgement has developed a policy decision to violate the degree rules for a group of students, such as waiving a prereq. 
+- Stores accepted exceptions for a specific plan: when academic judgement has developed a policy decision to violate the degree rules for a group of students, such as waiving a prereq.
 - Created by `degree-rules --add-override`.
 
 Path pattern:
@@ -342,8 +342,8 @@ Path:
 
 ```text
 plans/offerings.json
-
 ```
+
 Top-level shape:
 
 - Object
@@ -371,7 +371,7 @@ Important warnings:
 - If you are editing this file by hand, it is easy to miss a comma between course entries because the file can get long.
 - Rather than editing by hand, you can use the `add-offerings` tool.
 
-# Quick checklist
+## Quick checklist
 
 Before you save, check these five things:
 
@@ -389,8 +389,7 @@ Before you save, check these five things:
 - After editing `plans/catalogue_overrides.json` or `plans/<school>/catalogue_overrides.json`, run the relevant validation command again.
 - After editing `plans/offerings.json`, run `add-offerings plans/offerings.json --validate` or `offering-checker <plan file>`.
 
-
-# More about JSON files
+## More about JSON files
 
 - Use `{}` for a name-value pairs object, which is a collection of named fields.
 - Use `[]` for a list, which is a collection of items.
@@ -464,7 +463,7 @@ Good:
 ### Wrong top-level shape
 
 Some files start with a name-value pair object (`{ ... }`), because the file is about a
-collection of definitions (values) each one having a name pointing at it, 
+collection of definitions (values) each one having a name pointing at it,
 such as when each course will be offered in the calendar.
 The name in the name-value pair must be unique, so this can be used for properties of
 a course such as "when is it offered", but cannot be used if there are multiple separate
