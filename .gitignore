@@ -15,3 +15,5 @@ build/
 coverage.json
 .~lock.*
 rules/
+FILE-FORMATS.pdf
+README.pdf

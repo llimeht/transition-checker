@@ -29,7 +29,7 @@ for turning the sequence outputs from this tool into HTML or PDF enrolment plans
 - Python 3.11+
 - Project dependencies installed either system-wide or in a venv; dependencies are documented in `pyproject.toml`
 - Input files:
-  - standardised transition planning spreadsheet (e.g. `CEIC Program Sequence Mapping.xlsx`, fetched from canonical location on SharePoint); stored in `plans/<SCHOOL>/`. These files are currently manually managed; we might change that some time soon.
+  - standardised transition planning spreadsheet (e.g. `CEIC_Sequences.xlsx`, fetched from canonical location on SharePoint); stored in `plans/<SCHOOL>/`. These files are currently manually managed; we might change that some time soon. Note: we have a template spreadsheet that we can share with you for this purpose.
   - degree rules for each specialisation of interest (e.g. `CEICAH3707.json`); stored in `rules/`; where rules have changed over time, they can be `<stream><program>-<YYYY>-<YYYY>.json` like `CEICDH3707-2020-2025.json` to indicate the start and stop handbook years. The degree rules are stored in a separate repository for ease of management.
   - offerings list in `plans/offerings.json`; this can be copied from the output of `extract-plans` with some manual checking that the courses are indeed in the intended teaching periods. Use `add-offerings` to maintain and normalise this file.
 
@@ -55,7 +55,40 @@ pip install -e .
 
 The middle command of `. .venv/bin/activate` to activate the venv temporarily adds the venv with the installed tools to your execution environment; it needs to be repeated each time you start a new terminal.
 
-All the examples below assume that the package has been installed; the entry point scripts are used.
+All the examples below assume that the package has been installed and you have activated the virtual environment; the entry point scripts are used.
+
+Once you have installed the package and obtained the spreadsheet template, you will end up with the following layout to work with (skipping the files in this Python package!):
+
+```text
+transition-checker/
+├── plans/
+│   ├── catalogue.json                             ← extracted from the Handbook Course Catalogue sheet in your spreadsheet
+│   ├── offerings.json                             ← known offerings of courses; see "add-offerings"
+│   └── CEIC/                                      ← school or specialisation folder you are working in
+│       ├── CEIC_Sequences.xlsx                    ← your spreadsheet
+│       ├── CEIC_Sequences_offerings.csv           ← teaching periods when spreadsheet assumes courses are running
+│       ├── CEIC_Sequences_offerings.json          ← same, but in json format
+│       ├── CEIC_Sequences_validation_results.json ← validator output
+│       ├── ...
+│       ├── catalogue_overrides.json               ← extracted from the Local Course Overrides sheet in your spreadsheet
+│       ├── CEICAH3707_2024_T1.json                ← extracted from 'CEICAH3707' sheet in your spreadsheet, 2024 T1 cohort
+│       ├── CEICAH3707_2024_T2.degree_rules_overrides.json  ← see "degree-rules --add-override" if needed
+│       └── ...
+├── rules/                                         ← from the transition-checker-rules repository
+│   ├── CEICAH3707.json                            ← rules for a particular program and specialisation
+│   └── ...
+└── templates/                                     ← map-maker config
+    ├── map_steering.json                          ← see map_steering_example.json for details
+    └── template_configs.json                      ← extracted from your spreadsheet by extract-templates
+```
+
+Notes:
+
+- Manually make your own `plans` and `templates` folders
+- The `rules` folder was created by the `git clone` command above. If your rules don't yet exist, you'll need to create them by hand-editing the json files. It's not hard but please feel free to ask for advice.
+- `CEIC` is an example school here - replace with whatever is appropriate for your school or specialisation; you can have multiple folders for different schools or specialisations.
+- You will need an enrolment sequence spreadsheet for your school or specialisation. The spreadsheet is not included in this repository; please contact the transition project team to obtain a template.
+- The `plans/offerings.json` file is a canonical list of intended teaching periods for courses; it is not automatically generated from the spreadsheet. Use `add-offerings` to maintain this file; if you are convinced that the terms you have in your spreadsheet are correct, you can copy the `plans/CEIC/CEIC_Sequences_offerings.json` file to `plans/offerings.json`. Do check it manually. Use `add-offerings --validate` to canonicalise and sort it.
 
 ## Checking enrolment plans
 
@@ -64,13 +97,13 @@ All the examples below assume that the package has been installed; the entry poi
 This will extract all plans from the spreadsheet and validate them against degree rules, prereq rules, and intended teaching period offerings.
 
 ```bash
-plan-validate 'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
+plan-validate plans/CEIC/CEIC_Sequences.xlsx
 ```
 
 To validate only a subset of exported plans, pass a glob that matches the plan filename stem:
 
 ```bash
-plan-validate 'plans/CEIC/CEIC Program Sequence Mapping.xlsx' --filter 'CEICKS8338*'
+plan-validate plans/CEIC/CEIC_Sequences.xlsx --filter 'CEICKS8338*'
 ```
 
 ### Check offering violations for a single plan
@@ -163,7 +196,7 @@ The `map-maker` needs to extract some data from the mapping spreadsheet as a sta
 extract-template \
   --catalogue-output plans/catalogue.json \
   --template-output templates/template_configs.json \
-  plans/plans/CEIC/CEIC\ Program\ Sequence\ Mapping.xlsx
+  plans/plans/CEIC/CEIC_Sequences.xlsx
 ```
 
 ### Generate one or more plan options
@@ -206,7 +239,7 @@ or directly with `extract-plans`:
 ```bash
 extract-plans \
   --output-dir plans/CEIC/ \
-  'plans/CEIC/CEIC Program Sequence Mapping.xlsx'
+  plans/CEIC/CEIC_Sequences.xlsx
 ```
 
 Complete the partial plan:
@@ -419,7 +452,7 @@ unsupported include:
 There are two tools to use to look at the prereq parser performance
 
 ```bash
-extract-template 'plans/CEIC/CEIC Program Sequence Mapping.xlsx' \
+extract-template plans/CEIC/CEIC_Sequences.xlsx \
   --lint --lint-output catalogue-prereq-lint.json
 ```
 
@@ -427,7 +460,7 @@ Extract all prerequisite strings from the catalogue and the current parser resul
 This can be kept as a baseline and compared in future parser-change work.
 
 ```bash
-extract-template 'plans/CEIC/CEIC Program Sequence Mapping.xlsx' \
+extract-template plans/CEIC/CEIC_Sequences.xlsx \
   --prereq-snapshot-output plans/prereq-snapshot-baseline.json
 ```
 
