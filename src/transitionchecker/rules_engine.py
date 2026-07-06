@@ -700,6 +700,34 @@ def validate_nonstandard_periods(
     return findings
 
 
+def validate_annual_loads(
+    courses: list[ScheduledPlanCourse],
+) -> list[ValidationFinding]:
+    """Return findings for calendar years whose planned load exceeds 48 UoC."""
+
+    uoc_by_year: dict[int, int] = {}
+    for course in courses:
+        uoc_by_year[course.year] = uoc_by_year.get(course.year, 0) + course.uoc
+
+    findings: list[ValidationFinding] = []
+    for year, total_uoc in sorted(uoc_by_year.items()):
+        if total_uoc <= 48:
+            continue
+        findings.append(
+            {
+                "failure_id": f"annual-load:{year}",
+                "kind": "annual_load",
+                "message": (
+                    f"{year}: planned {total_uoc} UoC in calendar year "
+                    "(maximum 48 UoC)"
+                ),
+                "overrideable": True,
+                "accepted": False,
+            }
+        )
+    return findings
+
+
 def extract_scheduled_courses(
     plan_data: dict[str, Any],
     *,
@@ -839,6 +867,7 @@ def validate_plan_prerequisites_detailed(
 
     courses = extract_scheduled_courses(plan_data, catalogue=catalogue, career=career)
     nonstandard_findings = validate_nonstandard_periods(courses)
+    annual_load_findings = validate_annual_loads(courses)
     failures, unsupported, prereq_findings, warnings = (
         validate_scheduled_prerequisites_detailed(
             courses,
@@ -846,7 +875,12 @@ def validate_plan_prerequisites_detailed(
             rpl_courses=rpl_courses,
         )
     )
-    return failures, unsupported, [*nonstandard_findings, *prereq_findings], warnings
+    return (
+        failures,
+        unsupported,
+        [*nonstandard_findings, *annual_load_findings, *prereq_findings],
+        warnings,
+    )
 
 
 def _is_course_code(value: Any) -> bool:

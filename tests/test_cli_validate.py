@@ -239,6 +239,78 @@ def test_main_collects_structured_findings_when_legacy_lists_empty(
     assert any(f["kind"] == "prereq" for f in findings)
 
 
+def test_main_reports_annual_load_structured_findings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    failing_plan = out_dir / "CEICDH3707_2026_T1.json"
+    failing_plan.write_text('{"courses": [{"code": "COMP1511"}]}', encoding="utf-8")
+
+    def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        if "extract_plans.py" in cmd[1] or "extract_template.py" in cmd[1]:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
+        if "degree_rules.py" in cmd[1]:
+            degree_report: dict[str, object] = {
+                "valid": False,
+                "rule_failures": [],
+                "prerequisite_failures": [],
+                "unsupported_prerequisites": [],
+                "findings": [
+                    {
+                        "failure_id": "annual-load:2026",
+                        "kind": "annual_load",
+                        "message": "2026: planned 54 UoC in calendar year (maximum 48 UoC)",
+                        "overrideable": True,
+                        "accepted": False,
+                    }
+                ],
+                "warnings": [],
+            }
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=1,
+                stdout=json.dumps(degree_report),
+                stderr="",
+            )
+        if "offering_checker.py" in cmd[1]:
+            offering_report: dict[str, object] = {"valid": True, "violations": []}
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(offering_report),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    def fake_resolve_rule_file(
+        _program_code: str, _plan_stem: str, _script_dir: Path
+    ) -> Path:
+        return tmp_path / "rules" / "CEICDH3707.json"
+
+    monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
+    monkeypatch.setattr(validate_cli, "resolve_rule_file", fake_resolve_rule_file)
+
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "CEICDH3707.json").write_text("{}", encoding="utf-8")
+
+    code = validate_cli.main([str(excel), "--output-dir", str(out_dir)])
+
+    assert code == 1
+    output = capsys.readouterr().out
+    assert "annual_load_failures=1" in output
+    assert "[annual-load:2026]" in output
+    assert "--add-override 'annual-load:2026'" in output
+
+
 def test_main_skips_placeholder_plan_with_blank_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

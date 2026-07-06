@@ -12,6 +12,7 @@ from transitionchecker.rules_engine import (
     _apply_equivalences,  # pyright: ignore[reportPrivateUsage]
     RuleValidationError,
     extract_scheduled_courses,
+    validate_annual_loads,
     report_plan_detailed,
     validate_nonstandard_periods,
     validate_plan_prerequisites,
@@ -904,6 +905,92 @@ class TestValidateNonstandardPeriods:
         nonstandard = [f for f in findings if f["kind"] == "nonstandard_period"]
         assert len(nonstandard) == 1
         assert nonstandard[0]["failure_id"] == "nonstandard-period:TEST1002"
+
+
+class TestValidateAnnualLoads:
+    def _make_plan(
+        self, *course_entries: tuple[int, str, str, int]
+    ) -> dict[str, Any]:
+        """Build a minimal plan with (year, period, code, uoc) tuples."""
+
+        return {
+            "courses": [
+                {
+                    "year": year,
+                    "period": period,
+                    "course_n": f"Course {i + 1}",
+                    "code": code,
+                    "uoc": uoc,
+                    "prerequisites": "",
+                }
+                for i, (year, period, code, uoc) in enumerate(course_entries)
+            ]
+        }
+
+    def test_exactly_48_uoc_in_year_produces_no_findings(self) -> None:
+        plan = self._make_plan(
+            (2026, "Term 1", "TEST1001", 24),
+            (2026, "Term 2", "TEST1002", 24),
+        )
+        courses = extract_scheduled_courses(plan)
+        findings = validate_annual_loads(courses)
+        assert findings == []
+
+    def test_year_above_48_uoc_produces_finding(self) -> None:
+        plan = self._make_plan(
+            (2026, "Term 1", "TEST1001", 24),
+            (2026, "Term 2", "TEST1002", 30),
+        )
+        courses = extract_scheduled_courses(plan)
+        findings = validate_annual_loads(courses)
+        assert len(findings) == 1
+        finding = findings[0]
+        assert finding["failure_id"] == "annual-load:2026"
+        assert finding["kind"] == "annual_load"
+        assert finding["overrideable"] is True
+        assert finding["accepted"] is False
+        assert "2026" in finding["message"]
+        assert "54" in finding["message"]
+
+    def test_multiple_overloaded_years_produce_one_finding_each(self) -> None:
+        plan = self._make_plan(
+            (2026, "Term 1", "TEST1001", 30),
+            (2026, "Term 2", "TEST1002", 24),
+            (2027, "Term 1", "TEST2001", 18),
+            (2027, "Term 2", "TEST2002", 18),
+            (2027, "Term 3", "TEST2003", 18),
+        )
+        courses = extract_scheduled_courses(plan)
+        findings = validate_annual_loads(courses)
+        assert [f["failure_id"] for f in findings] == [
+            "annual-load:2026",
+            "annual-load:2027",
+        ]
+
+    def test_periods_within_same_year_are_aggregated(self) -> None:
+        plan = self._make_plan(
+            (2026, "Summer Term", "TEST1001", 12),
+            (2026, "Term 1", "TEST1002", 18),
+            (2026, "Winter Term", "TEST1003", 12),
+            (2026, "Term 3", "TEST1004", 12),
+        )
+        courses = extract_scheduled_courses(plan)
+        findings = validate_annual_loads(courses)
+        assert len(findings) == 1
+        assert findings[0]["failure_id"] == "annual-load:2026"
+
+    def test_findings_appear_in_validate_plan_prerequisites_detailed(self) -> None:
+        plan = self._make_plan(
+            (2026, "Term 1", "TEST1001", 24),
+            (2026, "Term 2", "TEST1002", 30),
+            (2027, "Term 1", "TEST2001", 24),
+        )
+        _failures, _unsupported, findings, _warnings = (
+            validate_plan_prerequisites_detailed(plan)
+        )
+        annual = [f for f in findings if f["kind"] == "annual_load"]
+        assert len(annual) == 1
+        assert annual[0]["failure_id"] == "annual-load:2026"
 
 
 class TestCourseEquivalences:

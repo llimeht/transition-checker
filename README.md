@@ -11,7 +11,7 @@ The repository currently has three main workflows:
 
 1. Extract and validate enrolment transition plans:
     - Extract enrolment and transition plans from standardised Excel sheets (`extract-plans`), noting the required semester offerings of courses.
-    - Validate that plans will satisfy the degree rules and prerequisite rules with `degree-rules`
+    - Validate that plans will satisfy the degree rules and prerequisite rules, and that the plan does not require overloading within the calendar year (i.e. more than 48 UoC in a calendar year) with `degree-rules`
     - Validate that plans will satisfy actual intended semester offerings with `offering-checker`
 
 2. Generate candidate enrolment transition plans based on degree rules and intended offerings.
@@ -468,7 +468,6 @@ The test suite can be run using `python -m pytest`.
 ## To-do
 
 - rebuild based on STU055 for prereq information (currently using STU054)
-- validate no overloading in enrolment sequence
 
 ## Licence and credits
 
