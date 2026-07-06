@@ -20,6 +20,7 @@ from transitionchecker.core.offerings_output import (
 )
 from transitionchecker.core.mapping_workbook import (
     ProgramSheetHeader,
+    correct_single_row_enrol_year_outliers,
     iter_plans,
     iter_program_sheets,
     extract_program_sheet_header,
@@ -300,6 +301,17 @@ def main(argv: list[str] | None = None) -> int:
         header = extract_program_sheet_header(df)
         for intake, plan in iter_plans(df):
             logger.info(f"  Intake {intake}")
+            plan, corrections = correct_single_row_enrol_year_outliers(plan)
+            for correction in corrections:
+                logger.warning(
+                    "  Corrected enrol_year outlier: row=%s code=%s year=%s period=%s %s -> %s",
+                    correction["row_index"],
+                    correction["code"] or "<blank>",
+                    correction["year"],
+                    correction["period"],
+                    correction["old_enrol_year"],
+                    correction["new_enrol_year"],
+                )
             if not plan_has_exportable_content(plan):
                 logger.debug("  Skipped (no exportable courses)")
                 continue

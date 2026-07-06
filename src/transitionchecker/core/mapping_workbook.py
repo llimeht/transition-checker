@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from collections.abc import Collection, Generator
 from typing import Any, TypedDict
 
@@ -62,6 +63,15 @@ class ProgramSheetHeader(TypedDict):
     program: str
     career: str
     uoc: int
+
+
+class EnrolYearCorrection(TypedDict):
+    row_index: int
+    old_enrol_year: str
+    new_enrol_year: str
+    year: int
+    period: str
+    code: str
 
 
 def is_placeholder_plan_code(value: object) -> bool:
@@ -285,6 +295,90 @@ def normalize_plan_sheet_columns(df: pd.DataFrame) -> pd.DataFrame:
     normalized_df = df.copy()
     normalized_df.columns = pd.Index(normalized_columns)
     return normalized_df
+
+
+def _clean_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
+def correct_single_row_enrol_year_outliers(
+    plan: pd.DataFrame,
+) -> tuple[pd.DataFrame, list[EnrolYearCorrection]]:
+    """Correct single-row enrol_year outliers inside a year/period cohort.
+
+    A correction is applied only when one and only one row in a cohort disagrees
+    with a strict majority enrol_year. Cohorts are grouped by (Year, Period).
+    """
+
+    required_columns = {"EnrolYear", "Year", "Period"}
+    if not required_columns.issubset(plan.columns):
+        return plan, []
+
+    corrected = plan.copy()
+    corrections: list[EnrolYearCorrection] = []
+
+    for (year_value, period_value), group in corrected.groupby(
+        ["Year", "Period"], sort=False
+    ):
+        year = _clean_text(year_value)
+        period = _clean_text(period_value)
+        if not year or not period:
+            continue
+
+        parsed_enrol_years: list[tuple[int, str]] = []
+        for idx in group.index:
+            value = _clean_text(corrected.at[idx, "EnrolYear"])
+            if not value:
+                continue
+            parsed_enrol_years.append((idx, value))
+
+        # Avoid aggressive guesses on sparse cohorts.
+        if len(parsed_enrol_years) < 3:
+            continue
+
+        counts = Counter(value for _, value in parsed_enrol_years)
+        if len(counts) < 2:
+            continue
+
+        (majority_label, majority_count), *remaining = counts.most_common()
+        if not remaining:
+            continue
+        outlier_count = sum(count for _, count in remaining)
+        # Apply only to exact single-row outliers.
+        if majority_count < 2 or outlier_count != 1:
+            continue
+
+        outlier_idx: int | None = None
+        outlier_label = ""
+        for idx, value in parsed_enrol_years:
+            if value != majority_label:
+                outlier_idx = idx
+                outlier_label = value
+                break
+
+        if outlier_idx is None:
+            continue
+
+        corrected.at[outlier_idx, "EnrolYear"] = majority_label
+        code = ""
+        if "Code" in corrected.columns:
+            code = _clean_text(corrected.at[outlier_idx, "Code"])
+        corrections.append(
+            {
+                "row_index": int(outlier_idx),
+                "old_enrol_year": outlier_label,
+                "new_enrol_year": majority_label,
+                "year": int(float(year)),
+                "period": period,
+                "code": code,
+            }
+        )
+
+    return corrected, corrections
 
 
 def iter_program_sheets(

@@ -6,6 +6,7 @@ import pytest
 
 from transitionchecker.core.mapping_workbook import (
     END_INTAKE_MARKER,
+    correct_single_row_enrol_year_outliers,
     extract_catalogue_overrides,
     find_template_sheet,
     iter_plans,
@@ -232,3 +233,75 @@ def test_extract_catalogue_overrides_skips_placeholder_examples() -> None:
     assert "reason" not in overrides[0]
     # Row with ToDo value must carry it as reason
     assert overrides[1]["reason"] == "Pending ECLIPS approval"
+
+
+def test_correct_single_row_enrol_year_outliers_repairs_single_outlier() -> None:
+    plan = pd.DataFrame(
+        [
+            {
+                "EnrolYear": "Year 4",
+                "Year": 2031,
+                "Period": "Semester 2",
+                "Code": "CEIC3004",
+            },
+            {
+                "EnrolYear": "Year 4",
+                "Year": 2031,
+                "Period": "Semester 2",
+                "Code": "CEIC3006",
+            },
+            {
+                "EnrolYear": "Year 4",
+                "Year": 2031,
+                "Period": "Semester 2",
+                "Code": "CEIC3007",
+            },
+            {
+                "EnrolYear": "Year 5",
+                "Year": 2031,
+                "Period": "Semester 2",
+                "Code": "CEIC4002",
+            },
+        ]
+    )
+
+    corrected, corrections = correct_single_row_enrol_year_outliers(plan)
+
+    assert corrected.loc[3, "EnrolYear"] == "Year 4"
+    assert corrections == [
+        {
+            "row_index": 3,
+            "old_enrol_year": "Year 5",
+            "new_enrol_year": "Year 4",
+            "year": 2031,
+            "period": "Semester 2",
+            "code": "CEIC4002",
+        }
+    ]
+
+
+def test_correct_single_row_enrol_year_outliers_skips_ties_and_small_groups() -> None:
+    tie_plan = pd.DataFrame(
+        [
+            {"EnrolYear": "Year 3", "Year": 2030, "Period": "Semester 1"},
+            {"EnrolYear": "Year 3", "Year": 2030, "Period": "Semester 1"},
+            {"EnrolYear": "Year 4", "Year": 2030, "Period": "Semester 1"},
+            {"EnrolYear": "Year 4", "Year": 2030, "Period": "Semester 1"},
+        ]
+    )
+    small_plan = pd.DataFrame(
+        [
+            {"EnrolYear": "Year 4", "Year": 2031, "Period": "Semester 2"},
+            {"EnrolYear": "Year 5", "Year": 2031, "Period": "Semester 2"},
+        ]
+    )
+
+    tie_corrected, tie_corrections = correct_single_row_enrol_year_outliers(tie_plan)
+    small_corrected, small_corrections = correct_single_row_enrol_year_outliers(
+        small_plan
+    )
+
+    assert tie_corrected.equals(tie_plan)
+    assert tie_corrections == []
+    assert small_corrected.equals(small_plan)
+    assert small_corrections == []
