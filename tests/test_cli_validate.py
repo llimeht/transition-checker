@@ -73,6 +73,7 @@ def test_main_returns_0_when_no_plan_files(
     summary = report["summary"]
     assert summary["total_plan_files"] == 0
     assert summary["failed"] == 0
+    assert (out_dir / "mapping_validation_results.html").is_file()
 
 
 def test_main_returns_1_when_rules_dir_cannot_be_discovered(
@@ -196,6 +197,170 @@ def test_main_filters_plan_files_by_glob(
         "for_reviewers": ["Nucleus Study Guide 2024"],
         "for_students": ["FOOD3801 has moved term"],
     }
+
+
+def test_main_writes_html_and_suppresses_missing_rule_id_warning_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    plan_file = out_dir / "CEICKS8338_2026_T1.json"
+    plan_file.write_text('{"courses": [{"code": "COMP1511"}]}', encoding="utf-8")
+
+    def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        if cmd[0] in {"extract-plans", "extract-template"}:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
+        if cmd[0] == "degree-rules":
+            degree_report: dict[str, object] = {
+                "valid": True,
+                "rule_failures": [],
+                "prerequisite_failures": [],
+                "unsupported_prerequisites": [],
+                "findings": [],
+                "warnings": [
+                    {
+                        "code": "missing_rule_id",
+                        "message": "Subset clause has no id",
+                        "location": "required.Level 2",
+                    }
+                ],
+                "notes": {
+                    "graduate_outcome": "Late graduation",
+                    "adjustment_type": "Adjustment within standard load",
+                    "for_reviewers": ["Nucleus Study Guide 2024"],
+                    "for_students": ["FOOD3801 has moved term"],
+                },
+            }
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(degree_report),
+                stderr="",
+            )
+        if cmd[0] == "offering-checker":
+            offering_report: dict[str, object] = {"valid": True, "violations": []}
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(offering_report),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
+
+    def fake_resolve_rule_file(
+        _program_code: str, _plan_stem: str, _script_dir: Path
+    ) -> Path:
+        return tmp_path / "rules" / "CEICKS8338.json"
+
+    monkeypatch.setattr(
+        validate_cli,
+        "resolve_rule_file_for_plan",
+        fake_resolve_rule_file,
+    )
+
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "CEICKS8338.json").write_text("{}", encoding="utf-8")
+
+    code = validate_cli.main([str(excel), "--output-dir", str(out_dir)])
+
+    assert code == 0
+    html_path = out_dir / "mapping_validation_results.html"
+    assert html_path.is_file()
+    html = html_path.read_text(encoding="utf-8")
+    assert "Late graduation" in html
+    assert "missing_rule_id" not in html
+
+
+def test_main_html_includes_all_warnings_when_requested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    plan_file = out_dir / "CEICKS8338_2026_T1.json"
+    plan_file.write_text('{"courses": [{"code": "COMP1511"}]}', encoding="utf-8")
+
+    def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        if cmd[0] in {"extract-plans", "extract-template"}:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
+        if cmd[0] == "degree-rules":
+            degree_report: dict[str, object] = {
+                "valid": True,
+                "rule_failures": [],
+                "prerequisite_failures": [],
+                "unsupported_prerequisites": [],
+                "findings": [],
+                "warnings": [
+                    {
+                        "code": "missing_rule_id",
+                        "message": "Subset clause has no id",
+                        "location": "required.Level 2",
+                    }
+                ],
+                "notes": {
+                    "graduate_outcome": "",
+                    "adjustment_type": "",
+                    "for_reviewers": [],
+                    "for_students": [],
+                },
+            }
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(degree_report),
+                stderr="",
+            )
+        if cmd[0] == "offering-checker":
+            offering_report: dict[str, object] = {"valid": True, "violations": []}
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(offering_report),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
+
+    def fake_resolve_rule_file(
+        _program_code: str, _plan_stem: str, _script_dir: Path
+    ) -> Path:
+        return tmp_path / "rules" / "CEICKS8338.json"
+
+    monkeypatch.setattr(
+        validate_cli,
+        "resolve_rule_file_for_plan",
+        fake_resolve_rule_file,
+    )
+
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "CEICKS8338.json").write_text("{}", encoding="utf-8")
+
+    code = validate_cli.main(
+        [
+            str(excel),
+            "--output-dir",
+            str(out_dir),
+            "--include-all-warnings",
+        ]
+    )
+
+    assert code == 0
+    html = (out_dir / "mapping_validation_results.html").read_text(encoding="utf-8")
+    assert "missing_rule_id" in html
 
 
 def test_main_collects_structured_findings_when_legacy_lists_empty(

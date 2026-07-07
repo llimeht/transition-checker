@@ -27,6 +27,11 @@ from transitionchecker.cli.degree_rules_cli import main as degree_rules_main
 from transitionchecker.cli.extract_plans_cli import main as extract_plans_main
 from transitionchecker.cli.extract_template_cli import main as extract_template_main
 from transitionchecker.cli.offering_checker_cli import main as offering_checker_main
+from transitionchecker.core.validation_report_html import (
+    default_html_report_path,
+    render_validation_report_html,
+    write_validation_report_html,
+)
 
 
 CliMain = Callable[[list[str] | None], int]
@@ -170,6 +175,28 @@ def _build_cli_parser() -> argparse.ArgumentParser:
             "(for example: 'CEICKS8338*')"
         ),
     )
+    parser.add_argument(
+        "--human-report",
+        choices=("html", "none"),
+        default="html",
+        help=(
+            "Generate an additional human-readable report artifact "
+            "(default: html)."
+        ),
+    )
+    parser.add_argument(
+        "--warning-filter-codes",
+        default="missing_rule_id",
+        help=(
+            "Comma-separated warning codes to suppress in the human report "
+            "(default: missing_rule_id)."
+        ),
+    )
+    parser.add_argument(
+        "--include-all-warnings",
+        action="store_true",
+        help="Show all warning codes in the human report, ignoring suppression.",
+    )
     return parser
 
 
@@ -233,6 +260,10 @@ def main(argv: list[str] | None = None) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / f"{excel_file.stem}_validation_results.json"
     rules_dir = _resolve_rules_dir(output_dir, excel_file)
+    html_report_path = default_html_report_path(report_path)
+    suppressed_warning_codes = [
+        code.strip() for code in str(args.warning_filter_codes).split(",") if code.strip()
+    ]
 
     if not excel_file.is_file():
         print(f"Error: File not found: {excel_file}")
@@ -317,6 +348,14 @@ def main(argv: list[str] | None = None) -> int:
         }
         write_validation_report(report_path, report)
         print(f"☑️ Validation report written to: {report_path}")
+        if args.human_report == "html":
+            html_text = render_validation_report_html(
+                report,
+                suppressed_warning_codes=suppressed_warning_codes,
+                include_all_warnings=bool(args.include_all_warnings),
+            )
+            write_validation_report_html(html_report_path, html_text)
+            print(f"☑️ Human-readable report written to: {html_report_path}")
         return 0
 
     if rules_dir is None:
@@ -694,6 +733,15 @@ def main(argv: list[str] | None = None) -> int:
     }
     write_validation_report(report_path, report)
     print(f"\n☑️ Validation report written to: {report_path}")
+
+    if args.human_report == "html":
+        html_text = render_validation_report_html(
+            report,
+            suppressed_warning_codes=suppressed_warning_codes,
+            include_all_warnings=bool(args.include_all_warnings),
+        )
+        write_validation_report_html(html_report_path, html_text)
+        print(f"☑️ Human-readable report written to: {html_report_path}")
 
     print()
     if failed == 0:
