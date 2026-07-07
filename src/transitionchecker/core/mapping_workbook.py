@@ -74,6 +74,17 @@ class EnrolYearCorrection(TypedDict):
     code: str
 
 
+class PlanNotes(TypedDict):
+    graduate_outcome: str
+    adjustment_type: str
+    for_reviewers: list[str]
+    for_students: list[str]
+
+
+class PlanMetadata(TypedDict):
+    notes: PlanNotes
+
+
 def is_placeholder_plan_code(value: object) -> bool:
     """Return whether a workbook plan code cell is a placeholder token."""
 
@@ -305,6 +316,43 @@ def _clean_text(value: object) -> str:
     return str(value).strip()
 
 
+def _clean_note_text(value: object) -> str:
+    """Normalize workbook note text to a compact single-line representation."""
+
+    if value is None:
+        return ""
+    if isinstance(value, float) and pd.isna(value):
+        return ""
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
+    parts = [segment.strip() for segment in text.split("\n") if segment.strip()]
+    return " ".join(parts).strip()
+
+
+def _extract_column_pair_notes(
+    rows: pd.DataFrame,
+    left_idx: int,
+    right_idx: int,
+    *,
+    skip_labels: tuple[str, ...],
+) -> list[str]:
+    notes: list[str] = []
+    if rows.shape[1] <= left_idx:
+        return notes
+
+    label_set = {label.strip().lower() for label in skip_labels}
+
+    for _, row in rows.iterrows():
+        left = _clean_note_text(row.iloc[left_idx] if left_idx < len(row) else None)
+        right = _clean_note_text(row.iloc[right_idx] if right_idx < len(row) else None)
+        combined = " ".join(part for part in (left, right) if part).strip()
+        if not combined:
+            continue
+        if combined.lower() in label_set:
+            continue
+        notes.append(combined)
+    return notes
+
+
 def correct_single_row_enrol_year_outliers(
     plan: pd.DataFrame,
 ) -> tuple[pd.DataFrame, list[EnrolYearCorrection]]:
@@ -406,7 +454,7 @@ def iter_plans(
     sheet: pd.DataFrame,
     start_row: int = 4,
     end_intake_marker: str = END_INTAKE_MARKER,
-) -> Generator[tuple[str, pd.DataFrame], None, None]:
+) -> Generator[tuple[str, pd.DataFrame, PlanMetadata], None, None]:
     """Yield each intake plan block from a normalised sheet.
 
     Args:
@@ -415,7 +463,7 @@ def iter_plans(
         end_intake_marker: Marker in column A that ends plan blocks.
 
     Yields:
-        Tuples of ``(intake, plan_dataframe)``.
+        Tuples of ``(intake, plan_dataframe, metadata)``.
     """
 
     trimmed = sheet.iloc[start_row:].reset_index(drop=True)
@@ -433,7 +481,30 @@ def iter_plans(
     for _, sub in trimmed[mask].groupby(groups[mask]):
         intake = str(sub.iloc[0, 3]).strip()  # intake comment is in column D (index 3)
         rows = sub.iloc[1:].reset_index(drop=True)
-        yield intake, rows
+        header_row = sub.iloc[0]
+        metadata: PlanMetadata = {
+            "notes": {
+                "graduate_outcome": _clean_note_text(
+                    header_row.iloc[9] if len(header_row) > 9 else None
+                ),
+                "adjustment_type": _clean_note_text(
+                    header_row.iloc[11] if len(header_row) > 11 else None
+                ),
+                "for_reviewers": _extract_column_pair_notes(
+                    rows,
+                    8,
+                    9,
+                    skip_labels=("Notes for Reviewers:",),
+                ),
+                "for_students": _extract_column_pair_notes(
+                    rows,
+                    10,
+                    11,
+                    skip_labels=("Notes for Students:",),
+                ),
+            }
+        }
+        yield intake, rows, metadata
 
 
 def extract_program_sheet_header(

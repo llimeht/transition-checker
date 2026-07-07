@@ -20,6 +20,8 @@ from transitionchecker.core.offerings_output import (
     write_offerings_csv,
 )
 from transitionchecker.core.mapping_workbook import (
+    PlanNotes,
+    PlanMetadata,
     ProgramSheetHeader,
     correct_single_row_enrol_year_outliers,
     iter_plans,
@@ -49,6 +51,7 @@ class PlanExport(TypedDict):
     program: str
     career: str
     uoc: int
+    notes: PlanNotes
     courses: list[PlanCourse]
 
 
@@ -159,7 +162,11 @@ def _to_int(val: Any, default: int | None = None) -> int:
 
 
 def plan_to_dict(
-    sheet_name: str, intake: str, header: ProgramSheetHeader, plan: pd.DataFrame
+    sheet_name: str,
+    intake: str,
+    header: ProgramSheetHeader,
+    plan: pd.DataFrame,
+    metadata: PlanMetadata | None = None,
 ) -> PlanExport:
     """Serialize one plan DataFrame to JSON-ready structure.
 
@@ -200,6 +207,7 @@ def plan_to_dict(
         "career": header.get("career", ""),
         "uoc": int(header.get("uoc", 0)),
         "intake": intake,
+        "notes": (metadata or {"notes": {"graduate_outcome": "", "adjustment_type": "", "for_reviewers": [], "for_students": []}})["notes"],
         "courses": courses,
     }
 
@@ -210,6 +218,7 @@ def export_plan(
     header: ProgramSheetHeader,
     plan: pd.DataFrame,
     output_dir: Path,
+    metadata: PlanMetadata | None = None,
 ) -> Path | None:
     """Write one intake plan JSON file.
 
@@ -223,7 +232,7 @@ def export_plan(
     Returns:
         Generated file path, or None when the plan has no course rows.
     """
-    plan_dict = plan_to_dict(sheet_name, intake, header, plan)
+    plan_dict = plan_to_dict(sheet_name, intake, header, plan, metadata)
     if not plan_dict["courses"]:
         return None
     safe_name = f"{sheet_name}_{intake}".replace(" ", "_")
@@ -300,7 +309,7 @@ def main(argv: list[str] | None = None) -> int:
     for sheet_name, df in iter_program_sheets(dfs):
         logger.info(f"Processing sheet: {sheet_name}")
         header = extract_program_sheet_header(df)
-        for intake, plan in iter_plans(df):
+        for intake, plan, metadata in iter_plans(df):
             logger.info(f"  Intake {intake}")
             plan, corrections = correct_single_row_enrol_year_outliers(plan)
             for correction in corrections:
@@ -318,7 +327,14 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             offering = course_terms(plan)
             offerings.append(offering)
-            path = export_plan(sheet_name, intake, header, plan, output_dir_path)
+            path = export_plan(
+                sheet_name,
+                intake,
+                header,
+                plan,
+                output_dir_path,
+                metadata,
+            )
             if path is None:
                 logger.debug(f"  Skipped (no courses)")
             else:

@@ -71,7 +71,7 @@ def test_iter_plans_groups_blocks_and_skips_end_marker() -> None:
 
     plans = list(iter_plans(sheet))
 
-    assert [intake for intake, _ in plans] == ["2026 T1", "2026 T2"]
+    assert [intake for intake, _, _ in plans] == ["2026 T1", "2026 T2"]
     assert plans[0][1].to_dict("records") == [
         {
             "EnrolYear": "Y1",
@@ -84,18 +84,56 @@ def test_iter_plans_groups_blocks_and_skips_end_marker() -> None:
             "Prerequisites": "",
         }
     ]
-    assert plans[1][1].to_dict("records") == [
-        {
-            "EnrolYear": "Y1",
-            "Year": 2026,
-            "Period": "Term 2",
-            "CourseN": "Course 1",
-            "Code": "CEIC2000",
-            "Title": "Next",
-            "UoC": 6,
-            "Prerequisites": "",
-        }
-    ]
+    assert plans[0][2]["notes"] == {
+        "graduate_outcome": "",
+        "adjustment_type": "",
+        "for_reviewers": [],
+        "for_students": [],
+    }
+
+
+def test_iter_plans_extracts_notes_metadata() -> None:
+    sheet = pd.DataFrame(
+        [
+            [None] * 12,
+            [None] * 12,
+            [None] * 12,
+            [None] * 12,
+            ["Year 1", None, None, "2024 T2", None, None, None, None, None, "Late graduation", None, "Adjustment within standard load"],
+            ["Y1", 2024, "Term 2", "Course 1", "FOOD1120", "Food Science", 6, "", "Notes for Reviewers:", None, "Notes for Students:", None],
+            ["Y1", 2024, "Term 2", "Course 2", "MATH1131", "Math", 6, "", "Nucleus Study Guide 2024", None, "FOOD3801 has moved term", None],
+            ["Y1", 2024, "Term 3", "Course 1", "FOOD1130", "Manufacturing", 6, "", "FOOD3801 is no longer in T2", None, None, None],
+            [END_INTAKE_MARKER, None, None, None, None, None, None, None, None, None, None, None],
+        ],
+        columns=[
+            "EnrolYear",
+            "Year",
+            "Period",
+            "CourseN",
+            "Code",
+            "Title",
+            "UoC",
+            "Prerequisites",
+            "C9",
+            "C10",
+            "C11",
+            "C12",
+        ],
+    )
+
+    plans = list(iter_plans(sheet))
+
+    assert len(plans) == 1
+    _intake, _rows, metadata = plans[0]
+    assert metadata["notes"] == {
+        "graduate_outcome": "Late graduation",
+        "adjustment_type": "Adjustment within standard load",
+        "for_reviewers": [
+            "Nucleus Study Guide 2024",
+            "FOOD3801 is no longer in T2",
+        ],
+        "for_students": ["FOOD3801 has moved term"],
+    }
 
 
 def test_plan_has_exportable_content_rejects_placeholder_only_plan() -> None:

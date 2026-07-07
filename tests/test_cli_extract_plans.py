@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from transitionchecker.cli import extract_plans_cli
-from transitionchecker.core.mapping_workbook import ProgramSheetHeader
+from transitionchecker.core.mapping_workbook import PlanMetadata, ProgramSheetHeader
 
 
 def test_requires_excel_file_argument() -> None:
@@ -37,10 +37,28 @@ def test_main_runs_export_flow_and_writes_offerings(
     ) -> Iterator[tuple[str, pd.DataFrame]]:
         return iter([("Sheet1", pd.DataFrame())])
 
-    def fake_iter_plans(_df: pd.DataFrame) -> Iterator[tuple[str, pd.DataFrame]]:
+    def fake_iter_plans(
+        _df: pd.DataFrame,
+    ) -> Iterator[tuple[str, pd.DataFrame, PlanMetadata]]:
         # one intake with one row so downstream functions are called
         plan = pd.DataFrame([{"Code": "TEST1001", "Period": "Term 1"}])
-        return iter([("2026 T1", plan)])
+        metadata: PlanMetadata = {
+            "notes": {
+                "graduate_outcome": "",
+                "adjustment_type": "",
+                "for_reviewers": [],
+                "for_students": [],
+            }
+        }
+        return iter(
+            [
+                (
+                    "2026 T1",
+                    plan,
+                    metadata,
+                )
+            ]
+        )
 
     monkeypatch.setattr(extract_plans_cli, "iter_program_sheets", fake_iter_sheets)
     monkeypatch.setattr(extract_plans_cli, "iter_plans", fake_iter_plans)
@@ -57,6 +75,7 @@ def test_main_runs_export_flow_and_writes_offerings(
         _header: ProgramSheetHeader,
         _plan: pd.DataFrame,
         _output_dir: Path,
+        _metadata: PlanMetadata,
     ) -> Path:
         return out_dir / "p.json"
 
@@ -116,11 +135,29 @@ def test_main_skips_placeholder_only_plans_before_export(
     ) -> Iterator[tuple[str, pd.DataFrame]]:
         return iter([("Sheet1", pd.DataFrame())])
 
-    def fake_iter_plans(_df: pd.DataFrame) -> Iterator[tuple[str, pd.DataFrame]]:
+    def fake_iter_plans(
+        _df: pd.DataFrame,
+    ) -> Iterator[tuple[str, pd.DataFrame, PlanMetadata]]:
         plan = pd.DataFrame(
             [{"Code": "[TEST0001]", "Period": "Term 1", "CourseN": "Course 1"}]
         )
-        return iter([("2026 T1", plan)])
+        metadata: PlanMetadata = {
+            "notes": {
+                "graduate_outcome": "",
+                "adjustment_type": "",
+                "for_reviewers": [],
+                "for_students": [],
+            }
+        }
+        return iter(
+            [
+                (
+                    "2026 T1",
+                    plan,
+                    metadata,
+                )
+            ]
+        )
 
     monkeypatch.setattr(extract_plans_cli, "iter_program_sheets", fake_iter_sheets)
     monkeypatch.setattr(extract_plans_cli, "iter_plans", fake_iter_plans)
@@ -221,6 +258,42 @@ def test_plan_to_dict_skips_whitespace_code_rows() -> None:
     assert [course["code"] for course in payload["courses"]] == ["MATH1231"]
 
 
+def test_plan_to_dict_includes_notes_metadata() -> None:
+    plan = pd.DataFrame(
+        [
+            {
+                "EnrolYear": "Year 1",
+                "Year": 2028,
+                "Period": "Term 1",
+                "CourseN": "Course 1",
+                "Code": "MATH1231",
+                "Title": "Mathematics 1B",
+                "UoC": 6,
+                "Prerequisites": ".",
+            }
+        ]
+    )
+    header: ProgramSheetHeader = {
+        "program": "TEST1000",
+        "career": "Undergraduate",
+        "uoc": 48,
+    }
+    metadata: PlanMetadata = {
+        "notes": {
+            "graduate_outcome": "Late graduation",
+            "adjustment_type": "Adjustment within standard load",
+            "for_reviewers": ["Nucleus Study Guide 2024"],
+            "for_students": ["FOOD3801 has moved term"],
+        }
+    }
+
+    payload = extract_plans_cli.plan_to_dict(
+        "Sheet1", "2028 T1", header, plan, metadata
+    )
+
+    assert payload["notes"] == metadata["notes"]
+
+
 def test_course_terms_normalizes_mixed_case_codes() -> None:
     plan = pd.DataFrame(
         [
@@ -281,7 +354,9 @@ def test_main_corrects_single_row_enrol_year_outlier_and_warns(
     ) -> Iterator[tuple[str, pd.DataFrame]]:
         return iter([("Sheet1", pd.DataFrame())])
 
-    def fake_iter_plans(_df: pd.DataFrame) -> Iterator[tuple[str, pd.DataFrame]]:
+    def fake_iter_plans(
+        _df: pd.DataFrame,
+    ) -> Iterator[tuple[str, pd.DataFrame, PlanMetadata]]:
         plan = pd.DataFrame(
             [
                 {
@@ -326,7 +401,23 @@ def test_main_corrects_single_row_enrol_year_outlier_and_warns(
                 },
             ]
         )
-        return iter([("2028 S2", plan)])
+        metadata: PlanMetadata = {
+            "notes": {
+                "graduate_outcome": "",
+                "adjustment_type": "",
+                "for_reviewers": [],
+                "for_students": [],
+            }
+        }
+        return iter(
+            [
+                (
+                    "2028 S2",
+                    plan,
+                    metadata,
+                )
+            ]
+        )
 
     monkeypatch.setattr(extract_plans_cli, "iter_program_sheets", fake_iter_sheets)
     monkeypatch.setattr(extract_plans_cli, "iter_plans", fake_iter_plans)
@@ -342,6 +433,7 @@ def test_main_corrects_single_row_enrol_year_outlier_and_warns(
         _header: ProgramSheetHeader,
         plan: pd.DataFrame,
         _output_dir: Path,
+        _metadata: PlanMetadata,
     ) -> Path:
         exported_plans.append(plan.copy())
         return out_dir / "p.json"

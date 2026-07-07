@@ -171,7 +171,7 @@ def extract_template_configs_from_workbook(excel_path: Path) -> dict[str, Any]:
     )
 
     normalized_df = normalize_plan_sheet_columns(template_df)
-    for intake, plan in iter_plans(normalized_df):
+    for intake, plan, _metadata in iter_plans(normalized_df):
         if not intake:
             continue
         year_entries = build_year_structure(plan, intake)
