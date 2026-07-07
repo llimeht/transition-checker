@@ -14,6 +14,7 @@ from typing import Any, TypedDict
 import warnings
 
 import pandas as pd
+from transitionchecker.core.course_utils import normalize_course_code
 from transitionchecker.core.offerings_output import (
     format_offerings_summary,
     write_offerings_csv,
@@ -64,7 +65,7 @@ def course_terms(plan: pd.DataFrame) -> dict[str, set[str]]:
     for _, row in plan.iterrows():
         if pd.isna(row.Code):
             continue
-        code = str(row.Code).strip()
+        code = normalize_course_code(str(row.Code))
         if not code:
             continue
         offering[code].add(row.Period)
@@ -175,7 +176,7 @@ def plan_to_dict(
     for idx, row in plan.iterrows():
         if pd.isna(row["Code"]):
             continue
-        code = _to_string(row["Code"]).strip()
+        code = normalize_course_code(_to_string(row["Code"]))
         if not code:
             continue
         try:

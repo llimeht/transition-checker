@@ -221,6 +221,47 @@ def test_plan_to_dict_skips_whitespace_code_rows() -> None:
     assert [course["code"] for course in payload["courses"]] == ["MATH1231"]
 
 
+def test_course_terms_normalizes_mixed_case_codes() -> None:
+    plan = pd.DataFrame(
+        [
+            {"Code": "GenEd1", "Period": "Term 1"},
+            {"Code": "GENED1", "Period": "Term 2"},
+            {"Code": "  gened1  ", "Period": "Term 3"},
+            {"Code": "", "Period": "Term 1"},
+        ]
+    )
+
+    offering = extract_plans_cli.course_terms(plan)
+
+    assert dict(offering) == {"GENED1": {"Term 1", "Term 2", "Term 3"}}
+
+
+def test_plan_to_dict_normalizes_code_to_uppercase() -> None:
+    plan = pd.DataFrame(
+        [
+            {
+                "EnrolYear": "Year 1",
+                "Year": 2028,
+                "Period": "Term 1",
+                "CourseN": "Course 1",
+                "Code": "GenEd1",
+                "Title": "General Education",
+                "UoC": 6,
+                "Prerequisites": "",
+            }
+        ]
+    )
+    header: ProgramSheetHeader = {
+        "program": "TEST1000",
+        "career": "Undergraduate",
+        "uoc": 48,
+    }
+
+    payload = extract_plans_cli.plan_to_dict("Sheet1", "2028 T1", header, plan)
+
+    assert [course["code"] for course in payload["courses"]] == ["GENED1"]
+
+
 def test_main_corrects_single_row_enrol_year_outlier_and_warns(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
