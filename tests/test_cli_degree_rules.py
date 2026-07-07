@@ -119,6 +119,13 @@ def test_plan_report_json_includes_status_findings_warnings(
     assert "rule_failures" in payload
     assert "prerequisite_failures" in payload
     assert "unsupported_prerequisites" in payload
+    assert "notes" in payload
+    assert payload["notes"] == {
+        "graduate_outcome": "",
+        "adjustment_type": "",
+        "for_reviewers": [],
+        "for_students": [],
+    }
     assert any(w["code"] == "missing_rule_id" for w in payload["warnings"])
     assert "bucket_allocations" not in payload
     assert "shared_course_allocations" not in payload

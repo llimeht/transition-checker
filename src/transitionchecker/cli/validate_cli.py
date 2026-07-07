@@ -47,6 +47,29 @@ def _as_object_dict_list(value: object) -> list[dict[str, object]]:
     return dict_items
 
 
+def _normalize_notes(value: object) -> dict[str, object]:
+    """Return a stable notes object from report payloads."""
+
+    notes = _as_json_object(value)
+    if notes is None:
+        return {
+            "graduate_outcome": "",
+            "adjustment_type": "",
+            "for_reviewers": [],
+            "for_students": [],
+        }
+
+    reviewers_raw = notes.get("for_reviewers", [])
+    students_raw = notes.get("for_students", [])
+
+    return {
+        "graduate_outcome": str(notes.get("graduate_outcome", "") or ""),
+        "adjustment_type": str(notes.get("adjustment_type", "") or ""),
+        "for_reviewers": _as_object_list(reviewers_raw),
+        "for_students": _as_object_list(students_raw),
+    }
+
+
 def _should_skip_placeholder_plan(courses: list[dict[str, object]]) -> bool:
     """Return whether plan courses are empty or template placeholders only."""
 
@@ -358,6 +381,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         structured_findings = _as_object_dict_list(plan_report.get("findings", []))
         structured_warnings = _as_object_dict_list(plan_report.get("warnings", []))
+        report_notes = _normalize_notes(plan_report.get("notes", {}))
         plan_is_valid = (
             bool(plan_report.get("valid")) if plan_report else result.returncode == 0
         )
@@ -431,6 +455,7 @@ def main(argv: list[str] | None = None) -> int:
                     "unsupported_prerequisites": unsupported_prereqs,
                     "findings": structured_findings,
                     "warnings": structured_warnings,
+                    "notes": report_notes,
                     "offering_violations": offering_violations,
                 }
             )
@@ -457,6 +482,7 @@ def main(argv: list[str] | None = None) -> int:
             "unsupported_prerequisites": unsupported_prereqs,
             "findings": structured_findings,
             "warnings": structured_warnings,
+            "notes": report_notes,
             "offering_violations": offering_violations,
         }
         if rule_process_error_output:

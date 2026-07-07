@@ -2525,6 +2525,28 @@ def run_rules_command(
 
     logger = logging.getLogger(__name__)
 
+    def _normalize_plan_notes(value: Any) -> dict[str, Any]:
+        notes_obj: dict[str, Any] = cast(dict[str, Any], value) if isinstance(value, dict) else {}
+
+        graduate_outcome: Any = notes_obj.get("graduate_outcome", "")
+        adjustment_type: Any = notes_obj.get("adjustment_type", "")
+
+        for_reviewers_raw: Any = notes_obj.get("for_reviewers", [])
+        for_students_raw: Any = notes_obj.get("for_students", [])
+
+        reviewers_items: list[Any] = for_reviewers_raw if isinstance(for_reviewers_raw, list) else [] # pyright: ignore[reportUnknownVariableType]
+        students_items: list[Any] = for_students_raw if isinstance(for_students_raw, list) else [] # pyright: ignore[reportUnknownVariableType]
+
+        for_reviewers = [str(item) for item in reviewers_items]
+        for_students = [str(item) for item in students_items]
+
+        return {
+            "graduate_outcome": str(graduate_outcome) if graduate_outcome else "",
+            "adjustment_type": str(adjustment_type) if adjustment_type else "",
+            "for_reviewers": for_reviewers,
+            "for_students": for_students,
+        }
+
     try:
         with open(command.rules_file, "r", encoding="utf-8") as handle:
             raw_config = json.load(handle)
@@ -2667,6 +2689,7 @@ def run_rules_command(
                 "unsupported_prerequisites": prereq_unsupported,
                 "findings": all_findings,
                 "warnings": warnings,
+                "notes": _normalize_plan_notes(cast(dict[str, Any], plan_data).get("notes", {})),
             }
             if command.plan_report_allocations:
                 allocation_report = bucket_allocations or {}

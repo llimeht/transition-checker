@@ -102,6 +102,12 @@ def test_main_filters_plan_files_by_glob(
                 "prerequisite_failures": [],
                 "unsupported_prerequisites": [],
                 "findings": [],
+                "notes": {
+                    "graduate_outcome": "Late graduation",
+                    "adjustment_type": "Adjustment within standard load",
+                    "for_reviewers": ["Nucleus Study Guide 2024"],
+                    "for_students": ["FOOD3801 has moved term"],
+                },
             }
             return subprocess.CompletedProcess(
                 args=cmd,
@@ -151,6 +157,12 @@ def test_main_filters_plan_files_by_glob(
     )
     assert report["summary"]["total_plan_files"] == 1
     assert [result["plan_file"] for result in report["results"]] == [str(filtered_plan)]
+    assert report["results"][0]["notes"] == {
+        "graduate_outcome": "Late graduation",
+        "adjustment_type": "Adjustment within standard load",
+        "for_reviewers": ["Nucleus Study Guide 2024"],
+        "for_students": ["FOOD3801 has moved term"],
+    }
 
 
 def test_main_collects_structured_findings_when_legacy_lists_empty(
