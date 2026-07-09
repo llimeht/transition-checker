@@ -44,6 +44,7 @@ from transitionchecker.erg_parser import (
     ErgParseResult,
     ErgRow,
     build_prerequisites_field,
+    build_erg_expr,
     parse_erg_group,
 )
 import warnings
@@ -206,6 +207,7 @@ def _process_df(
             # Fall back to the human-readable ERG Description.
             prerequisites = description
             source = "fallback"
+            erg_expr_value = None
             fallback_entries.append({
                 "erg_id": erg_id,
                 "career": career,
@@ -222,6 +224,7 @@ def _process_df(
         else:
             prerequisites = build_prerequisites_field(result)
             source = "parsed"
+            erg_expr_value = build_erg_expr(sorted_rows)
 
         if not prerequisites:
             logger.warning(
@@ -244,6 +247,8 @@ def _process_df(
                     "erg_detail_lines": [r.detail_text.strip() for r in sorted_rows],
                     "erg_source": source,
                 }
+            if erg_expr_value is not None:
+                record["erg_expr"] = erg_expr_value
             records.append(record)
             logger.info(
                 "  %s (%s) ERG %s [%s]: %s",

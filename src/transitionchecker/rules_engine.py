@@ -7,7 +7,7 @@ import logging
 import re
 from collections import Counter
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NotRequired, TextIO, TypedDict, cast
 
@@ -21,6 +21,11 @@ from transitionchecker.core.catalogue import (
 )
 from transitionchecker.prereq_engine import (
     parse_prerequisite_field,
+)
+from transitionchecker.erg_parser import (
+    ErgExpr,
+    _match_erg_pattern,
+    rule_exprs_to_erg_expr,
 )
 
 
@@ -95,6 +100,7 @@ class ScheduledPlanCourse:
     course_rank: int
     uoc: int
     prerequisites: str
+    erg_expr: ErgExpr | None = field(default=None, compare=False, hash=False, repr=False)
 
 
 @dataclass
@@ -131,6 +137,98 @@ _OVER_DOUBLE_COUNT_LIMIT_KEY = "over-double-count-limit"
 
 def _is_placeholder_min_from(node: dict[str, Any]) -> bool:
     return set(node.keys()) == {"min", "from", "placeholder"}
+
+
+# ---------------------------------------------------------------------------
+# Unified ErgExpr evaluator
+# ---------------------------------------------------------------------------
+
+def evaluate_erg_expression(
+    expr: ErgExpr,
+    prior_courses: Counter[str],
+    coreq_courses: Counter[str],
+    prior_uoc: int,
+    course_uoc: dict[str, int] | None = None,
+) -> bool:
+    """Evaluate a structured :data:`ErgExpr` tree against the student's history.
+
+    Parameters
+    ----------
+    expr:
+        The expression to evaluate.
+    prior_courses:
+        Courses completed *before* the current teaching period, after
+        equivalences and RPL have been applied (a ``Counter``).
+    coreq_courses:
+        ``prior_courses`` extended with courses in the *current* period, after
+        equivalences and RPL.  Used only for ``coreq``/``coreq_pattern`` leaves.
+    prior_uoc:
+        Total UoC from all completed prior periods.
+    course_uoc:
+        Optional mapping of course code → UoC, used to compute filtered UoC
+        sums for ``{"uoc": N, "restriction": P}`` leaves.  When absent, the
+        restriction is evaluated against *prior_uoc* directly (conservative).
+    """
+    # ── Combinators ──────────────────────────────────────────────────────────
+    if "and" in expr:
+        return all(
+            evaluate_erg_expression(child, prior_courses, coreq_courses, prior_uoc, course_uoc)
+            for child in cast(list[ErgExpr], expr["and"])
+        )
+    if "or" in expr:
+        return any(
+            evaluate_erg_expression(child, prior_courses, coreq_courses, prior_uoc, course_uoc)
+            for child in cast(list[ErgExpr], expr["or"])
+        )
+
+    # ── Condition (ignorable) ─────────────────────────────────────────────────
+    if "condition" in expr:
+        return True
+
+    # ── Course prerequisite ───────────────────────────────────────────────────
+    if "prereq" in expr:
+        code = cast(str, expr["prereq"])
+        return code in prior_courses
+
+    # ── Course corequisite ────────────────────────────────────────────────────
+    if "coreq" in expr:
+        code = cast(str, expr["coreq"])
+        return code in coreq_courses
+
+    # ── Pattern prerequisite ──────────────────────────────────────────────────
+    if "prereq_pattern" in expr:
+        pattern = cast(str, expr["prereq_pattern"])
+        return any(_match_erg_pattern(pattern, c) for c in prior_courses)
+
+    # ── Pattern corequisite ───────────────────────────────────────────────────
+    if "coreq_pattern" in expr:
+        pattern = cast(str, expr["coreq_pattern"])
+        return any(_match_erg_pattern(pattern, c) for c in coreq_courses)
+
+    # ── UoC maturity ──────────────────────────────────────────────────────────
+    if "uoc" in expr:
+        threshold = cast(int, expr["uoc"])
+        restriction = cast(str, expr.get("restriction", ""))
+        if restriction and course_uoc is not None:
+            total = sum(
+                uoc
+                for code, uoc in course_uoc.items()
+                if code in prior_courses and _match_erg_pattern(restriction, code)
+            )
+            return total >= threshold
+        # No restriction or no UoC map — fall back to total prior UoC
+        return prior_uoc >= threshold
+
+    # ── min/from (from text-parser path) ────────────────────────────────────
+    if "min" in expr and "from" in expr:
+        min_count = cast(int, expr["min"])
+        satisfied = sum(
+            int(evaluate_erg_expression(child, prior_courses, coreq_courses, prior_uoc, course_uoc))
+            for child in cast(list[ErgExpr], expr["from"])
+        )
+        return satisfied >= min_count
+
+    return False  # Unknown node shape — conservatively unsatisfied
 
 
 def _validate_placeholder_code(value: Any, path: str) -> str:
@@ -479,6 +577,49 @@ def _collect_missing_atoms(
     return [expression_to_text(expr)]
 
 
+def _collect_missing_erg_atoms(
+    expr: ErgExpr,
+    prior_courses: Counter[str],
+    coreq_courses: Counter[str],
+    prior_uoc: int,
+    coreq_uoc: int,
+    course_uoc: dict[str, int] | None,
+) -> list[tuple[str, str]]:
+    """Return ``(kind, atom_str)`` pairs for failing leaves in *expr*.
+
+    ``kind`` is ``"prereq"`` or ``"coreq"``.  Only called when *expr* as a
+    whole has already been found to fail.
+    """
+    if "condition" in expr:
+        return []  # conditions always pass; never a failure source
+
+    if "and" in expr:
+        result: list[tuple[str, str]] = []
+        for child in cast(list[ErgExpr], expr["and"]):
+            if not evaluate_erg_expression(child, prior_courses, coreq_courses, prior_uoc, course_uoc):
+                result.extend(_collect_missing_erg_atoms(child, prior_courses, coreq_courses, prior_uoc, coreq_uoc, course_uoc))
+        return result
+
+    if "or" in expr:
+        # Whole OR failed — report as a single synthetic oneof atom
+        return [("prereq", "__ONEOF__")]
+
+    if "prereq" in expr:
+        return [("prereq", cast(str, expr["prereq"]))]
+    if "coreq" in expr:
+        return [("coreq", cast(str, expr["coreq"]))]
+    if "prereq_pattern" in expr:
+        return [("prereq", cast(str, expr["prereq_pattern"]))]
+    if "coreq_pattern" in expr:
+        return [("coreq", cast(str, expr["coreq_pattern"]))]
+    if "uoc" in expr:
+        threshold = cast(int, expr["uoc"])
+        return [("prereq", f"{threshold}uoc")]
+    if "min" in expr and "from" in expr:
+        return [("prereq", "__ONEOF__")]
+    return [("prereq", "__ONEOF__")]
+
+
 def validate_scheduled_prerequisites(
     courses: list[ScheduledPlanCourse],
     rpl_courses: Counter[str] | None = None,
@@ -543,11 +684,72 @@ def validate_scheduled_prerequisites_detailed(
 
         oneof_index_by_course: dict[tuple[str, str], int] = {}
 
+        # Pre-compute the UoC map and expanded prior-courses counter once per
+        # period group — both are the same for every course in the group.
+        _period_course_uoc_map: dict[str, int] = {c.code: c.uoc for c in courses[:group_start]}
+        _period_prior_exp = _apply_equivalences(prior_courses, _equivalences)
+        _period_prior_exp.update(_rpl_courses)
+
         for current in group_courses:
+            course_label = f"{current.code} ({current.year} {current.period})"
+
+            if current.erg_expr is not None:
+                # ── ERG-sourced: evaluate structured expression directly ────────
+                _coreq_base = Counter(coreq_base)
+                if _coreq_base[current.code] > 0:
+                    _coreq_base[current.code] -= 1
+                    if _coreq_base[current.code] <= 0:
+                        del _coreq_base[current.code]
+                _coreq_exp = _apply_equivalences(_coreq_base, _equivalences)
+                _coreq_exp.update(_rpl_courses)
+                _coreq_uoc = prior_uoc + group_uoc - current.uoc
+
+                if not evaluate_erg_expression(
+                    current.erg_expr, _period_prior_exp, _coreq_exp, prior_uoc, _period_course_uoc_map
+                ):
+                    missing_erg = _collect_missing_erg_atoms(
+                        current.erg_expr, _period_prior_exp, _coreq_exp,
+                        prior_uoc, _coreq_uoc, _period_course_uoc_map,
+                    )
+                    for kind, atom in missing_erg:
+                        if atom == "__ONEOF__":
+                            key_erg = (kind, current.code)
+                            next_erg_idx = oneof_index_by_course.get(key_erg, 0) + 1
+                            oneof_index_by_course[key_erg] = next_erg_idx
+                            atom = f"oneof{next_erg_idx}"
+                            findings.append(
+                                {
+                                    "failure_id": f"{kind}:{current.code}>{atom}",
+                                    "kind": kind,
+                                    "message": f"{course_label}: one of several options required",
+                                    "overrideable": True,
+                                    "accepted": False,
+                                }
+                            )
+                        else:
+                            sep = ">=" if kind == "coreq" else ">"
+                            findings.append(
+                                {
+                                    "failure_id": f"{kind}:{current.code}{sep}{atom}",
+                                    "kind": kind,
+                                    "message": (
+                                        f"{course_label}: missing {atom} (has {prior_uoc}uoc)"
+                                        if _MISSING_UOC_ATOM_RE.fullmatch(atom)
+                                        else f"{course_label}: missing {atom}"
+                                    ),
+                                    "overrideable": True,
+                                    "accepted": False,
+                                }
+                            )
+                    if missing_erg:
+                        failures.append(
+                            f"[Prerequisite/Corequisite] {course_label}: requirement not met"
+                        )
+                continue  # skip text-parser block below
+
             prereq_expr, coreq_expr, unsupported_reason = parse_prerequisite_field(
                 current.prerequisites
             )
-            course_label = f"{current.code} ({current.year} {current.period})"
 
             if unsupported_reason:
                 unsupported_msg = f"{course_label}: {unsupported_reason}; raw='{current.prerequisites.strip()}'"
@@ -805,6 +1007,7 @@ def extract_scheduled_courses(
         if catalogue_entry is not None:
             uoc = catalogue_entry.uoc
             prerequisites = catalogue_entry.prerequisites
+            erg_expr_for_course = catalogue_entry.erg_expr
         else:
             uoc = _parse_int_like(course_record.get("uoc"), f"plan.courses[{idx}].uoc")
 
@@ -812,6 +1015,7 @@ def extract_scheduled_courses(
             prerequisites = (
                 raw_prerequisites if isinstance(raw_prerequisites, str) else ""
             )
+            erg_expr_for_course = None
 
         scheduled_courses.append(
             ScheduledPlanCourse(
@@ -823,6 +1027,7 @@ def extract_scheduled_courses(
                 course_rank=_course_rank(course_n),
                 uoc=uoc,
                 prerequisites=prerequisites,
+                erg_expr=erg_expr_for_course,
             )
         )
 

@@ -386,6 +386,7 @@ def apply_catalogue_overrides(
     def build_entry(
         key: CatalogueKey,
         fields: dict[str, Any],
+        erg_expr: Any = None,
     ) -> CatalogueEntry:
         return CatalogueEntry(
             code=_normalize_course_code(str(fields.get("code") or key.code)),
@@ -398,6 +399,7 @@ def apply_catalogue_overrides(
                 else ""
             ),
             level=(str(fields["level"]) if fields.get("level") is not None else None),
+            erg_expr=erg_expr if isinstance(erg_expr, dict) else None,
         )
 
     new_entries: list[CatalogueEntry] = []
@@ -419,7 +421,10 @@ def apply_catalogue_overrides(
         for k, v in override.items():
             if k not in _OVERRIDE_METADATA_KEYS and k in fields:
                 fields[k] = v
-        new_entries.append(build_entry(entry.key, fields))
+        # erg_expr comes from the override (ERG-sourced entries) or the existing entry
+        erg_expr_from_override = override.get("erg_expr")
+        new_erg_expr = erg_expr_from_override if isinstance(erg_expr_from_override, dict) else entry.erg_expr
+        new_entries.append(build_entry(entry.key, fields, new_erg_expr))
 
     for key, override in overrides.items():
         if key in seen_keys:
@@ -429,7 +434,8 @@ def apply_catalogue_overrides(
             for field_name, value in override.items()
             if field_name not in _OVERRIDE_METADATA_KEYS
         }
-        new_entries.append(build_entry(key, fields))
+        erg_expr_new = override.get("erg_expr")
+        new_entries.append(build_entry(key, fields, erg_expr_new))
 
     return Catalogue(new_entries)
 

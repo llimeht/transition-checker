@@ -16,8 +16,10 @@ JSON format
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterable, Iterator, TextIO, cast
+
+from transitionchecker.erg_parser import ErgExpr
 
 
 def _normalize_code(code: str) -> str:
@@ -67,6 +69,12 @@ class CatalogueEntry:
     uoc: int = 6
     prerequisites: str = ""
     level: str | None = None
+    erg_expr: ErgExpr | None = field(default=None, compare=False, hash=False, repr=False)
+    """Pre-parsed structured expression built from ERG Requisite Detail rows.
+    When set, :func:`~transitionchecker.rules_engine.evaluate_erg_expression`
+    is used directly and ``prerequisites`` is not passed through
+    ``parse_prerequisite_field``.  ``None`` for all non-ERG-sourced entries.
+    """
 
     @property
     def key(self) -> CatalogueKey:
@@ -134,8 +142,9 @@ class Catalogue:
 
     def to_list(self) -> list[dict[str, Any]]:
         """Serialise to a JSON-compatible list of dicts."""
-        return [
-            {
+        result: list[dict[str, Any]] = []
+        for e in self._index.values():
+            entry_dict: dict[str, Any] = {
                 "code": e.code,
                 "title": e.title,
                 "career": e.career,
@@ -143,8 +152,10 @@ class Catalogue:
                 "prerequisites": e.prerequisites,
                 "level": e.level,
             }
-            for e in self._index.values()
-        ]
+            if e.erg_expr is not None:
+                entry_dict["erg_expr"] = e.erg_expr
+            result.append(entry_dict)
+        return result
 
     @classmethod
     def from_list(cls, data: list[object]) -> "Catalogue":
@@ -169,6 +180,8 @@ class Catalogue:
             prerequisites = str(item.get("prerequisites") or "").strip()
             level_raw = item.get("level")
             level = str(level_raw).strip() if level_raw is not None else None
+            erg_expr_raw = item.get("erg_expr")
+            erg_expr = erg_expr_raw if isinstance(erg_expr_raw, dict) else None
             entries.append(
                 CatalogueEntry(
                     code=code,
@@ -177,6 +190,7 @@ class Catalogue:
                     uoc=uoc,
                     prerequisites=prerequisites,
                     level=level,
+                    erg_expr=erg_expr,
                 )
             )
         return cls(entries)
