@@ -20,6 +20,7 @@ from transitionchecker.rules_engine import (
     validate_rules_config,
 )
 from transitionchecker.prereq_engine import parse_prerequisite_field
+from transitionchecker.erg_parser import ErgExpr
 from transitionchecker.core import (
     Catalogue,
     CatalogueEntry,
@@ -399,7 +400,7 @@ def apply_catalogue_overrides(
                 else ""
             ),
             level=(str(fields["level"]) if fields.get("level") is not None else None),
-            erg_expr=erg_expr if isinstance(erg_expr, dict) else None,
+            erg_expr=cast(ErgExpr, erg_expr) if isinstance(erg_expr, dict) else None,
         )
 
     new_entries: list[CatalogueEntry] = []
@@ -423,7 +424,7 @@ def apply_catalogue_overrides(
                 fields[k] = v
         # erg_expr comes from the override (ERG-sourced entries) or the existing entry
         erg_expr_from_override = override.get("erg_expr")
-        new_erg_expr = erg_expr_from_override if isinstance(erg_expr_from_override, dict) else entry.erg_expr
+        new_erg_expr = cast(ErgExpr, erg_expr_from_override) if isinstance(erg_expr_from_override, dict) else entry.erg_expr
         new_entries.append(build_entry(entry.key, fields, new_erg_expr))
 
     for key, override in overrides.items():
@@ -435,7 +436,7 @@ def apply_catalogue_overrides(
             if field_name not in _OVERRIDE_METADATA_KEYS
         }
         erg_expr_new = override.get("erg_expr")
-        new_entries.append(build_entry(key, fields, erg_expr_new))
+        new_entries.append(build_entry(key, fields, cast(ErgExpr, erg_expr_new) if isinstance(erg_expr_new, dict) else None))
 
     return Catalogue(new_entries)
 

@@ -181,7 +181,7 @@ class Catalogue:
             level_raw = item.get("level")
             level = str(level_raw).strip() if level_raw is not None else None
             erg_expr_raw = item.get("erg_expr")
-            erg_expr = erg_expr_raw if isinstance(erg_expr_raw, dict) else None
+            erg_expr = cast(ErgExpr, erg_expr_raw) if isinstance(erg_expr_raw, dict) else None
             entries.append(
                 CatalogueEntry(
                     code=code,

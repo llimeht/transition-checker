@@ -540,7 +540,7 @@ def build_prerequisites_field(result: ErgParseResult) -> str:
 _PATTERN_REGEX_CACHE: dict[str, re.Pattern[str]] = {}
 
 
-def _match_erg_pattern(pattern: str, course_code: str) -> bool:
+def match_erg_pattern(pattern: str, course_code: str) -> bool:
     """Return True if *course_code* matches the ERG course pattern.
 
     ``#`` is treated as a single digit wildcard; all other characters must
@@ -803,20 +803,21 @@ def _wrap_rule_expr(expr: Any, kind: str) -> ErgExpr:
     if not isinstance(expr, dict):
         return {"condition": str(expr)}
 
-    if "uoc" in expr and len(expr) == 1:
-        return {"uoc": cast(int, expr["uoc"])}
+    d = cast(dict[str, Any], expr)
+    if "uoc" in d and len(d) == 1:
+        return {"uoc": cast(int, d["uoc"])}
 
     for op in ("and", "or"):
-        if op in expr:
-            children = [_wrap_rule_expr(c, kind) for c in cast(list[Any], expr[op])]
+        if op in d:
+            children = [_wrap_rule_expr(c, kind) for c in cast(list[Any], d[op])]
             return {op: children}
 
-    if "min" in expr and "from" in expr:
-        children = [_wrap_rule_expr(c, kind) for c in cast(list[Any], expr["from"])]
-        return {"min": expr["min"], "from": children}
+    if "min" in d and "from" in d:
+        children = [_wrap_rule_expr(c, kind) for c in cast(list[Any], d["from"])]
+        return {"min": d["min"], "from": children}
 
     # Unknown shape — treat as condition (ignorable)
-    return {"condition": str(expr)}
+    return {"condition": str(d)}
 
 
 def rule_exprs_to_erg_expr(

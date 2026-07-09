@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from transitionchecker.erg_parser import (
     ErgRow,
     build_erg_expr,
     rule_exprs_to_erg_expr,
-    _match_erg_pattern, # pyright: ignore[reportPrivateUsage]
+    match_erg_pattern,
 )
 
 
@@ -25,23 +27,23 @@ def rows(*lines: tuple[str, str, str]) -> list[ErgRow]:
 
 class TestMatchErgPattern:
     def test_exact_match(self) -> None:
-        assert _match_erg_pattern("CEIC3004", "CEIC3004")
+        assert match_erg_pattern("CEIC3004", "CEIC3004")
 
     def test_case_insensitive(self) -> None:
-        assert _match_erg_pattern("ceic3004", "CEIC3004")
+        assert match_erg_pattern("ceic3004", "CEIC3004")
 
     def test_hash_wildcards_all(self) -> None:
-        assert _match_erg_pattern("JURD####", "JURD7001")
-        assert _match_erg_pattern("JURD####", "JURD1234")
-        assert not _match_erg_pattern("JURD####", "JURD7")
+        assert match_erg_pattern("JURD####", "JURD7001")
+        assert match_erg_pattern("JURD####", "JURD1234")
+        assert not match_erg_pattern("JURD####", "JURD7")
 
     def test_mixed_hash_and_digits(self) -> None:
-        assert _match_erg_pattern("COMP3###", "COMP3021")
-        assert _match_erg_pattern("COMP3###", "COMP3999")
-        assert not _match_erg_pattern("COMP3###", "COMP2021")
+        assert match_erg_pattern("COMP3###", "COMP3021")
+        assert match_erg_pattern("COMP3###", "COMP3999")
+        assert not match_erg_pattern("COMP3###", "COMP2021")
 
     def test_no_partial_match(self) -> None:
-        assert not _match_erg_pattern("MDIA68##", "MDIA6800X")
+        assert not match_erg_pattern("MDIA68##", "MDIA6800X")
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +222,7 @@ class TestRuleExprsToErgExpr:
         assert r == {"uoc": 48}
 
     def test_nested_and_or(self) -> None:
-        rule = {"or": [{"and": ["A1234", "B5678"]}, "C9012"]}
+        rule: dict[str, Any] = {"or": [{"and": ["A1234", "B5678"]}, "C9012"]}
         r = rule_exprs_to_erg_expr(rule, None)
         assert r == {"or": [
             {"and": [{"prereq": "A1234"}, {"prereq": "B5678"}]},

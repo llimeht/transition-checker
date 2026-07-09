@@ -24,8 +24,7 @@ from transitionchecker.prereq_engine import (
 )
 from transitionchecker.erg_parser import (
     ErgExpr,
-    _match_erg_pattern,
-    rule_exprs_to_erg_expr,
+    match_erg_pattern,
 )
 
 
@@ -101,6 +100,9 @@ class ScheduledPlanCourse:
     uoc: int
     prerequisites: str
     erg_expr: ErgExpr | None = field(default=None, compare=False, hash=False, repr=False)
+    """Pre-parsed :data:`~transitionchecker.erg_parser.ErgExpr` from the
+    catalogue.  When set, the validator bypasses ``parse_prerequisite_field``
+    entirely and evaluates this expression directly."""
 
 
 @dataclass
@@ -198,12 +200,12 @@ def evaluate_erg_expression(
     # ── Pattern prerequisite ──────────────────────────────────────────────────
     if "prereq_pattern" in expr:
         pattern = cast(str, expr["prereq_pattern"])
-        return any(_match_erg_pattern(pattern, c) for c in prior_courses)
+        return any(match_erg_pattern(pattern, c) for c in prior_courses)
 
     # ── Pattern corequisite ───────────────────────────────────────────────────
     if "coreq_pattern" in expr:
         pattern = cast(str, expr["coreq_pattern"])
-        return any(_match_erg_pattern(pattern, c) for c in coreq_courses)
+        return any(match_erg_pattern(pattern, c) for c in coreq_courses)
 
     # ── UoC maturity ──────────────────────────────────────────────────────────
     if "uoc" in expr:
@@ -213,7 +215,7 @@ def evaluate_erg_expression(
             total = sum(
                 uoc
                 for code, uoc in course_uoc.items()
-                if code in prior_courses and _match_erg_pattern(restriction, code)
+                if code in prior_courses and match_erg_pattern(restriction, code)
             )
             return total >= threshold
         # No restriction or no UoC map — fall back to total prior UoC
