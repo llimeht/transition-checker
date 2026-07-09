@@ -331,7 +331,107 @@ Important warnings:
 - If both contain an override for the same `code` and `career`, the school-local file wins.
 - Rather than editing by hand, you can use the `add-overrides` tool.
 
-## 6. Offerings file
+## 6. Prerequisite (ERG) expression files
+
+The `erg_expr` stored per course is a JSON tree with typed leaf nodes:
+
+| Leaf                                        | Meaning                                          |
+|---------------------------------------------|--------------------------------------------------|
+| `{"prereq": "CEIC3004"}`                    | Course must be completed before                  |
+| `{"coreq": "CEIC3007"}`                     | Course may be taken in the same term             |
+| `{"prereq_pattern": "JURD####"}`            | Any JURD course at any level; # is any digit     |
+| `{"uoc": 48}`                               | Total prior UoC ≥ 48                             |
+| `{"uoc": 72, "restriction": "JURD####"}`    | ≥ 72 UoC from matching courses                   |
+| `{"condition": "Enrolment in ..."}`         | Enrolment restriction — always passes validation |
+
+Combined with `{"and": [...]}` / `{"or": [...]}` at any nesting depth.
+
+For entries where the ERG data cannot be fully parsed (e.g. complex external requirement
+table references), the tool falls back to the human-readable ERG Description text which is
+then processed by the standard `parse_prerequisite_field` parser.
+
+## 7. Hand-written Prerequisite Field Syntax (for Overrides)
+
+Plan and catalogue `prerequisites` fields are parsed with a strict token-based
+grammar in the rules engine. There are lots of quite interesting things written in the
+handbook that cannot be supported by this tool and it can only possibly implement
+course-level constraints, not constraints based on program, specialisation, or marks in other courses.
+
+Supported syntax is:
+
+- course code tokens matching `[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?` (i.e. `ABC1234` but also some variations as needed like `ABC1234-special`, or `ABCDES-RPL`)
+- UOC tokens like `120 UOC` (case-insensitive), interpreted as minimum UoC required to take a course
+- boolean operators `AND` and `OR` (case-insensitive).
+- parentheses for grouping
+- `PLUS` between clauses; each `PLUS` segment is combined as `AND`
+- co-requisite split markers: `COREQ...` or `CO-REQ...` (with optional `:`)
+
+Operator precedence is `AND` before `OR`.
+
+Normalisation rules applied before parsing:
+
+- `&` and `,` are treated as `AND`
+- `;` and `.` are treated as separators between separate sets of conditions.
+- `COMPLETION OF` is ignored
+- blank values, `.`, and `0` are treated as no prerequisite
+
+Examples:
+
+- `CEIC2001, CEIC2002`  (equivalent to `CEIC2001 AND CEIC2002`)
+- `CEIC2005 AND (CEIC3004 OR CHEM2021)`
+- `CEIC2001 PLUS COMPLETION OF 96 UOC` (completion of CEIC2001 and a maturity rule of 96 UoC completed)
+- `MATH1231. COREQ: PHYS1121` (prereq on MATH1231 and a coreq on PHYS1121)
+
+Any prerequisite text that cannot be tokenised with this grammar is reported
+as an unsupported prerequisite in validation output; it is skipped when trying
+to apply the rules. Requirements that exist in the handbook that are known to be
+unsupported in the *text parser* include:
+
+- Must be enrolled in program 9999; Admission to program 9999.
+- Enrolment in a ABCD major
+- Must have completed at least XX UoC in program 9999; completed at least XX UoC of School of XYZ courses; completed at least XX UoC of ABCD (prefix) courses
+- Must have a WAM of XX or above
+- Only single and double degree School of XYZ students
+- This course is by application only
+- Enrolled in the final term of the program
+- Minimum mark of XX in ABCD1234
+- Must have completed XYZ test.
+
+Many of these are handled correctly when the ERG structured data is used instead
+(see **Import structured prerequisite data from the ERG report** above).
+In particular, complex groupings, mixed prereq/coreq, maturity requirements,
+programme enrolment conditions, and course-pattern restrictions are all supported
+in the ERG expression tree.
+
+ Mixing these types of requirements in with an otherwise simple prerequisite expression might cause the entire field to be ignored.
+
+ (We believe that some of these maturity requirements also cannot be implemented by UNSW's own systems.)
+
+### Validating syntax and interpretation of prereq fields
+
+There are two tools to use to look at the prereq parser performance
+
+```bash
+extract-template plans/CEIC/CEIC_Sequences.xlsx \
+  --lint --lint-output catalogue-prereq-lint.json
+```
+
+Extract all prerequisite strings from the catalogue and the current parser result for each one.
+This can be kept as a baseline and compared in future parser-change work.
+
+```bash
+extract-template plans/CEIC/CEIC_Sequences.xlsx \
+  --prereq-snapshot-output plans/prereq-snapshot-baseline.json
+```
+
+The snapshot contains:
+
+- metadata (source catalogue path, generation timestamp, entry count, parser marker)
+- one entry per course with raw `prerequisites`, parsed `prereq_expr`, parsed `coreq_expr`, and parser `error`, and some `salvage` keys that show partial parser recovery information and classification.
+
+See also the linting scripts in the `tools` directory.
+
+## 7. Offerings file
 
 Purpose:
 

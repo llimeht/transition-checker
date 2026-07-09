@@ -63,6 +63,7 @@ Once you have installed the package and obtained the spreadsheet template, you w
 transition-checker/
 ├── plans/
 │   ├── catalogue.json                             ← extracted from the Handbook Course Catalogue sheet in your spreadsheet
+│   ├── course_catalogue_ergs.json                 ← structured prereqs from STU055 ERG report; see "import-erg"
 │   ├── offerings.json                             ← known offerings of courses; see "add-offerings"
 │   └── CEIC/                                      ← school or specialisation folder you are working in
 │       ├── CEIC_Sequences.xlsx                    ← your spreadsheet
@@ -351,11 +352,54 @@ add-offerings plans/offerings.json --show 'CEIC*'
 add-offerings plans/offerings.json --show 'CEIC*' --output offerings.csv
 ```
 
-### Override an prerequisite information in the catalogue
+### Prerequisite information
 
-Some handbook prerequisite strings are so ambiguous or malformed that the parser cannot handle them at all.
-Where the *intent* is clear enough to express as a valid prerequisite expression, you can add a catalogue override instead of trying to patch the parser.
-You may also want to change prerequisite information in catalogue from what is currently approved based on changes that you know will be made.
+Prerequisite information is obtained from 3 sources and layered in the following order:
+
+- the planning spreadsheet contains data from the STU054 report. The JSON plan files and the `plans/catalogue.json` file that are is extracted from it therefore also contain these data. This is the lowest priority source of prerequisite information.
+- the `plans/course_catalogue_ergs.json` file contains structured prerequisite information extracted from the STU055 ERG report. This is the middle priority source of prerequisite information (and in practice should override the prereq information for almost every course). This file must be manually obtained (see below).
+- the `plans/catalogue_overrides.json` file contains overrides that are manually added to the catalogue via the `add-overrides` command; it is recommended that you do not use this source.
+- the "Local Course Overrides" sheet in the spreadsheet (as extracted into the `plans/CEIC/catalogue_overrides.json` file) contains overrides that are manually added to the catalogue; this is the highest priority source of prerequisite information.
+
+The `plans/course_catalogue_ergs.json` file contains coded data that reflects the actual implementation of the prerequisite rules in SiMS for *almost* all prerequisite relationships; the other files contain human-generated text that needs to be interpreted by the parser in these tools. If you are overriding prerequisite information that is a simple set of course codes, then write them with `(`, `)`, `AND`, `OR` and it will likely parse correctly.
+
+#### Import structured prerequisite data from the ERG report (STU055)
+
+The original tracking spreadsheet contains a column of prerequisite text copied
+from the STU054 report. This text is often ambiguous, malformed, or otherwise
+impossible to parse correctly and is not the authoritative prereq information in any case.
+The STU055 ERG report contains a machine-readable version of most of the prerequisite
+information that is much more reliable.
+
+It is recommended that you obtain the STU055 data and feed that to these tools.
+This can be done from the report yourself in spreadsheet format or by obtaining the
+parsed data in `json` format.
+
+The `import-erg` command reads a spreadsheet export from the **STU055** report
+**Attached ERG Details**. The `ERG Requisite Detail` rows are ingested into a
+structured expression tree and stored in `plans/course_catalogue_ergs.json`.
+
+```bash
+import-erg \
+  "STU055 Attached ERG Details.xlsx" \
+  --output plans/course_catalogue_ergs.json
+```
+
+Additional options:
+
+- `--export-excel updated_ergs.xlsx`: this output can be copied into the Handbook sheet in the sequencing spreadsheet to improve that data; it contains the merged prerequisite text from the STU055 report and the handbook course title/UoC data from STU054.
+- `--fallback-report fallback_report.json`: this output is for developers in identifying patterns that the parser does not yet handle.  Use `python3 tools/erg_analyse_fallbacks.py fallback_report.json` to get a frequency table of unresolvable line shapes.
+- `-v` or `--verbose`: print out the ERG expression tree for each course as it is processed.
+
+Further details of the ERG expression tree are documented in the the `FILE-FORMATS.md` file.
+
+**Caveat on the STU055 data:** the STU055 ERG report contains some `RQ` rule pointers that point to data that is not available in the data export. The data only contains a human-written description of that rule which is (a) often incomplete, (b) needs to be interpreted, and (c) often does not contain the actual details in an interpretable form. The `import-erg` command will report any of these missing rules and the `--fallback-report` option can be used to help identify patterns that are not yet handled by the parser. You may need to override the prerequisite information for some courses that are affected by these missing rules.
+
+#### Override a prerequisite information in the catalogue
+
+Some handbook prerequisite information may need to be updated from what is currently approved based on changes that you know will be made.
+However, it is recommended that you instead do this via the Local Course Overrides sheet in the spreadsheet and then re-extract the catalogue, rather than manually editing the `catalogue.json` file.
+That way the spreadsheet acts as a single source of truth for the overrides, and implementation of your intended changes can be tracked.
 
 Overrides are stored in `catalogue_overrides.json` beside `catalogue.json` and are merged in automatically whenever the catalogue is loaded by the validation tools.
 
@@ -396,78 +440,7 @@ To remove an override, delete the relevant entry from `catalogue_overrides.json`
 
 Note that the linter (`extract-template --lint`) always sees the raw handbook text even when overrides are present.
 
-### Prerequisite Field Syntax
-
-Plan and catalogue `prerequisites` fields are parsed with a strict token-based
-grammar in the rules engine. There are lots of quite interesting things written in the
-handbook that cannot be supported by this tool and it can only possibly implement
-course-level constraints, not constraints based on program, specialisation, or marks in other courses.
-
-Supported syntax is:
-
-- course code tokens matching `[A-Z]{4}[A-Z0-9]*(?:-[A-Z0-9]+)?` (i.e. `ABC1234` but also some variations as needed like `ABC1234-special`, or `ABCDES-RPL`)
-- UOC tokens like `120 UOC` (case-insensitive), interpreted as minimum UoC required to take a course
-- boolean operators `AND` and `OR` (case-insensitive).
-- parentheses for grouping
-- `PLUS` between clauses; each `PLUS` segment is combined as `AND`
-- co-requisite split markers: `COREQ...` or `CO-REQ...` (with optional `:`)
-
-Operator precedence is `AND` before `OR`.
-
-Normalisation rules applied before parsing:
-
-- `&` and `,` are treated as `AND`
-- `;` and `.` are treated as separators between separate sets of conditions.
-- `COMPLETION OF` is ignored
-- blank values, `.`, and `0` are treated as no prerequisite
-
-Examples:
-
-- `CEIC2001, CEIC2002`  (equivalent to `CEIC2001 AND CEIC2002`)
-- `CEIC2005 AND (CEIC3004 OR CHEM2021)`
-- `CEIC2001 PLUS COMPLETION OF 96 UOC` (completion of CEIC2001 and a maturity rule of 96 UoC completed)
-- `MATH1231. COREQ: PHYS1121` (prereq on MATH1231 and a coreq on PHYS1121)
-
-Any prerequisite text that cannot be tokenised with this grammar is reported
-as an unsupported prerequisite in validation output; it is skipped when trying
-to apply the rules. Requirements that exist in the handbook that are known to be
-unsupported include:
-
-- Must be enrolled in program 9999; Admission to program 9999.
-- Enrolment in a ABCD major
-- Must have completed at least XX UoC in program 9999; completed at least XX UoC of School of XYZ courses; completed at least XX UoC of ABCD (prefix) courses
-- Must have a WAM of XX or above
-- Only single and double degree School of XYZ students
-- This course is by application only
-- Enrolled in the final term of the program
-- Minimum mark of XX in ABCD1234
-- Must have completed XYZ test.
-
- Mixing these types of requirements in with an otherwise simple prerequisite expression might cause the entire field to be ignored.
-
- (We believe that some of these maturity requirements also cannot be implemented by UNSW's own systems.)
-
-### Validating syntax and interpretation of prereq fields
-
-There are two tools to use to look at the prereq parser performance
-
-```bash
-extract-template plans/CEIC/CEIC_Sequences.xlsx \
-  --lint --lint-output catalogue-prereq-lint.json
-```
-
-Extract all prerequisite strings from the catalogue and the current parser result for each one.
-This can be kept as a baseline and compared in future parser-change work.
-
-```bash
-extract-template plans/CEIC/CEIC_Sequences.xlsx \
-  --prereq-snapshot-output plans/prereq-snapshot-baseline.json
-```
-
-The snapshot contains:
-
-- metadata (source catalogue path, generation timestamp, entry count, parser marker)
-- one entry per course with raw `prerequisites`, parsed `prereq_expr`, parsed `coreq_expr`, and parser `error`, and some `salvage` keys that show partial parser recovery information and classification.
+## Legacy Tools
 
 ### Obtain course metadata from the UNSW Handbook
 
@@ -499,8 +472,6 @@ A test-driven approach to fixing bugs (and adding features!) is appreciated.
 The test suite can be run using `python -m pytest`.
 
 ## To-do
-
-- rebuild based on STU055 for prereq information (currently using STU054)
 
 ## Licence and credits
 
