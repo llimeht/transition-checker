@@ -20,6 +20,7 @@ py-modules = [
     "degree_rules",
     "offering_checker",
     "extract_plans",
+    "import_erg",
     "map_maker",
     "validate",
     "extract_template",
@@ -42,6 +43,7 @@ plan-validate     = "transitionchecker.cli.validate_cli:main"
 extract-template  = "transitionchecker.cli.extract_template_cli:main"
 cfcc-summary      = "transitionchecker.cli.cfcc_summary_cli:main"
 import-handbook   = "transitionchecker.cli.import_handbook_cli:main"
+import-erg        = "transitionchecker.cli.import_erg_cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov"]

@@ -10,10 +10,14 @@ import json
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 import warnings
 
 import pandas as pd
+from transitionchecker.core.catalogue import (
+    CatalogueKey,
+    normalize_catalogue_career,
+)
 from transitionchecker.core.course_utils import normalize_course_code
 from transitionchecker.core.offerings_output import (
     format_offerings_summary,
@@ -32,6 +36,52 @@ from transitionchecker.core.mapping_workbook import (
 from transitionchecker.utils.logging import configure_logging
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+
+logger = logging.getLogger(__name__)
+
+# Filename auto-discovered as a sibling of the output directory.
+_ERG_OVERRIDES_FILENAME = "course_catalogue_ergs.json"
+_CATALOGUE_OVERRIDES_FILENAME = "catalogue_overrides.json"
+
+
+def _load_prereq_override_map(
+    path: Path,
+) -> dict[CatalogueKey, str]:
+    """Load a ``catalogue_overrides.json``-format file into a key→prerequisites map.
+
+    Returns an empty dict if the file does not exist or contains no usable
+    entries.  Only entries that include a ``prerequisites`` field are included.
+    """
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            raw: object = json.load(fh)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Could not read override file %s: %s", path, exc
+        )
+        return {}
+    if not isinstance(raw, list):
+        return {}
+    result: dict[CatalogueKey, str] = {}
+    for item_obj in cast(list[object], raw):
+        if not isinstance(item_obj, dict):
+            continue
+        item = cast(dict[str, Any], item_obj)
+        code_raw = item.get("code")
+        career_raw = item.get("career")
+        prereq = item.get("prerequisites")
+        if not isinstance(code_raw, str) or not isinstance(career_raw, str):
+            continue
+        if not isinstance(prereq, str) or not prereq.strip():
+            continue
+        career = normalize_catalogue_career(career_raw.strip())
+        if not career:
+            career = career_raw.strip()
+        key = CatalogueKey(code_raw.strip(), career)
+        result[key] = prereq.strip()
+    return result
 
 
 class PlanCourse(TypedDict):
@@ -167,6 +217,9 @@ def plan_to_dict(
     header: ProgramSheetHeader,
     plan: pd.DataFrame,
     metadata: PlanMetadata | None = None,
+    *,
+    manual_overrides: dict[CatalogueKey, str] | None = None,
+    erg_overrides: dict[CatalogueKey, str] | None = None,
 ) -> PlanExport:
     """Serialize one plan DataFrame to JSON-ready structure.
 
@@ -179,6 +232,10 @@ def plan_to_dict(
     Returns:
         Plan payload matching the PlanExport schema.
     """
+    plan_career = normalize_catalogue_career(str(header.get("career", "")).strip())
+    _manual = manual_overrides or {}
+    _erg = erg_overrides or {}
+
     courses: list[PlanCourse] = []
     for idx, row in plan.iterrows():
         if pd.isna(row["Code"]):
@@ -187,6 +244,19 @@ def plan_to_dict(
         if not code:
             continue
         try:
+            lookup_key = CatalogueKey(code, plan_career)
+            if lookup_key in _manual:
+                prerequisites = _manual[lookup_key]
+                logger.debug(
+                    "  %s: using manual override prerequisites", code
+                )
+            elif lookup_key in _erg:
+                prerequisites = _erg[lookup_key]
+                logger.debug(
+                    "  %s: using ERG prerequisites", code
+                )
+            else:
+                prerequisites = _to_string(row["Prerequisites"])
             courses.append(
                 {
                     "enrol_year": _to_string(row["EnrolYear"]),
@@ -196,7 +266,7 @@ def plan_to_dict(
                     "code": code,
                     "title": _to_string(row["Title"]),
                     "uoc": _to_int(row["UoC"], default=0),
-                    "prerequisites": _to_string(row["Prerequisites"]),
+                    "prerequisites": prerequisites,
                 }
             )
         except (ValueError, KeyError) as e:
@@ -219,6 +289,9 @@ def export_plan(
     plan: pd.DataFrame,
     output_dir: Path,
     metadata: PlanMetadata | None = None,
+    *,
+    manual_overrides: dict[CatalogueKey, str] | None = None,
+    erg_overrides: dict[CatalogueKey, str] | None = None,
 ) -> Path | None:
     """Write one intake plan JSON file.
 
@@ -232,7 +305,11 @@ def export_plan(
     Returns:
         Generated file path, or None when the plan has no course rows.
     """
-    plan_dict = plan_to_dict(sheet_name, intake, header, plan, metadata)
+    plan_dict = plan_to_dict(
+        sheet_name, intake, header, plan, metadata,
+        manual_overrides=manual_overrides,
+        erg_overrides=erg_overrides,
+    )
     if not plan_dict["courses"]:
         return None
     safe_name = f"{sheet_name}_{intake}".replace(" ", "_")
@@ -278,6 +355,17 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         default=0,
         help="Increase logging verbosity (-v for INFO, -vv for DEBUG)",
     )
+    parser.add_argument(
+        "--erg-prereqs",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Path to course_catalogue_ergs.json produced by import-erg. "
+            "When not supplied, the tool auto-discovers "
+            f"{_ERG_OVERRIDES_FILENAME!r} in the output directory. "
+            "Pass 'none' to disable auto-discovery."
+        ),
+    )
     return parser
 
 
@@ -291,13 +379,46 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     configure_logging(args.verbose)
-    logger = logging.getLogger(__name__)
 
     excel_file = Path(args.excel_file)
     output_dir_path = (
         Path(args.output_dir) if args.output_dir else excel_file.resolve().parent
     )
     output_dir_path.mkdir(parents=True, exist_ok=True)
+
+    # ── Resolve prerequisite override maps ───────────────────────────────────
+    # Priority (highest to lowest) when looking up a course prereq:
+    #   1. manual catalogue_overrides.json  (manually curated, always wins)
+    #   2. course_catalogue_ergs.json       (ERG-derived, replaces stale text)
+    #   3. cell text from the workbook      (unchanged fallback)
+
+    manual_override_path = output_dir_path / _CATALOGUE_OVERRIDES_FILENAME
+    manual_overrides = _load_prereq_override_map(manual_override_path)
+    if manual_overrides:
+        logger.info(
+            "Loaded %d manual override entries from %s",
+            len(manual_overrides),
+            manual_override_path,
+        )
+
+    erg_overrides: dict[CatalogueKey, str] = {}
+    erg_arg = args.erg_prereqs
+    if erg_arg and erg_arg.lower() != "none":
+        erg_path = Path(erg_arg)
+    elif not erg_arg:
+        erg_path = output_dir_path / _ERG_OVERRIDES_FILENAME
+    else:
+        erg_path = None
+    if erg_path is not None:
+        erg_overrides = _load_prereq_override_map(erg_path)
+        if erg_overrides:
+            logger.info(
+                "Loaded %d ERG override entries from %s",
+                len(erg_overrides),
+                erg_path,
+            )
+        elif erg_path.exists():
+            logger.warning("ERG prereqs file %s exists but yielded no entries", erg_path)
 
     dfs: dict[str, pd.DataFrame] = pd.read_excel(  # pyright: ignore
         excel_file,
@@ -334,6 +455,8 @@ def main(argv: list[str] | None = None) -> int:
                 plan,
                 output_dir_path,
                 metadata,
+                manual_overrides=manual_overrides,
+                erg_overrides=erg_overrides,
             )
             if path is None:
                 logger.debug(f"  Skipped (no courses)")

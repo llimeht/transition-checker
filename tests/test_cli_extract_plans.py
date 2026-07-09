@@ -76,6 +76,7 @@ def test_main_runs_export_flow_and_writes_offerings(
         _plan: pd.DataFrame,
         _output_dir: Path,
         _metadata: PlanMetadata,
+        **_kwargs: object,
     ) -> Path:
         return out_dir / "p.json"
 
@@ -178,6 +179,7 @@ def test_main_skips_placeholder_only_plans_before_export(
         _header: ProgramSheetHeader,
         _plan: pd.DataFrame,
         _output_dir: Path,
+        **_kwargs: object,
     ) -> Path:
         export_calls.append((sheet, intake))
         return out_dir / "p.json"
@@ -434,6 +436,7 @@ def test_main_corrects_single_row_enrol_year_outlier_and_warns(
         plan: pd.DataFrame,
         _output_dir: Path,
         _metadata: PlanMetadata,
+        **_kwargs: object,
     ) -> Path:
         exported_plans.append(plan.copy())
         return out_dir / "p.json"

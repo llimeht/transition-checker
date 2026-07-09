@@ -438,9 +438,16 @@ def _ordered_catalogue_override_paths(
     catalogue_path: Path,
     extra_override_paths: Iterable[Path],
 ) -> list[Path]:
-    """Return unique override paths in last-loaded-wins application order."""
+    """Return unique override paths in last-loaded-wins application order.
 
-    ordered_paths = [catalogue_path.parent / "catalogue_overrides.json"]
+    ERG-derived overrides (``course_catalogue_ergs.json``) are loaded before
+    the manual ``catalogue_overrides.json`` so that manual entries always win.
+    """
+
+    # ERG overrides are a lower-priority layer: loaded first so manual
+    # catalogue_overrides.json (loaded second) supersedes them.
+    ordered_paths = [catalogue_path.parent / "course_catalogue_ergs.json"]
+    ordered_paths.append(catalogue_path.parent / "catalogue_overrides.json")
     ordered_paths.extend(extra_override_paths)
 
     unique_paths: list[Path] = []
