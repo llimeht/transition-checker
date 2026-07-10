@@ -139,6 +139,83 @@ def test_iter_plans_extracts_notes_metadata() -> None:
     }
 
 
+def test_iter_plans_preserves_internal_newlines_in_notes() -> None:
+    sheet = pd.DataFrame(
+        [
+            [None] * 12,
+            [None] * 12,
+            [None] * 12,
+            [None] * 12,
+            [
+                "Year 1",
+                None,
+                None,
+                "2024 T2",
+                None,
+                None,
+                None,
+                None,
+                None,
+                "  Late\r\ngraduation\n",
+                None,
+                "\nAdjustment\rwithin standard load  ",
+            ],
+            [
+                "Y1",
+                2024,
+                "Term 2",
+                "Course 1",
+                "FOOD1120",
+                "Food Science",
+                6,
+                "",
+                " Notes for Reviewers: ",
+                None,
+                "Notes for Students:",
+                None,
+            ],
+            [
+                "Y1",
+                2024,
+                "Term 2",
+                "Course 2",
+                "MATH1131",
+                "Math",
+                6,
+                "",
+                "Line one\nLine two",
+                None,
+                "Student line one\r\nStudent line two",
+                None,
+            ],
+            [END_INTAKE_MARKER, None, None, None, None, None, None, None, None, None, None, None],
+        ],
+        columns=[
+            "EnrolYear",
+            "Year",
+            "Period",
+            "CourseN",
+            "Code",
+            "Title",
+            "UoC",
+            "Prerequisites",
+            "C9",
+            "C10",
+            "C11",
+            "C12",
+        ],
+    )
+
+    plans = list(iter_plans(sheet))
+
+    assert len(plans) == 1
+    _intake, _rows, metadata = plans[0]
+    assert metadata["notes"]["graduate_outcome"] == "Late\ngraduation"
+    assert metadata["notes"]["adjustment_type"] == "Adjustment\nwithin standard load"
+    assert metadata["notes"]["for_reviewers"] == ["Line one\nLine two"]
+    assert metadata["notes"]["for_students"] == ["Student line one\nStudent line two"]
+
+
 def test_plan_has_exportable_content_rejects_placeholder_only_plan() -> None:
     plan = pd.DataFrame(
         [

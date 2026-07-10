@@ -320,15 +320,14 @@ def _clean_text(value: object) -> str:
 
 
 def _clean_note_text(value: object) -> str:
-    """Normalize workbook note text to a compact single-line representation."""
+    """Normalize workbook note text while preserving internal line breaks."""
 
     if value is None:
         return ""
     if isinstance(value, float) and pd.isna(value):
         return ""
     text = str(value).replace("\r\n", "\n").replace("\r", "\n")
-    parts = [segment.strip() for segment in text.split("\n") if segment.strip()]
-    return " ".join(parts).strip()
+    return text.strip()
 
 
 def _extract_column_pair_notes(
