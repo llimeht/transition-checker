@@ -45,11 +45,16 @@ def test_uses_offerings_file_in_plan_directory(
     assert captured["offerings_file"] == local_offerings.resolve()
 
 
-def test_uses_default_repo_offerings_when_no_local_file(
+def test_discovers_parent_offerings_when_no_local_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    plan_path = tmp_path / "plan.json"
+    plans_dir = tmp_path / "nested" / "plans"
+    plans_dir.mkdir(parents=True)
+    plan_path = plans_dir / "plan.json"
     plan_path.write_text("{}", encoding="utf-8")
+    parent_offerings = tmp_path / "plans" / "offerings.json"
+    parent_offerings.parent.mkdir()
+    parent_offerings.write_text("{}", encoding="utf-8")
 
     captured: dict[str, Any] = {}
 
@@ -67,8 +72,7 @@ def test_uses_default_repo_offerings_when_no_local_file(
 
     exit_code = offering_checker_cli.main([str(plan_path)])
     assert exit_code == 0
-    assert captured["offerings_file"].name == "offerings.json"
-    assert captured["offerings_file"].parent.name == "plans"
+    assert captured["offerings_file"] == parent_offerings.resolve()
 
 
 def test_result_json_prints_json_payload(

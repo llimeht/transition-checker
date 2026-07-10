@@ -75,6 +75,32 @@ def test_main_returns_0_when_no_plan_files(
     assert summary["failed"] == 0
 
 
+def test_main_returns_1_when_rules_dir_cannot_be_discovered(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    (out_dir / "CEICKS8338_2026_T1.json").write_text(
+        '{"courses": [{"code": "COMP1511"}]}',
+        encoding="utf-8",
+    )
+
+    def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        assert cmd[0] in {"extract-plans", "extract-template"}
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
+
+    code = validate_cli.main([str(excel), "--output-dir", str(out_dir)])
+
+    assert code == 1
+    assert "Could not find a rules directory" in capsys.readouterr().err
+
+
 def test_main_filters_plan_files_by_glob(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -92,11 +118,11 @@ def test_main_filters_plan_files_by_glob(
 
     def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
         run_calls.append(cmd)
-        if "extract_plans.py" in cmd[1] or "extract_template.py" in cmd[1]:
+        if cmd[0] in {"extract-plans", "extract-template"}:
             return subprocess.CompletedProcess(
                 args=cmd, returncode=0, stdout="", stderr=""
             )
-        if "degree_rules.py" in cmd[1]:
+        if cmd[0] == "degree-rules":
             degree_report: dict[str, object] = {
                 "valid": True,
                 "rule_failures": [],
@@ -116,7 +142,7 @@ def test_main_filters_plan_files_by_glob(
                 stdout=json.dumps(degree_report),
                 stderr="",
             )
-        if "offering_checker.py" in cmd[1]:
+        if cmd[0] == "offering-checker":
             offering_report: dict[str, object] = {"valid": True, "violations": []}
             return subprocess.CompletedProcess(
                 args=cmd,
@@ -137,6 +163,8 @@ def test_main_filters_plan_files_by_glob(
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
     (rules_dir / "CEICKS8338.json").write_text("{}", encoding="utf-8")
+    workbook_offerings = out_dir / "mapping_offerings.json"
+    workbook_offerings.write_text("{}", encoding="utf-8")
 
     code = validate_cli.main(
         [
@@ -149,9 +177,12 @@ def test_main_filters_plan_files_by_glob(
     )
 
     assert code == 0
-    degree_rule_calls = [cmd for cmd in run_calls if "degree_rules.py" in cmd[1]]
+    degree_rule_calls = [cmd for cmd in run_calls if cmd[0] == "degree-rules"]
     assert len(degree_rule_calls) == 1
     assert degree_rule_calls[0][degree_rule_calls[0].index("--plan") + 1] == str(filtered_plan)
+    offering_calls = [cmd for cmd in run_calls if cmd[0] == "offering-checker"]
+    assert len(offering_calls) == 1
+    assert offering_calls[0][offering_calls[0].index("--offerings") + 1] == str(workbook_offerings)
 
     report = json.loads(
         (out_dir / "mapping_validation_results.json").read_text(encoding="utf-8")
@@ -178,11 +209,11 @@ def test_main_collects_structured_findings_when_legacy_lists_empty(
     failing_plan.write_text('{"courses": [{"code": "COMP1511"}]}', encoding="utf-8")
 
     def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-        if "extract_plans.py" in cmd[1] or "extract_template.py" in cmd[1]:
+        if cmd[0] in {"extract-plans", "extract-template"}:
             return subprocess.CompletedProcess(
                 args=cmd, returncode=0, stdout="", stderr=""
             )
-        if "degree_rules.py" in cmd[1]:
+        if cmd[0] == "degree-rules":
             degree_report: dict[str, object] = {
                 "valid": False,
                 "rule_failures": [],
@@ -212,7 +243,7 @@ def test_main_collects_structured_findings_when_legacy_lists_empty(
                 stdout=json.dumps(degree_report),
                 stderr="",
             )
-        if "offering_checker.py" in cmd[1]:
+        if cmd[0] == "offering-checker":
             offering_report: dict[str, object] = {"valid": True, "violations": []}
             return subprocess.CompletedProcess(
                 args=cmd,
@@ -233,6 +264,7 @@ def test_main_collects_structured_findings_when_legacy_lists_empty(
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
     (rules_dir / "CEICDH3707.json").write_text("{}", encoding="utf-8")
+    (out_dir / "mapping_offerings.json").write_text("{}", encoding="utf-8")
 
     code = validate_cli.main([str(excel), "--output-dir", str(out_dir)])
 
@@ -266,11 +298,11 @@ def test_main_reports_annual_load_structured_findings(
     failing_plan.write_text('{"courses": [{"code": "COMP1511"}]}', encoding="utf-8")
 
     def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-        if "extract_plans.py" in cmd[1] or "extract_template.py" in cmd[1]:
+        if cmd[0] in {"extract-plans", "extract-template"}:
             return subprocess.CompletedProcess(
                 args=cmd, returncode=0, stdout="", stderr=""
             )
-        if "degree_rules.py" in cmd[1]:
+        if cmd[0] == "degree-rules":
             degree_report: dict[str, object] = {
                 "valid": False,
                 "rule_failures": [],
@@ -293,7 +325,7 @@ def test_main_reports_annual_load_structured_findings(
                 stdout=json.dumps(degree_report),
                 stderr="",
             )
-        if "offering_checker.py" in cmd[1]:
+        if cmd[0] == "offering-checker":
             offering_report: dict[str, object] = {"valid": True, "violations": []}
             return subprocess.CompletedProcess(
                 args=cmd,
@@ -314,6 +346,7 @@ def test_main_reports_annual_load_structured_findings(
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
     (rules_dir / "CEICDH3707.json").write_text("{}", encoding="utf-8")
+    (out_dir / "mapping_offerings.json").write_text("{}", encoding="utf-8")
 
     code = validate_cli.main([str(excel), "--output-dir", str(out_dir)])
 
@@ -350,7 +383,7 @@ def test_main_skips_placeholder_plan_with_blank_rows(
 
     def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
         run_calls.append(cmd)
-        if "extract_plans.py" in cmd[1] or "extract_template.py" in cmd[1]:
+        if cmd[0] in {"extract-plans", "extract-template"}:
             return subprocess.CompletedProcess(
                 args=cmd, returncode=0, stdout="", stderr=""
             )
@@ -367,13 +400,14 @@ def test_main_skips_placeholder_plan_with_blank_rows(
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
     (rules_dir / "MATSM13132+CEICM13132.json").write_text("{}", encoding="utf-8")
+    (out_dir / "mapping_offerings.json").write_text("{}", encoding="utf-8")
 
     code = validate_cli.main([str(excel), "--output-dir", str(out_dir), "--filter", "MATS*"])
     assert code == 0
 
-    degree_rule_calls = [cmd for cmd in run_calls if "degree_rules.py" in cmd[1]]
+    degree_rule_calls = [cmd for cmd in run_calls if cmd[0] == "degree-rules"]
     assert degree_rule_calls == []
-    offering_calls = [cmd for cmd in run_calls if "offering_checker.py" in cmd[1]]
+    offering_calls = [cmd for cmd in run_calls if cmd[0] == "offering-checker"]
     assert offering_calls == []
 
     report = json.loads(
@@ -402,14 +436,14 @@ def test_main_surfaces_degree_rules_process_error_output(
     )
 
     def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-        if "extract_plans.py" in cmd[1] or "extract_template.py" in cmd[1]:
+        if cmd[0] in {"extract-plans", "extract-template"}:
             return subprocess.CompletedProcess(
                 args=cmd,
                 returncode=0,
                 stdout="",
                 stderr="",
             )
-        if "degree_rules.py" in cmd[1]:
+        if cmd[0] == "degree-rules":
             return subprocess.CompletedProcess(
                 args=cmd,
                 returncode=1,
@@ -419,7 +453,7 @@ def test_main_surfaces_degree_rules_process_error_output(
                     "unsupported shared-courses key"
                 ),
             )
-        if "offering_checker.py" in cmd[1]:
+        if cmd[0] == "offering-checker":
             offering_report: dict[str, object] = {"valid": True, "violations": []}
             return subprocess.CompletedProcess(
                 args=cmd,
@@ -442,6 +476,7 @@ def test_main_surfaces_degree_rules_process_error_output(
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
     (rules_dir / "MATSM13132+CEICM13132.json").write_text("{}", encoding="utf-8")
+    (out_dir / "mapping_offerings.json").write_text("{}", encoding="utf-8")
 
     code = validate_cli.main([str(excel), "--output-dir", str(out_dir), "--filter", "MATS*"])
 

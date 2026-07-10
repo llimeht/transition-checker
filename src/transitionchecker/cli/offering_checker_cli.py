@@ -51,6 +51,21 @@ class OfferingCheckResult(TypedDict):
     violations: list[OfferingViolation]
 
 
+def _resolve_default_offerings_file(plan_file: Path) -> Path:
+    """Resolve offerings JSON from the plan's local filesystem context."""
+
+    for parent in [plan_file.parent, *list(plan_file.parent.parents)[:3]]:
+        same_dir_offerings = parent / "offerings.json"
+        if same_dir_offerings.is_file():
+            return same_dir_offerings.resolve()
+
+        plans_offerings = parent / "plans" / "offerings.json"
+        if plans_offerings.is_file():
+            return plans_offerings.resolve()
+
+    return (plan_file.parent / "offerings.json").resolve()
+
+
 def _normalize_lookup_course_code(raw_course_code: str) -> str:
     """Normalize a course code for offerings lookup, removing internal whitespace."""
 
@@ -295,7 +310,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Path to offerings JSON (default: offerings.json beside the plan file, "
-            "otherwise plans/offerings.json beside this script)"
+            "otherwise discovered by walking upward from the plan directory)"
         ),
     )
     parser.add_argument(
@@ -331,12 +346,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.offerings:
         offerings_file = Path(args.offerings).resolve()
     else:
-        same_dir_offerings = plan_file.parent / "offerings.json"
-        if same_dir_offerings.is_file():
-            offerings_file = same_dir_offerings
-        else:
-            script_dir = Path(__file__).resolve().parents[3]
-            offerings_file = script_dir / "plans" / "offerings.json"
+        offerings_file = _resolve_default_offerings_file(plan_file)
 
     try:
         result = check_plan(plan_file, offerings_file)

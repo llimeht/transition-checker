@@ -9,18 +9,69 @@ This wrapper script:
 
 from __future__ import annotations
 
-import json
 import argparse
+import json
 import fnmatch
+import io
 import re
 import subprocess
 import sys
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import cast
+from typing import Callable, cast
 
 from transitionchecker.core import as_json_object
 from transitionchecker.core.rules_loader import resolve_rule_file_for_plan
+from transitionchecker.cli.degree_rules_cli import main as degree_rules_main
+from transitionchecker.cli.extract_plans_cli import main as extract_plans_main
+from transitionchecker.cli.extract_template_cli import main as extract_template_main
+from transitionchecker.cli.offering_checker_cli import main as offering_checker_main
+
+
+CliMain = Callable[[list[str] | None], int]
+
+
+CLI_MAIN_DISPATCH: dict[str, CliMain] = {
+    "extract-plans": extract_plans_main,
+    "extract-template": extract_template_main,
+    "degree-rules": degree_rules_main,
+    "offering-checker": offering_checker_main,
+}
+
+
+def _find_rules_dir(start: Path) -> Path | None:
+    """Walk upward from *start* looking for a ``rules/`` subdirectory."""
+
+    for parent in [start, *list(start.parents)[:3]]:
+        candidate = parent / "rules"
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def _resolve_rules_dir(output_dir: Path, excel_file: Path) -> Path | None:
+    """Resolve the rules directory relative to the workbook/output context."""
+
+    return _find_rules_dir(output_dir) or _find_rules_dir(excel_file.parent)
+
+
+def _resolve_offerings_file(output_dir: Path, excel_file: Path) -> Path:
+    """Resolve the offerings file generated or supplied for this workbook."""
+
+    workbook_offerings = output_dir / f"{excel_file.stem}_offerings.json"
+    if workbook_offerings.is_file():
+        return workbook_offerings
+
+    local_offerings = output_dir / "offerings.json"
+    if local_offerings.is_file():
+        return local_offerings
+
+    fallback_offerings = excel_file.parent / "offerings.json"
+    if fallback_offerings.is_file():
+        return fallback_offerings
+
+    return workbook_offerings
 
 
 def _as_json_object(value: object) -> dict[str, object] | None:
@@ -129,15 +180,36 @@ def _build_cli_parser() -> argparse.ArgumentParser:
 
 
 def run_cmd(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    """Run subprocess command and capture text output.
+    """Run a CLI main function in-process and capture text output.
 
     Args:
-        cmd: Command vector to execute.
+        cmd: Command vector where cmd[0] selects the CLI entrypoint.
 
     Returns:
         Completed process with captured stdout/stderr.
     """
-    return subprocess.run(cmd, capture_output=True, text=True)
+    if not cmd:
+        raise ValueError("command vector must not be empty")
+
+    command_name, *argv = cmd
+    cli_main = CLI_MAIN_DISPATCH.get(command_name)
+    if cli_main is None:
+        raise ValueError(f"unsupported command: {command_name}")
+
+    stdout_buffer = io.StringIO()
+    stderr_buffer = io.StringIO()
+    with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+        try:
+            returncode = cli_main(argv)
+        except SystemExit as exc:
+            returncode = exc.code if isinstance(exc.code, int) else 1
+
+    return subprocess.CompletedProcess(
+        args=cmd,
+        returncode=returncode,
+        stdout=stdout_buffer.getvalue(),
+        stderr=stderr_buffer.getvalue(),
+    )
 
 
 def write_validation_report(report_path: Path, report: dict[str, object]) -> None:
@@ -160,10 +232,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     excel_file = Path(args.excel_file)
-    project_root = Path(__file__).resolve().parents[3]
     output_dir = Path(args.output_dir) if args.output_dir else excel_file.parent
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / f"{excel_file.stem}_validation_results.json"
+    rules_dir = _resolve_rules_dir(output_dir, excel_file)
 
     if not excel_file.is_file():
         print(f"Error: File not found: {excel_file}")
@@ -172,8 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"📊 Exporting plans from: {excel_file}")
     export_result = run_cmd(
         [
-            sys.executable,
-            str(project_root / "extract_plans.py"),
+            "extract-plans",
             str(excel_file),
             "--output-dir",
             str(output_dir),
@@ -194,11 +265,10 @@ def main(argv: list[str] | None = None) -> int:
 
     print()
     print(f"📚 Extracting catalogue and overrides from: {excel_file}")
-    catalogue_path = project_root / "plans" / "catalogue.json"
+    catalogue_path = output_dir / "catalogue.json"
     extract_result = run_cmd(
         [
-            sys.executable,
-            str(project_root / "extract_template.py"),
+            "extract-template",
             str(excel_file),
             "--catalogue-output",
             str(catalogue_path),
@@ -252,6 +322,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"☑️ Validation report written to: {report_path}")
         return 0
 
+    if rules_dir is None:
+        print(
+            "Error: Could not find a rules directory near the workbook or output directory",
+            file=sys.stderr,
+        )
+        return 1
+
     failed = 0
     valid = 0
     accepted = 0
@@ -272,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
     for plan_file in plan_files:
         plan_stem = plan_file.stem
         program_code = plan_stem.split("_", 1)[0]
-        rule_file = resolve_rule_file_for_plan(program_code, plan_stem, project_root / "rules")
+        rule_file = resolve_rule_file_for_plan(program_code, plan_stem, rules_dir)
         rule_name = rule_file.name
         cwd = Path.cwd()
         try:
@@ -314,8 +391,7 @@ def main(argv: list[str] | None = None) -> int:
 
         result = run_cmd(
             [
-                sys.executable,
-                str(project_root / "degree_rules.py"),
+                "degree-rules",
                 str(rule_file),
                 "--plan",
                 str(plan_file),
@@ -348,13 +424,12 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         # Check offerings
-        offerings_file = project_root / "plans" / "offerings.json"
+        offerings_file = _resolve_offerings_file(output_dir, excel_file)
         offering_violations: list[dict[str, object]] = []
         offerings_valid = False
         offering_result_raw = run_cmd(
             [
-                sys.executable,
-                str(project_root / "offering_checker.py"),
+            "offering-checker",
                 str(plan_file),
                 "--offerings",
                 str(offerings_file),
