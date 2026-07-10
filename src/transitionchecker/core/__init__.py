@@ -17,6 +17,14 @@ from .course_utils import (
     normalize_course_code,
 )
 from .offerings_output import format_offerings_summary, write_offerings_csv
+from .offerings import (
+    OfferingsCourse,
+    OfferingsMap,
+    allowed_periods_for_course,
+    flatten_offerings,
+    load_offerings,
+    normalize_offerings_course_code,
+)
 from .period_utils import (
     canonical_period,
     is_nonstandard_period,
@@ -30,13 +38,19 @@ __all__ = [
     "Catalogue",
     "CatalogueEntry",
     "CatalogueKey",
+    "OfferingsCourse",
+    "OfferingsMap",
+    "allowed_periods_for_course",
     "available_catalogue_careers",
     "canonical_period",
     "ensure_catalogue_courses_for_career",
     "ensure_catalogue_has_career",
+    "flatten_offerings",
     "format_offerings_summary",
     "get_catalogue_entry_for_career",
     "is_nonstandard_period",
+    "load_offerings",
+    "normalize_offerings_course_code",
     "natural_sort_key",
     "normalize_catalogue_career",
     "period_display_label",

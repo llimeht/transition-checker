@@ -164,3 +164,62 @@ def test_load_offerings_normalizes_and_merges_course_code_keys(tmp_path: Path) -
 
     assert offerings["CEIC2001"] == ["Term 1", "Term 2"]
     assert offerings["BIOC2181"] == ["Term 3"]
+
+
+def test_check_plan_uses_year_specific_offerings_with_flat_fallback(tmp_path: Path) -> None:
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "sheet": "S",
+                "intake": "I",
+                "courses": [
+                    {"code": "CEIC2001", "year": 2026, "period": "Term 1"},
+                    {"code": "CEIC2001", "year": 2027, "period": "Term 2"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    offerings_path = tmp_path / "offerings.json"
+    offerings_path.write_text(
+        json.dumps(
+            {
+                "CEIC2001": ["Term 2"],
+                "ceic2001": {"2026": ["Term 1"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = offering_checker_cli.check_plan(plan_path, offerings_path)
+
+    assert result["valid"] is True
+    assert result["violations"] == []
+
+
+def test_check_plan_reports_year_specific_period_violation(tmp_path: Path) -> None:
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "sheet": "S",
+                "intake": "I",
+                "courses": [
+                    {"code": "CEIC2001", "year": 2026, "period": "Term 2"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    offerings_path = tmp_path / "offerings.json"
+    offerings_path.write_text(
+        json.dumps({"CEIC2001": {"2026": ["Term 1"]}}),
+        encoding="utf-8",
+    )
+
+    result = offering_checker_cli.check_plan(plan_path, offerings_path)
+
+    assert result["valid"] is False
+    assert result["violations_count"] == 1
+    assert result["violations"][0]["allowed_periods"] == ["Term 1"]

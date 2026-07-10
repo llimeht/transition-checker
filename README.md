@@ -341,6 +341,12 @@ Add one or more teaching periods for a course (creates the entry if absent):
 add-offerings plans/offerings.json --schedule CEIC2001 T1 T3
 ```
 
+Add one or more teaching periods for one explicit calendar year:
+
+```bash
+add-offerings plans/offerings.json --year 2026 --schedule CEIC2001 T1
+```
+
 Periods are accepted in any alias form (`T1`, `term 1`, `S2`, `semester 2`, `summer`, etc.) and stored in canonical display form. Unknown period names cause a non-zero exit and leave the file unchanged.
 
 An list of intended teaching periods can be exported, with an optional filter pattern
@@ -350,6 +356,7 @@ for which courses to include, and output either as plan text on the terminal or 
 add-offerings plans/offerings.json --show '*'
 add-offerings plans/offerings.json --show 'CEIC*'
 add-offerings plans/offerings.json --show 'CEIC*' --output offerings.csv
+add-offerings plans/offerings.json --show 'CEIC*' --show-by-year
 ```
 
 ### Prerequisite information

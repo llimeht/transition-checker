@@ -25,11 +25,15 @@ from transitionchecker.core import (
     Catalogue,
     CatalogueEntry,
     CatalogueKey,
+    OfferingsCourse,
+    OfferingsMap,
+    allowed_periods_for_course as resolve_allowed_periods_for_course,
     canonical_period as _canonical_period,
     ensure_catalogue_courses_for_career,
     ensure_catalogue_has_career,
     is_nonstandard_period as _is_nonstandard_period,
     is_placeholder_course as _is_placeholder_course,
+    load_offerings as load_shared_offerings,
     looks_like_course as _looks_like_course,
     normalize_catalogue_career,
     normalize_course_code as _normalize_course_code,
@@ -39,6 +43,7 @@ from transitionchecker.core import (
 
 
 CourseCode = str
+PlannerOfferings = dict[CourseCode, list[str]] | OfferingsMap
 ASSIGNMENT_INSTANCE_SEPARATOR = "#"
 
 
@@ -499,20 +504,26 @@ def load_catalogue(
     return catalogue
 
 
-def load_offerings(path: Path) -> dict[CourseCode, list[str]]:
-    """Load period offerings as a normalized course-to-periods mapping."""
+def load_offerings(path: Path) -> OfferingsMap:
+    """Load offerings using the shared legacy/year-aware representation."""
 
-    raw = read_json(path)
-    if not isinstance(raw, dict):
-        raise ValueError(f"Offerings file must contain an object: {path}")
+    return load_shared_offerings(path)
 
-    offerings: dict[CourseCode, list[str]] = {}
-    for code, periods_raw in cast(dict[object, object], raw).items():
-        if not isinstance(code, str) or not isinstance(periods_raw, list):
-            continue
-        periods = [p for p in cast(list[object], periods_raw) if isinstance(p, str)]
-        offerings[normalize_course_code(code)] = periods
-    return offerings
+
+def _allowed_periods_for_slot_year(
+    offerings: PlannerOfferings,
+    course_code: str,
+    *,
+    calendar_year: int,
+) -> list[str]:
+    entry = offerings.get(course_code)
+    if entry is None:
+        return []
+    if isinstance(entry, OfferingsCourse):
+        return resolve_allowed_periods_for_course(
+            cast(OfferingsMap, offerings), course_code, year=calendar_year
+        )
+    return cast(list[str], entry)
 
 
 def load_templates(path: Path) -> TemplateConfig:
@@ -1289,19 +1300,32 @@ def select_required_courses(
 def feasible_slots_for_course(
     code: str,
     slots: list[Slot],
-    offerings: dict[str, list[str]],
+    offerings: PlannerOfferings,
     fixed_constraints: FixedConstraints | None = None,
 ) -> list[int]:
     """Return slot indices where the course is offered, ordered by preference."""
 
     base_code = assignment_course_code(code)
-    offered_periods = offerings.get(base_code)
-    if not offered_periods:
+    if base_code not in offerings:
         LOGGER.debug("course %s not found in offerings", code)
         return []  # No feasible slots if not in offerings; will leave course unplaced
 
-    allowed = {canonical_period(period) for period in offered_periods}
-    feasible_slots = [slot for slot in slots if slot.canonical_period in allowed]
+    allowed_by_year: dict[int, set[str]] = {}
+    feasible_slots = []
+    for slot in slots:
+        allowed = allowed_by_year.get(slot.calendar_year)
+        if allowed is None:
+            allowed = {
+                canonical_period(period)
+                for period in _allowed_periods_for_slot_year(
+                    offerings,
+                    base_code,
+                    calendar_year=slot.calendar_year,
+                )
+            }
+            allowed_by_year[slot.calendar_year] = allowed
+        if slot.canonical_period in allowed:
+            feasible_slots.append(slot)
 
     if fixed_constraints is not None:
         pinned_slot = fixed_constraints.fixed_assignments.get(code)
@@ -1605,7 +1629,7 @@ def evaluate_plan_cost(
     assignments: dict[str, int],
     required_courses: list[str],
     slots: list[Slot],
-    offerings: dict[str, list[str]],
+    offerings: PlannerOfferings,
     catalogue: Catalogue,
     career: str,
     rules: dict[str, Any],
@@ -1624,11 +1648,16 @@ def evaluate_plan_cost(
     offering_violations = 0
     for code, slot_idx in assignments.items():
         base_code = assignment_course_code(code)
-        offered_periods = offerings.get(base_code)
+        slot = slots[slot_idx]
+        offered_periods = _allowed_periods_for_slot_year(
+            offerings, base_code, calendar_year=slot.calendar_year
+        )
         if not offered_periods:
             offering_violations += 1
             continue
-        if slots[slot_idx].period not in offered_periods:
+        if slot.canonical_period not in {
+            canonical_period(period) for period in offered_periods
+        }:
             offering_violations += 1
 
     scheduled_courses = scheduled_courses_from_assignments(
@@ -1769,7 +1798,7 @@ def evaluate_plan_cost(
 def greedy_place(
     required_courses: list[str],
     slots: list[Slot],
-    offerings: dict[str, list[str]],
+    offerings: PlannerOfferings,
     catalogue: Catalogue,
     career: str,
     dependency_exprs: dict[str, RuleExpr | None],
@@ -1952,7 +1981,7 @@ def repair_assignments(
     assignments: dict[str, int],
     required_courses: list[str],
     slots: list[Slot],
-    offerings: dict[str, list[str]],
+    offerings: PlannerOfferings,
     catalogue: Catalogue,
     career: str,
     dependency_exprs: dict[str, RuleExpr | None],
@@ -2068,7 +2097,7 @@ def propose_shift(
     assignments: dict[str, int],
     required_courses: list[str],
     slots: list[Slot],
-    offerings: dict[str, list[str]],
+    offerings: PlannerOfferings,
     rng: random.Random,
     fixed_constraints: FixedConstraints | None = None,
 ) -> dict[str, int]:
@@ -2119,7 +2148,7 @@ def propose_ruin_recreate(
     assignments: dict[str, int],
     required_courses: list[str],
     slots: list[Slot],
-    offerings: dict[str, list[str]],
+    offerings: PlannerOfferings,
     catalogue: Catalogue,
     career: str,
     dependency_exprs: dict[str, RuleExpr | None],
@@ -2173,7 +2202,7 @@ def anneal(
     initial: dict[str, int],
     required_courses: list[str],
     slots: list[Slot],
-    offerings: dict[str, list[str]],
+    offerings: PlannerOfferings,
     catalogue: Catalogue,
     career: str,
     rules: dict[str, Any],

@@ -163,8 +163,9 @@ def test_main_filters_plan_files_by_glob(
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
     (rules_dir / "CEICKS8338.json").write_text("{}", encoding="utf-8")
-    workbook_offerings = out_dir / "mapping_offerings.json"
-    workbook_offerings.write_text("{}", encoding="utf-8")
+    canonical_offerings = tmp_path / "plans" / "offerings.json"
+    canonical_offerings.parent.mkdir()
+    canonical_offerings.write_text("{}", encoding="utf-8")
 
     code = validate_cli.main(
         [
@@ -182,7 +183,7 @@ def test_main_filters_plan_files_by_glob(
     assert degree_rule_calls[0][degree_rule_calls[0].index("--plan") + 1] == str(filtered_plan)
     offering_calls = [cmd for cmd in run_calls if cmd[0] == "offering-checker"]
     assert len(offering_calls) == 1
-    assert offering_calls[0][offering_calls[0].index("--offerings") + 1] == str(workbook_offerings)
+    assert offering_calls[0][offering_calls[0].index("--offerings") + 1] == str(canonical_offerings.resolve())
 
     report = json.loads(
         (out_dir / "mapping_validation_results.json").read_text(encoding="utf-8")
@@ -264,7 +265,9 @@ def test_main_collects_structured_findings_when_legacy_lists_empty(
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
     (rules_dir / "CEICDH3707.json").write_text("{}", encoding="utf-8")
-    (out_dir / "mapping_offerings.json").write_text("{}", encoding="utf-8")
+    offerings_dir = tmp_path / "plans"
+    offerings_dir.mkdir()
+    (offerings_dir / "offerings.json").write_text("{}", encoding="utf-8")
 
     code = validate_cli.main([str(excel), "--output-dir", str(out_dir)])
 
@@ -346,7 +349,9 @@ def test_main_reports_annual_load_structured_findings(
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
     (rules_dir / "CEICDH3707.json").write_text("{}", encoding="utf-8")
-    (out_dir / "mapping_offerings.json").write_text("{}", encoding="utf-8")
+    offerings_dir = tmp_path / "plans"
+    offerings_dir.mkdir()
+    (offerings_dir / "offerings.json").write_text("{}", encoding="utf-8")
 
     code = validate_cli.main([str(excel), "--output-dir", str(out_dir)])
 
@@ -400,7 +405,9 @@ def test_main_skips_placeholder_plan_with_blank_rows(
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
     (rules_dir / "MATSM13132+CEICM13132.json").write_text("{}", encoding="utf-8")
-    (out_dir / "mapping_offerings.json").write_text("{}", encoding="utf-8")
+    offerings_dir = tmp_path / "plans"
+    offerings_dir.mkdir()
+    (offerings_dir / "offerings.json").write_text("{}", encoding="utf-8")
 
     code = validate_cli.main([str(excel), "--output-dir", str(out_dir), "--filter", "MATS*"])
     assert code == 0
@@ -476,7 +483,9 @@ def test_main_surfaces_degree_rules_process_error_output(
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
     (rules_dir / "MATSM13132+CEICM13132.json").write_text("{}", encoding="utf-8")
-    (out_dir / "mapping_offerings.json").write_text("{}", encoding="utf-8")
+    offerings_dir = tmp_path / "plans"
+    offerings_dir.mkdir()
+    (offerings_dir / "offerings.json").write_text("{}", encoding="utf-8")
 
     code = validate_cli.main([str(excel), "--output-dir", str(out_dir), "--filter", "MATS*"])
 

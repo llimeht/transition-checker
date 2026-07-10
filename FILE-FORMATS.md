@@ -451,7 +451,10 @@ Top-level shape:
 Format:
 
 - Each key is a course code.
-- Each value is a list of canonical period names.
+- Each value may be either:
+  - a list of canonical period names, meaning the course is offered in those periods in all years, or
+  - an object whose keys are calendar years and whose values are lists of canonical period names.
+- A year-aware object may also include an `all` key. That key acts as the fallback all-years list when a tool needs offerings for a year that is not explicitly listed.
 
 Copy-paste example:
 
@@ -463,11 +466,28 @@ Copy-paste example:
 }
 ```
 
+Year-aware example:
+
+```json
+{
+  "CEIC2001": {
+    "all": ["Term 2"],
+    "2026": ["Term 1"],
+    "2027": ["Term 3"]
+  },
+  "CEIC4000": {
+    "2026": ["Semester 1"],
+    "2027": ["Semester 2"]
+  }
+}
+```
+
 Important warnings:
 
 - This file is an object, not a list.
-- The values must be lists.
+- The values must be either lists or year-keyed objects whose inner values are lists.
 - Period names should use the normal display form written by the tools, such as `Term 1`, `Term 2`, `Term 3`, `Semester 1`, `Semester 2`, `Summer Term`, and `Winter Term`.
+- If a year-aware course has no entry for the year being checked, the tools fall back to that course's `all` list when it exists.
 - If you are editing this file by hand, it is easy to miss a comma between course entries because the file can get long.
 - Rather than editing by hand, you can use the `add-offerings` tool.
 

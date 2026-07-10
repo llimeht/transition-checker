@@ -5,11 +5,17 @@ from __future__ import annotations
 import json
 from io import StringIO
 from pathlib import Path
+import tempfile
 from typing import Any, cast
 
 import pytest
 
-from transitionchecker.core import Catalogue, CatalogueEntry, CatalogueKey
+from transitionchecker.core import (
+    Catalogue,
+    CatalogueEntry,
+    CatalogueKey,
+    allowed_periods_for_course,
+)
 from transitionchecker.planner_engine import (
     CostConfig,
     PartialPlanCourseRecord,
@@ -26,6 +32,7 @@ from transitionchecker.planner_engine import (
     feasible_slots_for_course,
     load_catalogue,
     load_catalogue_overrides,
+    load_offerings,
     path_or_exit,
     resolve_target_end_slot,
     run_planner,
@@ -53,6 +60,13 @@ def _template_config() -> TemplateConfig:
             }
         },
     )
+
+
+def load_offerings_from_map(data: dict[str, object]) -> object:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        offerings_path = Path(tmp_dir) / "offerings.json"
+        offerings_path.write_text(json.dumps(data), encoding="utf-8")
+        return load_offerings(offerings_path)
 
 
 def test_build_slots_happy_path() -> None:
@@ -140,6 +154,60 @@ def test_feasible_slots_for_course_matches_canonical_periods() -> None:
     slots = build_slots(_template_config(), "2026 T1")
     offerings = {"TEST1001": ["T1"]}
     feasible = feasible_slots_for_course("TEST1001", slots, offerings)
+    assert feasible == [0]
+
+
+def test_load_offerings_accepts_year_specific_entries_with_flat_fallback(
+    tmp_path: Path,
+) -> None:
+    offerings_file = tmp_path / "offerings.json"
+    offerings_file.write_text(
+        json.dumps(
+            {
+                "TEST1001": ["Term 2"],
+                "test1001": {"2026": ["Term 1"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    offerings = load_offerings(offerings_file)
+
+    assert allowed_periods_for_course(offerings, "TEST1001", year=2026) == ["Term 1"]
+    assert allowed_periods_for_course(offerings, "TEST1001", year=2027) == ["Term 2"]
+
+
+def test_feasible_slots_for_course_filters_by_calendar_year() -> None:
+    template = cast(
+        TemplateConfig,
+        {
+            "intakes": {
+                "2026 T1": {
+                    "years": [
+                        {
+                            "enrol_year": "Year 1",
+                            "year": 2026,
+                            "periods": [{"period": "Term 1", "max_slots": 2}],
+                        },
+                        {
+                            "enrol_year": "Year 2",
+                            "year": 2027,
+                            "periods": [{"period": "Term 1", "max_slots": 2}],
+                        },
+                    ]
+                }
+            }
+        },
+    )
+    slots = build_slots(template, "2026 T1")
+    offerings = load_offerings_from_map(
+        {
+            "TEST1001": {"2026": ["Term 1"]},
+        }
+    )
+
+    feasible = feasible_slots_for_course("TEST1001", slots, offerings)
+
     assert feasible == [0]
 
 
@@ -603,6 +671,60 @@ def test_evaluate_plan_cost_tracks_offering_and_prereq_violations() -> None:
 
     assert details.offering_violations == 0
     assert details.prereq_violations >= 1
+
+
+def test_evaluate_plan_cost_counts_year_specific_offering_violation() -> None:
+    template = cast(
+        TemplateConfig,
+        {
+            "intakes": {
+                "2026 T1": {
+                    "years": [
+                        {
+                            "enrol_year": "Year 1",
+                            "year": 2026,
+                            "periods": [{"period": "Term 1", "max_slots": 2}],
+                        },
+                        {
+                            "enrol_year": "Year 2",
+                            "year": 2027,
+                            "periods": [{"period": "Term 1", "max_slots": 2}],
+                        },
+                    ]
+                }
+            }
+        },
+    )
+    slots = build_slots(template, "2026 T1")
+    rules = {"required": {"L1": ["TEST1001"]}}
+    catalogue = Catalogue(
+        [
+            CatalogueEntry(
+                code="TEST1001",
+                title="A",
+                career="UGRD",
+                uoc=6,
+                prerequisites="",
+                level="Level 1",
+            ),
+        ]
+    )
+    steering = SteeringConfig()
+    offerings = load_offerings_from_map({"TEST1001": {"2026": ["Term 1"]}})
+
+    details = evaluate_plan_cost(
+        {"TEST1001": 1},
+        ["TEST1001"],
+        slots,
+        offerings,
+        catalogue,
+        "UGRD",
+        rules,
+        steering,
+        "2026 T1",
+    )
+
+    assert details.offering_violations == 1
 
 
 def test_derive_fixed_constraints_locks_period_and_allows_only_fixed_courses() -> None:

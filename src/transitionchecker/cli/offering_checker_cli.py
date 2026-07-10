@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 from typing import TypedDict, cast
 
-from transitionchecker.core import as_text, normalize_course_code
+from transitionchecker.core import (
+    allowed_periods_for_course,
+    as_text,
+    flatten_offerings,
+    load_offerings as load_offer_map,
+    normalize_offerings_course_code,
+)
 
 
 class OfferingViolation(TypedDict):
@@ -24,6 +29,7 @@ class PlanCourse(TypedDict, total=False):
 
     code: str
     period: str
+    year: int
 
 
 class PlanSummary(TypedDict):
@@ -69,8 +75,7 @@ def _resolve_default_offerings_file(plan_file: Path) -> Path:
 def _normalize_lookup_course_code(raw_course_code: str) -> str:
     """Normalize a course code for offerings lookup, removing internal whitespace."""
 
-    normalized = normalize_course_code(raw_course_code)
-    return re.sub(r"\s+", "", normalized)
+    return normalize_offerings_course_code(raw_course_code)
 
 
 def load_offerings(offerings_file: Path) -> dict[str, list[str]]:
@@ -82,40 +87,8 @@ def load_offerings(offerings_file: Path) -> dict[str, list[str]]:
     Returns:
         Mapping of course code to allowed periods.
     """
-    if not offerings_file.is_file():
-        raise FileNotFoundError(f"Offerings file not found: {offerings_file}")
-
-    with open(offerings_file, "r", encoding="utf-8") as fh:
-        raw_offerings: object = json.load(fh)
-
-    if not isinstance(raw_offerings, dict):
-        raise ValueError(
-            f"Offerings file must contain a JSON object, got {type(raw_offerings).__name__}"
-        )
-
-    offerings: dict[str, list[str]] = {}
-    for raw_code, raw_periods in cast(dict[object, object], raw_offerings).items():
-        if not isinstance(raw_code, str):
-            continue
-        if not isinstance(raw_periods, list):
-            continue
-        normalized_code = _normalize_lookup_course_code(raw_code)
-        if not normalized_code:
-            continue
-
-        periods = [
-            period
-            for period in cast(list[object], raw_periods)
-            if isinstance(period, str)
-        ]
-
-        if normalized_code in offerings:
-            merged = offerings[normalized_code] + periods
-            offerings[normalized_code] = list(dict.fromkeys(merged))
-        else:
-            offerings[normalized_code] = periods
-
-    return offerings
+    offering_map = load_offer_map(offerings_file)
+    return flatten_offerings(offering_map)
 
 
 def load_plan(plan_file: Path) -> PlanDocument:
@@ -210,10 +183,48 @@ def check_plan(plan_file: Path, offerings_file: Path) -> OfferingCheckResult:
     Returns:
         OfferingCheckResult with violations found
     """
-    offerings = load_offerings(offerings_file)
+    offering_map = load_offer_map(offerings_file)
     plan = load_plan(plan_file)
 
-    violations = validate_plan_offerings(plan, offerings)
+    violations: list[OfferingViolation] = []
+    courses = plan.get("courses") if isinstance(plan.get("courses"), list) else []
+    for course in cast(list[PlanCourse], courses):
+        raw_course_code = as_text(course.get("code", ""))
+        if not raw_course_code:
+            continue
+        course_code = _normalize_lookup_course_code(raw_course_code)
+        if not course_code:
+            continue
+
+        planned_period = as_text(course.get("period", ""))
+        if not planned_period:
+            continue
+
+        planned_year_raw = course.get("year")
+        planned_year = planned_year_raw if isinstance(planned_year_raw, int) else None
+        allowed_periods = allowed_periods_for_course(
+            offering_map, course_code, year=planned_year
+        )
+        if not allowed_periods:
+            violations.append(
+                {
+                    "course_code": course_code,
+                    "planned_period": planned_period,
+                    "allowed_periods": [],
+                    "error_type": "course_not_found",
+                }
+            )
+            continue
+
+        if planned_period not in allowed_periods:
+            violations.append(
+                {
+                    "course_code": course_code,
+                    "planned_period": planned_period,
+                    "allowed_periods": allowed_periods,
+                    "error_type": "period_not_allowed",
+                }
+            )
 
     plan_summary: PlanSummary = {
         "sheet": as_text(plan.get("sheet", "")),

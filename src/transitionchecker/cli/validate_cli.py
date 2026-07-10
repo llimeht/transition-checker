@@ -56,22 +56,19 @@ def _resolve_rules_dir(output_dir: Path, excel_file: Path) -> Path | None:
     return _find_rules_dir(output_dir) or _find_rules_dir(excel_file.parent)
 
 
-def _resolve_offerings_file(output_dir: Path, excel_file: Path) -> Path:
-    """Resolve the offerings file generated or supplied for this workbook."""
+def _resolve_offerings_file(plan_file: Path) -> Path:
+    """Resolve the canonical offerings file for a specific exported plan."""
 
-    workbook_offerings = output_dir / f"{excel_file.stem}_offerings.json"
-    if workbook_offerings.is_file():
-        return workbook_offerings
+    for parent in [plan_file.parent, *list(plan_file.parent.parents)[:3]]:
+        same_dir_offerings = parent / "offerings.json"
+        if same_dir_offerings.is_file():
+            return same_dir_offerings.resolve()
 
-    local_offerings = output_dir / "offerings.json"
-    if local_offerings.is_file():
-        return local_offerings
+        plans_offerings = parent / "plans" / "offerings.json"
+        if plans_offerings.is_file():
+            return plans_offerings.resolve()
 
-    fallback_offerings = excel_file.parent / "offerings.json"
-    if fallback_offerings.is_file():
-        return fallback_offerings
-
-    return workbook_offerings
+    return (plan_file.parent / "offerings.json").resolve()
 
 
 def _as_json_object(value: object) -> dict[str, object] | None:
@@ -424,12 +421,12 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         # Check offerings
-        offerings_file = _resolve_offerings_file(output_dir, excel_file)
+        offerings_file = _resolve_offerings_file(plan_file)
         offering_violations: list[dict[str, object]] = []
         offerings_valid = False
         offering_result_raw = run_cmd(
             [
-            "offering-checker",
+                "offering-checker",
                 str(plan_file),
                 "--offerings",
                 str(offerings_file),

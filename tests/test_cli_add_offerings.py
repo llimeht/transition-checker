@@ -41,6 +41,24 @@ def test_validate_mode_sorts_and_canonicalizes(tmp_path: Path) -> None:
     assert result["ZZZZ9999"] == ["Term 1", "Term 3"]
 
 
+def test_validate_mode_preserves_year_specific_entries(tmp_path: Path) -> None:
+    offerings_path = tmp_path / "offerings.json"
+    offerings_path.write_text(
+        json.dumps(
+            {
+                "ceic2001": {"all": ["t2"], "2026": ["t1", "t1"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = add_offerings_cli.main([str(offerings_path), "--validate"])
+
+    assert exit_code == 0
+    result = json.loads(offerings_path.read_text(encoding="utf-8"))
+    assert result == {"CEIC2001": {"all": ["Term 2"], "2026": ["Term 1"]}}
+
+
 def test_validate_mode_fails_on_unknown_period_and_keeps_file(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -69,6 +87,44 @@ def test_schedule_mode_adds_and_sorts_periods(tmp_path: Path) -> None:
     assert exit_code == 0
     result = json.loads(offerings_path.read_text(encoding="utf-8"))
     assert result["ABCD1234"] == ["Term 1", "Term 3", "Semester 1"]
+
+
+def test_schedule_mode_updates_all_years_and_preserves_year_specific_entries(
+    tmp_path: Path,
+) -> None:
+    offerings_path = tmp_path / "offerings.json"
+    offerings_path.write_text(
+        json.dumps({"ABCD1234": {"all": ["Term 3"], "2026": ["Term 1"]}}, indent=2),
+        encoding="utf-8",
+    )
+
+    exit_code = add_offerings_cli.main(
+        [str(offerings_path), "--schedule", "abcd1234", "S1"]
+    )
+
+    assert exit_code == 0
+    result = json.loads(offerings_path.read_text(encoding="utf-8"))
+    assert result == {
+        "ABCD1234": {"all": ["Term 3", "Semester 1"], "2026": ["Term 1"]}
+    }
+
+
+def test_schedule_mode_can_target_one_year_entry(tmp_path: Path) -> None:
+    offerings_path = tmp_path / "offerings.json"
+    offerings_path.write_text(
+        json.dumps({"ABCD1234": {"all": ["Term 3"], "2026": ["Term 1"]}}, indent=2),
+        encoding="utf-8",
+    )
+
+    exit_code = add_offerings_cli.main(
+        [str(offerings_path), "--year", "2026", "--schedule", "abcd1234", "S1"]
+    )
+
+    assert exit_code == 0
+    result = json.loads(offerings_path.read_text(encoding="utf-8"))
+    assert result == {
+        "ABCD1234": {"all": ["Term 3"], "2026": ["Term 1", "Semester 1"]}
+    }
 
 
 def test_schedule_mode_fails_on_unknown_period(
@@ -111,6 +167,76 @@ def test_show_mode_displays_matching_courses(
     assert "COMP1001" in captured.out
     assert "COMP2002" in captured.out
     assert "MATH1001" not in captured.out
+
+
+def test_show_mode_flattens_year_specific_entries_for_display(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    offerings_path = tmp_path / "offerings.json"
+    offerings_path.write_text(
+        json.dumps({"COMP1001": {"all": ["Term 2"], "2026": ["Term 1"]}}, indent=2),
+        encoding="utf-8",
+    )
+
+    exit_code = add_offerings_cli.main([str(offerings_path), "--show", "COMP*"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "COMP1001" in captured.out
+    assert "Term 1" in captured.out
+    assert "Term 2" in captured.out
+
+
+def test_show_mode_can_render_year_specific_entries(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    offerings_path = tmp_path / "offerings.json"
+    offerings_path.write_text(
+        json.dumps(
+            {
+                "COMP1001": {"all": ["Term 2"], "2026": ["Term 1"]},
+                "COMP2002": {"2027": ["Term 3"]},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = add_offerings_cli.main(
+        [str(offerings_path), "--show", "COMP*", "--show-by-year"]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "COMP1001" in captured.out
+    assert "all Term 2" in captured.out
+    assert "2026 Term 1" in captured.out
+    assert "2027 Term 3" in captured.out
+
+
+def test_show_by_year_rejects_output_csv(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    offerings_path = tmp_path / "offerings.json"
+    output_path = tmp_path / "shown.csv"
+    offerings_path.write_text(
+        json.dumps({"COMP1001": {"2026": ["Term 1"]}}, indent=2),
+        encoding="utf-8",
+    )
+
+    exit_code = add_offerings_cli.main(
+        [
+            str(offerings_path),
+            "--show",
+            "COMP*",
+            "--show-by-year",
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    assert exit_code == 2
+    assert "--output is not supported with --show-by-year" in capsys.readouterr().err
 
 
 def test_show_mode_can_write_csv_output(
@@ -157,6 +283,26 @@ def test_output_requires_show_mode(tmp_path: Path) -> None:
         add_offerings_cli.main(
             [str(offerings_path), "--validate", "--output", str(output_path)]
         )
+
+    assert exc.value.code == 2
+
+
+def test_year_requires_schedule_mode(tmp_path: Path) -> None:
+    offerings_path = tmp_path / "offerings.json"
+    offerings_path.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        add_offerings_cli.main([str(offerings_path), "--validate", "--year", "2026"])
+
+    assert exc.value.code == 2
+
+
+def test_show_by_year_requires_show_mode(tmp_path: Path) -> None:
+    offerings_path = tmp_path / "offerings.json"
+    offerings_path.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        add_offerings_cli.main([str(offerings_path), "--validate", "--show-by-year"])
 
     assert exc.value.code == 2
 
