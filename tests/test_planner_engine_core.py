@@ -14,6 +14,7 @@ from transitionchecker.core import (
     Catalogue,
     CatalogueEntry,
     CatalogueKey,
+    OfferingsMap,
     allowed_periods_for_course,
 )
 from transitionchecker.planner_engine import (
@@ -62,7 +63,7 @@ def _template_config() -> TemplateConfig:
     )
 
 
-def load_offerings_from_map(data: dict[str, object]) -> object:
+def load_offerings_from_map(data: dict[str, object]) -> OfferingsMap:
     with tempfile.TemporaryDirectory() as tmp_dir:
         offerings_path = Path(tmp_dir) / "offerings.json"
         offerings_path.write_text(json.dumps(data), encoding="utf-8")

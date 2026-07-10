@@ -523,7 +523,7 @@ def _allowed_periods_for_slot_year(
         return resolve_allowed_periods_for_course(
             cast(OfferingsMap, offerings), course_code, year=calendar_year
         )
-    return cast(list[str], entry)
+    return entry
 
 
 def load_templates(path: Path) -> TemplateConfig:
@@ -1311,7 +1311,7 @@ def feasible_slots_for_course(
         return []  # No feasible slots if not in offerings; will leave course unplaced
 
     allowed_by_year: dict[int, set[str]] = {}
-    feasible_slots = []
+    feasible_slots: list[Slot] = []
     for slot in slots:
         allowed = allowed_by_year.get(slot.calendar_year)
         if allowed is None:

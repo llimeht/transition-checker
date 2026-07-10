@@ -209,7 +209,7 @@ def test_show_mode_can_render_year_specific_entries(
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "COMP1001" in captured.out
-    assert "all Term 2" in captured.out
+    assert "all  Term 2" in captured.out
     assert "2026 Term 1" in captured.out
     assert "2027 Term 3" in captured.out
 

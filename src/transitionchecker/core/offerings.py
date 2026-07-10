@@ -74,7 +74,10 @@ def load_offerings(path: Path) -> OfferingsMap:
         if isinstance(raw_value, list):
             course = _merge_course_entry(
                 offerings.get(code),
-                all_years=_normalize_periods(raw_value, context=f"Course '{raw_code}'"),
+                all_years=_normalize_periods(
+                    cast(list[object], raw_value),
+                    context=f"Course '{raw_code}'",
+                ),
             )
             offerings[code] = course
             continue
