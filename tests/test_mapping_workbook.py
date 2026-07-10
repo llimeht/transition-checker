@@ -7,11 +7,14 @@ import pytest
 from transitionchecker.core.mapping_workbook import (
     END_INTAKE_MARKER,
     correct_single_row_enrol_year_outliers,
+    detect_plan_section_start,
     extract_catalogue_overrides,
+    extract_program_sheet_header,
     find_template_sheet,
     iter_plans,
     iter_program_sheets,
     plan_has_exportable_content,
+    _looks_like_intake, # pyright: ignore[reportPrivateUsage]
 )
 
 
@@ -343,3 +346,278 @@ def test_correct_single_row_enrol_year_outliers_skips_ties_and_small_groups() ->
     assert tie_corrections == []
     assert small_corrected.equals(small_plan)
     assert small_corrections == []
+
+
+# ---------------------------------------------------------------------------
+# _looks_like_intake
+# ---------------------------------------------------------------------------
+
+
+def test_looks_like_intake_accepts_term_and_session_strings() -> None:
+    assert _looks_like_intake("2026 T3")
+    assert _looks_like_intake("2024 T1")
+    assert _looks_like_intake("2028 S1")
+    assert _looks_like_intake("2030 S2")
+
+
+def test_looks_like_intake_rejects_non_intake_strings() -> None:
+    assert not _looks_like_intake("Course 1")
+    assert not _looks_like_intake("Course 2")
+    assert not _looks_like_intake("nan")
+    assert not _looks_like_intake("")
+    assert not _looks_like_intake("CEICAH3707")
+    assert not _looks_like_intake("2026T3")  # missing space
+    assert not _looks_like_intake("2026 X3")  # wrong letter
+
+
+# ---------------------------------------------------------------------------
+# detect_plan_section_start
+# ---------------------------------------------------------------------------
+
+
+def _make_sheet(
+    rows: list[list[object]],
+    cols: list[str] | None = None,
+) -> pd.DataFrame:
+    """Helper: build a normalised sheet DataFrame from raw row lists."""
+    default_cols = ["EnrolYear", "Year", "Period", "CourseN", "Code", "Title", "UoC", "Prerequisites"]
+    return pd.DataFrame(rows, columns=(cols or default_cols))
+
+
+def test_detect_plan_section_start_normal_layout() -> None:
+    """Standard layout: 3 header rows + 1 label row → plan header at row 4."""
+    sheet = _make_sheet([
+        [None, None, None, "CEICAH3707", None, None, None, None],  # row 0: program code
+        [None, None, None, "Undergraduate", None, None, None, None],  # row 1: career
+        [None, None, None, 192, None, None, None, None],  # row 2: UoC
+        [None, None, None, None, None, None, None, None],  # row 3: label row
+        ["Year 1", None, None, "2026 T3", None, None, None, None],  # row 4: plan header
+        ["Y1", 2026, "Term 1", "Course 1", "CEIC1000", "Intro", 6, ""],
+    ])
+    assert detect_plan_section_start(sheet) == 4
+
+
+def test_detect_plan_section_start_missing_header() -> None:
+    """Mutilated sheet: header block cropped, plan starts immediately after label row."""
+    sheet = _make_sheet([
+        [None, None, None, None, None, None, None, None],  # row 0: label row only
+        ["Year 1", None, None, "2026 T3", None, None, None, None],  # row 1: plan header
+        ["Y1", 2026, "Term 1", "Course 1", "CEIC1000", "Intro", 6, ""],
+    ])
+    assert detect_plan_section_start(sheet) == 1
+
+
+def test_detect_plan_section_start_comment_rows_above() -> None:
+    """Two comment rows prepended before the standard header block."""
+    sheet = _make_sheet([
+        ["Comment row", None, None, None, None, None, None, None],  # row 0
+        ["Another comment", None, None, None, None, None, None, None],  # row 1
+        [None, None, None, "CEICAH3707", None, None, None, None],  # row 2: program
+        [None, None, None, "Undergraduate", None, None, None, None],  # row 3: career
+        [None, None, None, 192, None, None, None, None],  # row 4: UoC
+        [None, None, None, None, None, None, None, None],  # row 5: label row
+        ["Year 1", None, None, "2026 T3", None, None, None, None],  # row 6: plan header
+        ["Y1", 2026, "Term 1", "Course 1", "CEIC1000", "Intro", 6, ""],
+    ])
+    assert detect_plan_section_start(sheet) == 6
+
+
+def test_detect_plan_section_start_falls_back_to_4_when_no_match() -> None:
+    """Sheet with no recognisable intake row returns the legacy default of 4."""
+    sheet = _make_sheet([
+        [None, None, None, None, None, None, None, None],
+        [None, None, None, None, None, None, None, None],
+    ])
+    assert detect_plan_section_start(sheet) == 4
+
+
+# ---------------------------------------------------------------------------
+# iter_plans — mutilated / comment-row sheets
+# ---------------------------------------------------------------------------
+
+
+def test_iter_plans_mutilated_header_extracts_correct_intake() -> None:
+    """Header block cropped: plan header is at row 1 (after one label row)."""
+    sheet = _make_sheet([
+        [None, None, None, None, None, None, None, None],  # row 0: label row
+        ["Year 1", None, None, "2026 T3", None, None, None, None],  # row 1: plan header
+        ["Y1", 2026, "Term 1", "Course 1", "CEIC1000", "Intro", 6, ""],
+        ["Y1", 2026, "Term 1", "Course 2", "CEIC1001", "Methods", 6, ""],
+    ])
+
+    plans = list(iter_plans(sheet))
+
+    assert len(plans) == 1
+    intake, rows, _ = plans[0]
+    assert intake == "2026 T3"
+    assert len(rows) == 2
+
+
+def test_iter_plans_comment_rows_above_plan_extracts_correct_intake() -> None:
+    """Two comment rows prepended above the standard 4-row header block."""
+    sheet = _make_sheet([
+        ["Please review", None, None, None, None, None, None, None],  # comment
+        ["Draft version", None, None, None, None, None, None, None],  # comment
+        [None, None, None, "CEICAH3707", None, None, None, None],  # program
+        [None, None, None, "Undergraduate", None, None, None, None],  # career
+        [None, None, None, 192, None, None, None, None],  # UoC
+        [None, None, None, None, None, None, None, None],  # label row
+        ["Year 1", None, None, "2026 T3", None, None, None, None],  # plan header
+        ["Y1", 2026, "Term 1", "Course 1", "CEIC1000", "Intro", 6, ""],
+    ])
+
+    plans = list(iter_plans(sheet))
+
+    assert len(plans) == 1
+    intake, rows, _ = plans[0]
+    assert intake == "2026 T3"
+    assert len(rows) == 1
+
+
+# ---------------------------------------------------------------------------
+# extract_program_sheet_header — mutilated / comment-row sheets
+# ---------------------------------------------------------------------------
+
+
+def test_extract_program_sheet_header_normal_layout() -> None:
+    """Standard layout returns program/career/uoc from the header block."""
+    sheet = _make_sheet([
+        [None, None, None, "CEICAH3707", None, None, None, None],
+        [None, None, None, "Undergraduate", None, None, None, None],
+        [None, None, None, 192, None, None, None, None],
+        [None, None, None, None, None, None, None, None],
+        ["Year 1", None, None, "2026 T3", None, None, None, None],
+        ["Y1", 2026, "Term 1", "Course 1", "CEIC1000", "Intro", 6, ""],
+    ])
+
+    header = extract_program_sheet_header(sheet)
+
+    assert header["program"] == "CEICAH3707"
+    assert header["career"] == "Undergraduate"
+    assert header["uoc"] == 192
+
+
+def test_extract_program_sheet_header_missing_returns_empty(caplog: pytest.LogCaptureFixture) -> None:
+    """Cropped header block returns empty strings and 0 UoC with a warning."""
+    import logging
+    sheet = _make_sheet([
+        [None, None, None, None, None, None, None, None],  # label row
+        ["Year 1", None, None, "2026 T3", None, None, None, None],  # plan header at row 1
+        ["Y1", 2026, "Term 1", "Course 1", "CEIC1000", "Intro", 6, ""],
+    ])
+
+    with caplog.at_level(logging.WARNING, logger="transitionchecker.core.mapping_workbook"):
+        header = extract_program_sheet_header(sheet)
+
+    assert header["program"] == ""
+    assert header["career"] == ""
+    assert header["uoc"] == 0
+    assert any("absent or cropped" in r.message for r in caplog.records)
+
+
+def test_extract_program_sheet_header_comment_rows_above() -> None:
+    """Comment rows above a standard header block are handled correctly."""
+    sheet = _make_sheet([
+        ["Please review", None, None, None, None, None, None, None],
+        ["Draft version", None, None, None, None, None, None, None],
+        [None, None, None, "CEICAH3707", None, None, None, None],
+        [None, None, None, "Undergraduate", None, None, None, None],
+        [None, None, None, 192, None, None, None, None],
+        [None, None, None, None, None, None, None, None],
+        ["Year 1", None, None, "2026 T3", None, None, None, None],
+        ["Y1", 2026, "Term 1", "Course 1", "CEIC1000", "Intro", 6, ""],
+    ])
+
+    header = extract_program_sheet_header(sheet)
+
+    assert header["program"] == "CEICAH3707"
+    assert header["career"] == "Undergraduate"
+    assert header["uoc"] == 192
+
+
+def test_extract_program_sheet_header_session_intake() -> None:
+    """S-session intake strings are recognised by detect_plan_section_start."""
+    sheet = _make_sheet([
+        [None, None, None, "FOODAH1234", None, None, None, None],
+        [None, None, None, "Postgraduate", None, None, None, None],
+        [None, None, None, 96, None, None, None, None],
+        [None, None, None, None, None, None, None, None],
+        ["Year 1", None, None, "2028 S1", None, None, None, None],
+        ["Y1", 2028, "Session 1", "Course 1", "FOOD6000", "Grad Intro", 6, ""],
+    ])
+
+    header = extract_program_sheet_header(sheet)
+
+    assert header["program"] == "FOODAH1234"
+    assert header["career"] == "Postgraduate"
+    assert header["uoc"] == 96
+
+
+# ---------------------------------------------------------------------------
+# "Student Intake Cohort" single-intake format (sponsored students workbook)
+# ---------------------------------------------------------------------------
+# These sheets have NO traditional 3-row header block and use
+# "Student Intake Cohort" in col A of the plan header row rather than "Year 1".
+
+
+def test_detect_plan_section_start_student_intake_cohort_format() -> None:
+    """Single-intake sheet with 'Student Intake Cohort' label in col A."""
+    sheet = _make_sheet([
+        ["Non-RPL", None, None, None, None, None, None, None],  # row 0: comment
+        ["Student Intake Cohort", None, None, "2026 T3", "Code", "Course Title", None, None],  # row 1
+        ["Year 1", 2026, "Term 3", "Course 1", "CEIC1000", "Intro", 6, ""],
+        ["Year 1", 2026, "Term 3", "Course 2", "CEIC1001", "Methods", 6, ""],
+    ])
+    assert detect_plan_section_start(sheet) == 1
+
+
+def test_detect_plan_section_start_student_intake_cohort_with_blank_prefix() -> None:
+    """Blank row before the 'Non-RPL' comment — plan header still found."""
+    sheet = _make_sheet([
+        [None, None, None, None, None, None, None, None],  # row 0: blank
+        ["Non-RPL", None, None, None, None, None, None, None],  # row 1: comment
+        [None, None, None, None, None, None, None, None],  # row 2: blank
+        ["Student Intake Cohort", None, None, "2026 T3", "Code", "Course Title", None, None],  # row 3
+        ["Year 1", 2026, "Term 3", "Course 1", "CEIC1000", "Intro", 6, ""],
+    ])
+    assert detect_plan_section_start(sheet) == 3
+
+
+def test_iter_plans_student_intake_cohort_format_extracts_intake_and_courses() -> None:
+    """Single-intake sheet: 'Student Intake Cohort' row is the plan header."""
+    sheet = _make_sheet([
+        ["Non-RPL", None, None, None, None, None, None, None],  # comment — skipped
+        ["Student Intake Cohort", None, None, "2026 T3", "Code", "Course Title", None, None],
+        ["Year 1", 2026, "Term 3", "Course 1", "CEIC1000", "Intro", 6, ""],
+        ["Year 1", 2026, "Term 3", "Course 2", "CEIC1001", "Methods", 6, ""],
+        ["Year 1", 2026, "Term 3", "Course 3", "CEIC1002", "Lab", 6, ""],
+    ])
+
+    plans = list(iter_plans(sheet))
+
+    assert len(plans) == 1
+    intake, rows, _ = plans[0]
+    assert intake == "2026 T3"
+    # All three course rows must be present — none dropped by start_row
+    assert list(rows["CourseN"]) == ["Course 1", "Course 2", "Course 3"]
+
+
+def test_extract_program_sheet_header_student_intake_cohort_format(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """No header block present: returns empty fields and logs a warning."""
+    import logging
+
+    sheet = _make_sheet([
+        ["Non-RPL", None, None, None, None, None, None, None],
+        ["Student Intake Cohort", None, None, "2026 T3", "Code", "Course Title", None, None],
+        ["Year 1", 2026, "Term 3", "Course 1", "CEIC1000", "Intro", 6, ""],
+    ])
+
+    with caplog.at_level(logging.WARNING, logger="transitionchecker.core.mapping_workbook"):
+        header = extract_program_sheet_header(sheet)
+
+    assert header["program"] == ""
+    assert header["career"] == ""
+    assert header["uoc"] == 0
+    assert any("absent or cropped" in r.message for r in caplog.records)

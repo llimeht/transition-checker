@@ -26,7 +26,7 @@ def test_main_runs_export_flow_and_writes_offerings(
     out_dir = tmp_path / "out"
 
     def fake_read_excel(
-        _file: Path, sheet_name: str | None = None
+        _file: Path, sheet_name: str | None = None, **_kwargs: object
     ) -> dict[str, pd.DataFrame]:
         return {"Sheet1": pd.DataFrame()}
 
@@ -125,7 +125,7 @@ def test_main_skips_placeholder_only_plans_before_export(
     out_dir = tmp_path / "out"
 
     def fake_read_excel(
-        _file: Path, sheet_name: str | None = None
+        _file: Path, sheet_name: str | None = None, **_kwargs: object
     ) -> dict[str, pd.DataFrame]:
         return {"Sheet1": pd.DataFrame()}
 
@@ -345,7 +345,7 @@ def test_main_corrects_single_row_enrol_year_outlier_and_warns(
     out_dir = tmp_path / "out"
 
     def fake_read_excel(
-        _file: Path, sheet_name: str | None = None
+        _file: Path, sheet_name: str | None = None, **_kwargs: object
     ) -> dict[str, pd.DataFrame]:
         return {"Sheet1": pd.DataFrame()}
 

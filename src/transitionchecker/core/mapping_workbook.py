@@ -45,6 +45,9 @@ CANONICAL_PLAN_COLUMNS = [
 
 END_INTAKE_MARKER = "Available Periods:"
 
+# Regex that matches a valid cohort/intake string such as "2026 T3" or "2028 S1".
+_INTAKE_RE = re.compile(r"^\d{4}\s+[ST]\d")
+
 # Number of header rows above the data table in the catalogue sheet (1-based).
 CATALOGUE_SHEET_HEADER_ROWS = 3
 
@@ -429,6 +432,31 @@ def correct_single_row_enrol_year_outliers(
     return corrected, corrections
 
 
+def _looks_like_intake(s: str) -> bool:
+    """Return True when *s* resembles a cohort/intake string (e.g. "2026 T3", "2028 S1")."""
+    return bool(_INTAKE_RE.match(s))
+
+
+def detect_plan_section_start(sheet: pd.DataFrame) -> int:
+    """Return the 0-based row index of the first plan header row in *sheet*.
+
+    A plan header row is identified solely by col D (index 3) containing a
+    recognisable intake string such as "2026 T3" or "2028 S1".  The col A
+    value is intentionally not checked because different workbook styles use
+    different labels (e.g. "Year 1" in multi-intake sheets vs. "Student
+    Intake Cohort" in single-intake sheets).
+
+    Falls back to ``4`` when no matching row is found, preserving the
+    original behaviour for sheets whose intake strings are not in the
+    expected format.
+    """
+    for i in range(len(sheet)):
+        col_d = str(sheet.iloc[i, 3]).strip()
+        if _looks_like_intake(col_d):
+            return i
+    return 4
+
+
 def iter_program_sheets(
     dfs: dict[str, pd.DataFrame],
     ignored_sheet_names: Collection[str] = IGNORE_SHEET_NAMES,
@@ -452,7 +480,7 @@ def iter_program_sheets(
 
 def iter_plans(
     sheet: pd.DataFrame,
-    start_row: int = 4,
+    start_row: int | None = None,
     end_intake_marker: str = END_INTAKE_MARKER,
 ) -> Generator[tuple[str, pd.DataFrame, PlanMetadata], None, None]:
     """Yield each intake plan block from a normalised sheet.
@@ -460,11 +488,18 @@ def iter_plans(
     Args:
         sheet: A sheet already normalised by ``iter_program_sheets``.
         start_row: Number of header rows to skip before plan blocks begin.
+            When ``None`` (the default) the start row is auto-detected via
+            :func:`detect_plan_section_start`, which handles mutilated
+            spreadsheets whose metadata header block has been cropped as well
+            as sheets that have extra comment rows prepended above the plan.
         end_intake_marker: Marker in column A that ends plan blocks.
 
     Yields:
         Tuples of ``(intake, plan_dataframe, metadata)``.
     """
+
+    if start_row is None:
+        start_row = detect_plan_section_start(sheet)
 
     trimmed = sheet.iloc[start_row:].reset_index(drop=True)
 
@@ -512,16 +547,38 @@ def extract_program_sheet_header(
 ) -> ProgramSheetHeader:
     """Extract the program sheet header information from a normalised sheet.
 
+    The header block occupies the three rows immediately before the column-
+    labels row, which itself sits one row before the first plan header row.
+    :func:`detect_plan_section_start` is used to locate the plan section so
+    that the correct header rows are read even when the spreadsheet has extra
+    comment rows prepended above the standard layout.
+
+    When the plan section starts before row 4 the header block is absent or
+    cropped; in that case empty/zero fallback values are returned and a
+    warning is logged.
+
     Args:
         sheet: A sheet already normalised by ``iter_program_sheets``.
     Returns:
-        Dictionary with keys "program", "career", and "uoc" from the first row of the sheet.
+        Dictionary with keys ``program``, ``career``, and ``uoc``.
     """
-    code = str(sheet.iloc[0, 3]).strip()  # program code is in column D2
-    career = str(sheet.iloc[1, 3]).strip()  # career is in column D3
+    plan_start = detect_plan_section_start(sheet)
+
+    if plan_start < 4:
+        logger.warning(
+            "Plan section starts at row %d (expected \u22654); "
+            "program metadata header appears absent or cropped — "
+            "program/career/uoc will be empty",
+            plan_start,
+        )
+        return ProgramSheetHeader(program="", career="", uoc=0)
+
+    # Standard layout: header block is at rows plan_start-4 .. plan_start-2, col D.
+    code = str(sheet.iloc[plan_start - 4, 3]).strip()
+    career = str(sheet.iloc[plan_start - 3, 3]).strip()
     uoc: int = 0
     try:
-        uoc = int(sheet.iloc[2, 3])  # type: ignore  # pyright: ignore[reportUnknownVariableType]  # UoC is in column D4
+        uoc = int(sheet.iloc[plan_start - 2, 3])  # type: ignore  # pyright: ignore[reportUnknownVariableType]
     except (ValueError, TypeError):
         pass
 

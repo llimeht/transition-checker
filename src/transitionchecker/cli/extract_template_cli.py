@@ -159,7 +159,7 @@ def build_year_structure(plan: pd.DataFrame, intake: str) -> list[dict[str, Any]
 def extract_template_configs_from_workbook(excel_path: Path) -> dict[str, Any]:
     """Build program-agnostic template config keyed only by intake."""
     print("\n=== EXTRACTING TEMPLATE CONFIGS ===")
-    dfs = pd.read_excel(excel_path, sheet_name=None)  # pyright: ignore[reportUnknownMemberType]
+    dfs = pd.read_excel(excel_path, sheet_name=None, header=None)  # pyright: ignore[reportUnknownMemberType]
 
     # Read slot structure from the template sheet — the one template tab in the workbook.
     # These define every (year, period, CourseN) row with blank codes, giving the

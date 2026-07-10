@@ -423,6 +423,7 @@ def main(argv: list[str] | None = None) -> int:
     dfs: dict[str, pd.DataFrame] = pd.read_excel(  # pyright: ignore
         excel_file,
         sheet_name=None,
+        header=None,
     )
 
     offerings: list[dict[str, set[str]]] = []
