@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from transitionchecker.cli import validate_cli
+from transitionchecker.core.rules_loader import resolve_rule_file_for_plan
 
 
 def test_resolve_rule_file_prefers_matching_range(tmp_path: Path) -> None:
@@ -19,8 +20,8 @@ def test_resolve_rule_file_prefers_matching_range(tmp_path: Path) -> None:
     ranged.write_text("{}", encoding="utf-8")
     (rules_dir / "CEICDH3707.json").write_text("{}", encoding="utf-8")
 
-    chosen = validate_cli.resolve_rule_file(
-        "CEICDH3707", "CEICDH3707_2026_T1", tmp_path
+    chosen = resolve_rule_file_for_plan(
+        "CEICDH3707", "CEICDH3707_2026_T1", rules_dir
     )
     assert chosen == ranged
 
@@ -131,7 +132,7 @@ def test_main_filters_plan_files_by_glob(
         return tmp_path / "rules" / "CEICKS8338.json"
 
     monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
-    monkeypatch.setattr(validate_cli, "resolve_rule_file", fake_resolve_rule_file)
+    monkeypatch.setattr(validate_cli, "resolve_rule_file_for_plan", fake_resolve_rule_file)
 
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
@@ -227,7 +228,7 @@ def test_main_collects_structured_findings_when_legacy_lists_empty(
         return tmp_path / "rules" / "CEICDH3707.json"
 
     monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
-    monkeypatch.setattr(validate_cli, "resolve_rule_file", fake_resolve_rule_file)
+    monkeypatch.setattr(validate_cli, "resolve_rule_file_for_plan", fake_resolve_rule_file)
 
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
@@ -308,7 +309,7 @@ def test_main_reports_annual_load_structured_findings(
         return tmp_path / "rules" / "CEICDH3707.json"
 
     monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
-    monkeypatch.setattr(validate_cli, "resolve_rule_file", fake_resolve_rule_file)
+    monkeypatch.setattr(validate_cli, "resolve_rule_file_for_plan", fake_resolve_rule_file)
 
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
@@ -361,7 +362,7 @@ def test_main_skips_placeholder_plan_with_blank_rows(
         return tmp_path / "rules" / "MATSM13132+CEICM13132.json"
 
     monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
-    monkeypatch.setattr(validate_cli, "resolve_rule_file", fake_resolve_rule_file)
+    monkeypatch.setattr(validate_cli, "resolve_rule_file_for_plan", fake_resolve_rule_file)
 
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
@@ -436,7 +437,7 @@ def test_main_surfaces_degree_rules_process_error_output(
         return tmp_path / "rules" / "MATSM13132+CEICM13132.json"
 
     monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
-    monkeypatch.setattr(validate_cli, "resolve_rule_file", fake_resolve_rule_file)
+    monkeypatch.setattr(validate_cli, "resolve_rule_file_for_plan", fake_resolve_rule_file)
 
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()

@@ -33,6 +33,13 @@ from transitionchecker.core.mapping_workbook import (
     extract_program_sheet_header,
     plan_has_exportable_content,
 )
+from transitionchecker.core.rules_loader import (
+    RulesMetadata,
+    intake_year_from_intake_string,
+    load_rules_metadata,
+    parse_plan_code,
+    resolve_rule_file,
+)
 from transitionchecker.utils.logging import configure_logging
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
@@ -41,6 +48,19 @@ logger = logging.getLogger(__name__)
 
 # Filename auto-discovered as a sibling of the output directory.
 _ERG_OVERRIDES_FILENAME = "course_catalogue_ergs.json"
+
+
+def _find_rules_dir(start: Path) -> Path | None:
+    """Walk upward from *start* looking for a ``rules/`` subdirectory.
+
+    Checks up to four ancestor levels.  Returns the first match, or ``None``
+    when no ``rules/`` directory is found.
+    """
+    for parent in [start, *list(start.parents)[:3]]:
+        candidate = parent / "rules"
+        if candidate.is_dir():
+            return candidate
+    return None
 _CATALOGUE_OVERRIDES_FILENAME = "catalogue_overrides.json"
 
 
@@ -102,6 +122,7 @@ class PlanExport(TypedDict):
     career: str
     uoc: int
     notes: PlanNotes
+    program_metadata: RulesMetadata | None
     courses: list[PlanCourse]
 
 
@@ -218,6 +239,7 @@ def plan_to_dict(
     plan: pd.DataFrame,
     metadata: PlanMetadata | None = None,
     *,
+    program_metadata: RulesMetadata | None = None,
     manual_overrides: dict[CatalogueKey, str] | None = None,
     erg_overrides: dict[CatalogueKey, str] | None = None,
 ) -> PlanExport:
@@ -277,8 +299,7 @@ def plan_to_dict(
         "career": header.get("career", ""),
         "uoc": int(header.get("uoc", 0)),
         "intake": intake,
-        "notes": (metadata or {"notes": {"graduate_outcome": "", "adjustment_type": "", "for_reviewers": [], "for_students": []}})["notes"],
-        "courses": courses,
+        "notes": (metadata or {"notes": {"graduate_outcome": "", "adjustment_type": "", "for_reviewers": [], "for_students": []}})["notes"],        "program_metadata": program_metadata,        "courses": courses,
     }
 
 
@@ -290,6 +311,7 @@ def export_plan(
     output_dir: Path,
     metadata: PlanMetadata | None = None,
     *,
+    program_metadata: RulesMetadata | None = None,
     manual_overrides: dict[CatalogueKey, str] | None = None,
     erg_overrides: dict[CatalogueKey, str] | None = None,
 ) -> Path | None:
@@ -307,6 +329,7 @@ def export_plan(
     """
     plan_dict = plan_to_dict(
         sheet_name, intake, header, plan, metadata,
+        program_metadata=program_metadata,
         manual_overrides=manual_overrides,
         erg_overrides=erg_overrides,
     )
@@ -366,6 +389,18 @@ def _build_cli_parser() -> argparse.ArgumentParser:
             "Pass 'none' to disable auto-discovery."
         ),
     )
+    parser.add_argument(
+        "--rules-dir",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Directory containing degree-rules JSON files used to populate "
+            "program_metadata in each exported plan. "
+            "When not supplied, the tool auto-discovers a rules/ directory by "
+            "walking upward from the output directory. "
+            "Pass 'none' to disable metadata embedding."
+        ),
+    )
     return parser
 
 
@@ -385,6 +420,20 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.output_dir) if args.output_dir else excel_file.resolve().parent
     )
     output_dir_path.mkdir(parents=True, exist_ok=True)
+
+    # ── Resolve rules directory for program_metadata ─────────────────────────
+    rules_dir: Path | None
+    rules_arg = args.rules_dir
+    if rules_arg and rules_arg.lower() != "none":
+        rules_dir = Path(rules_arg)
+    elif not rules_arg:
+        rules_dir = _find_rules_dir(output_dir_path)
+        if rules_dir:
+            logger.info("Auto-discovered rules directory: %s", rules_dir)
+        else:
+            logger.debug("No rules directory found; program_metadata will be null")
+    else:
+        rules_dir = None
 
     # ── Resolve prerequisite override maps ───────────────────────────────────
     # Priority (highest to lowest) when looking up a course prereq:
@@ -431,6 +480,13 @@ def main(argv: list[str] | None = None) -> int:
     for sheet_name, df in iter_program_sheets(dfs):
         logger.info(f"Processing sheet: {sheet_name}")
         header = extract_program_sheet_header(df)
+
+        # Resolve plan_code / plan_description once per sheet.
+        if rules_dir is not None:
+            plan_code, plan_description = parse_plan_code(sheet_name, rules_dir)
+        else:
+            plan_code, plan_description = sheet_name, ""
+
         for intake, plan, metadata in iter_plans(df):
             logger.info(f"  Intake {intake}")
             plan, corrections = correct_single_row_enrol_year_outliers(plan)
@@ -449,6 +505,20 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             offering = course_terms(plan)
             offerings.append(offering)
+
+            # Build program_metadata from the matching rules file.
+            prog_metadata: RulesMetadata | None = None
+            if rules_dir is not None:
+                intake_yr = intake_year_from_intake_string(intake)
+                rules_file = resolve_rule_file(plan_code, intake_yr, rules_dir)
+                prog_metadata = load_rules_metadata(rules_file, plan_code, plan_description)
+                if prog_metadata is None:
+                    logger.debug(
+                        "  No rules metadata for %s (rules file not found: %s)",
+                        sheet_name,
+                        rules_file,
+                    )
+
             path = export_plan(
                 sheet_name,
                 intake,
@@ -456,6 +526,7 @@ def main(argv: list[str] | None = None) -> int:
                 plan,
                 output_dir_path,
                 metadata,
+                program_metadata=prog_metadata,
                 manual_overrides=manual_overrides,
                 erg_overrides=erg_overrides,
             )

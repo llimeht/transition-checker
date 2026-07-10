@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import cast
 
 from transitionchecker.core import as_json_object
+from transitionchecker.core.rules_loader import resolve_rule_file_for_plan
 
 
 def _as_json_object(value: object) -> dict[str, object] | None:
@@ -124,47 +125,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def resolve_rule_file(program_code: str, plan_stem: str, script_dir: Path) -> Path:
-    """Return the best matching rule file for a plan/program.
 
-    Args:
-        program_code: Program code prefix extracted from plan filename.
-        plan_stem: Plan filename stem.
-        script_dir: Directory containing the rules folder.
-
-    If the plan stem includes an intake year and a ranged rule file exists (for
-    example ``PROGRAM-2020-2025.json``), the matching ranged file is preferred.
-    Otherwise the fallback is ``rules/PROGRAM.json``.
-
-    Returns:
-        Path to the selected rule file.
-    """
-    intake_year: int | None = None
-    prefix = f"{program_code}_"
-
-    if plan_stem.startswith(prefix):
-        intake_segment = plan_stem[len(prefix) :]
-        intake_year_candidate = intake_segment.split("_", 1)[0]
-        if re.fullmatch(r"\d{4}", intake_year_candidate):
-            intake_year = int(intake_year_candidate)
-
-    if intake_year is not None:
-        for candidate in sorted((script_dir / "rules").glob("*.json")):
-            candidate_stem = candidate.stem
-            if not candidate_stem.startswith(f"{program_code}-"):
-                continue
-
-            range_part = candidate_stem[len(program_code) + 1 :]
-            match = re.fullmatch(r"(\d{4})-(\d{4})", range_part)
-            if not match:
-                continue
-
-            range_start = int(match.group(1))
-            range_end = int(match.group(2))
-            if range_start <= intake_year <= range_end:
-                return candidate
-
-    return script_dir / "rules" / f"{program_code}.json"
 
 
 def run_cmd(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -311,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
     for plan_file in plan_files:
         plan_stem = plan_file.stem
         program_code = plan_stem.split("_", 1)[0]
-        rule_file = resolve_rule_file(program_code, plan_stem, project_root)
+        rule_file = resolve_rule_file_for_plan(program_code, plan_stem, project_root / "rules")
         rule_name = rule_file.name
         cwd = Path.cwd()
         try:
