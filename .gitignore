@@ -17,3 +17,5 @@ coverage.json
 rules/
 FILE-FORMATS.pdf
 README.pdf
+datapacks/
+cruft/
