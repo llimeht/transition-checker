@@ -372,7 +372,7 @@ The planning spreadsheets are the primary source of truth for the transition pla
 - Handbook Course Catalogue - this contains the official course catalogue information for all courses in the program/specialisation, including the prerequisite text from the STU054 report.
 - Local Course Overrides - updates/overrides to real courses and details of placeholder courses.
 
-Each program/specialisation that needs to be planned has its own sheet. The name of the sheet should correspond to the academic rules file that it will be validated against. For example, the `CEICAH3707` sheet will be validated against the `rules/CEICAH3707.json` file. The name needs to be unique within your workspace and should not contain any special characters (e.g. `*`, `?`, `:`) that are not valid in a filename or an Excel worksheet name.
+Each program/specialisation that needs to be planned has its own sheet. The academic rules file that will be used at validation time is derived from the sheet name - see below.
 
 Each program/specialisation sheet contains a header block and the intended enrolment sequences for each intake.
 The header block consists of:
@@ -393,6 +393,21 @@ Examples:
 - `CEICAH3707` -> `plan_code=CEICAH3707`, `plan_description=""`
 - `CEICKS8338 (48 UoC RPL)` -> `plan_code=CEICKS8338`, `plan_description="48 UoC RPL"`
 - `CEICKS8338 (suggested enrolment plan)` -> `plan_code=CEICKS8338`, `plan_description="suggested enrolment plan"`
+
+**Sheet name** will often be the same as the plan code, but you will want something shorter if your plan description is a few words.
+The name needs to be unique within your workspace and should not contain any special characters (e.g. `*`, `?`, `:`) that are not valid in a filename or an Excel worksheet name.
+
+In the simplest scenario, the `CEICAH3707` sheet will be validated against the `rules/CEICAH3707.json` file.
+However, parenthesised description text will also be stripped in an effort to locate the matching rules file:
+
+1. **Exact match** — `rules/<plan_code>.json` or `rules/<plan_code>-YYYY-YYYY.json` (a year-ranged variant).
+2. **Trailing `(...)` stripped** — e.g. `CEICKS8338(48RPL)` → try `CEICKS8338`.
+3. **Everything after the rightmost `_` stripped** — repeated until a match is found (e.g. `CEICAH3707_Accelerated_Plan` → `CEICAH3707_Accelerated` → `CEICAH3707`).
+4. **Everything after the rightmost `-` stripped** — repeated until a match is found.
+
+If no match is found after all crops are exhausted, a warning is logged and `program_metadata` will be `null` in the exported plan.
+
+Once the effective base code is resolved, **year-range selection** is applied separately: if multiple rule file versions exist for a code (e.g. `CEICDH3707-2020-2025.json` and `CEICDH3707-2026-2029.json`), the file whose year range covers the intake year is used. If the intake year falls outside all ranges, the plain `<code>.json` file is used instead.
 
 ### Manage the offerings list
 

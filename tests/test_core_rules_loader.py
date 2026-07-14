@@ -10,6 +10,7 @@ import pytest
 from transitionchecker.core.rules_loader import (
     intake_year_from_intake_string,
     load_rules_metadata,
+    resolve_plan_code,
     resolve_rule_file,
     resolve_rule_file_for_plan,
 )
@@ -85,6 +86,81 @@ def test_resolve_rule_file_for_plan_falls_back_without_year_in_stem(
 ) -> None:
     result = resolve_rule_file_for_plan("PROG1234", "PROG1234_nodate", tmp_path)
     assert result == tmp_path / "PROG1234.json"
+
+
+# ---------------------------------------------------------------------------
+# resolve_plan_code
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_plan_code_exact_match(tmp_path: Path) -> None:
+    (tmp_path / "CEICAH3707.json").write_text("{}", encoding="utf-8")
+    assert resolve_plan_code("CEICAH3707", tmp_path) == "CEICAH3707"
+
+
+def test_resolve_plan_code_exact_match_ranged_file(tmp_path: Path) -> None:
+    """A ranged-only rules file counts as an exact match for the base code."""
+    (tmp_path / "CEICDH3707-2026-2029.json").write_text("{}", encoding="utf-8")
+    assert resolve_plan_code("CEICDH3707", tmp_path) == "CEICDH3707"
+
+
+def test_resolve_plan_code_prefers_exact_over_cropped(tmp_path: Path) -> None:
+    (tmp_path / "CEICKS8338.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "CEICKS8338(48RPL).json").write_text("{}", encoding="utf-8")
+    assert resolve_plan_code("CEICKS8338(48RPL)", tmp_path) == "CEICKS8338(48RPL)"
+
+
+def test_resolve_plan_code_strips_trailing_parens_no_space(tmp_path: Path) -> None:
+    (tmp_path / "CEICKS8338.json").write_text("{}", encoding="utf-8")
+    assert resolve_plan_code("CEICKS8338(48RPL)", tmp_path) == "CEICKS8338"
+
+
+def test_resolve_plan_code_strips_trailing_parens_with_space(tmp_path: Path) -> None:
+    (tmp_path / "CEICKS8338.json").write_text("{}", encoding="utf-8")
+    assert resolve_plan_code("CEICKS8338 (48 UoC RPL)", tmp_path) == "CEICKS8338"
+
+
+def test_resolve_plan_code_strips_at_underscore(tmp_path: Path) -> None:
+    (tmp_path / "CEICAH3707.json").write_text("{}", encoding="utf-8")
+    assert resolve_plan_code("CEICAH3707_Mature_Age", tmp_path) == "CEICAH3707"
+
+
+def test_resolve_plan_code_strips_multiple_underscore_steps(tmp_path: Path) -> None:
+    (tmp_path / "CEICAH3707.json").write_text("{}", encoding="utf-8")
+    assert resolve_plan_code("CEICAH3707_x_y_z", tmp_path) == "CEICAH3707"
+
+
+def test_resolve_plan_code_strips_at_hyphen(tmp_path: Path) -> None:
+    (tmp_path / "CEICAH3707.json").write_text("{}", encoding="utf-8")
+    assert resolve_plan_code("CEICAH3707-special", tmp_path) == "CEICAH3707"
+
+
+def test_resolve_plan_code_returns_original_when_no_match(tmp_path: Path) -> None:
+    assert resolve_plan_code("UNKNOWN9999_foo", tmp_path) == "UNKNOWN9999_foo"
+
+
+def test_resolve_rule_file_uses_cropped_code_with_intake_year(tmp_path: Path) -> None:
+    (tmp_path / "CEICAH3707.json").write_text("{}", encoding="utf-8")
+    result = resolve_rule_file("CEICAH3707_Mature", 2026, tmp_path)
+    assert result == tmp_path / "CEICAH3707.json"
+
+
+def test_resolve_rule_file_uses_cropped_code_with_ranged_file(
+    tmp_path: Path,
+) -> None:
+    """Cropped code selects the year-ranged file when intake year matches."""
+    (tmp_path / "CEICAH3707-2026-2029.json").write_text("{}", encoding="utf-8")
+    result = resolve_rule_file("CEICAH3707_Mature", 2027, tmp_path)
+    assert result == tmp_path / "CEICAH3707-2026-2029.json"
+
+
+def test_resolve_rule_file_logs_warning_when_no_match(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+    with caplog.at_level(logging.WARNING, logger="transitionchecker.core.rules_loader"):
+        resolve_rule_file("UNKNOWN9999", 2026, tmp_path)
+    assert any("UNKNOWN9999" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------

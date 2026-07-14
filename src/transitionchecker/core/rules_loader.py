@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 _YEAR_RANGE_RE = re.compile(r"^(\d{4})-(\d{4})$")
 _INTAKE_YEAR_RE = re.compile(r"^\d{4}$")
+# Matches a trailing parenthesised suffix with optional surrounding whitespace,
+# e.g. "(48 UoC RPL)" or "(48RPL)".
+_TRAILING_PARENS_RE = re.compile(r"\s*\([^()]*\)\s*$")
 
 
 class ProgramRef(TypedDict):
@@ -42,25 +45,102 @@ class RulesMetadata(TypedDict):
 # ---------------------------------------------------------------------------
 
 
+def _has_rule(plan_code: str, rules_dir: Path) -> bool:
+    """Return True when at least one rules file exists for *plan_code*."""
+    if (rules_dir / f"{plan_code}.json").exists():
+        return True
+    for candidate in rules_dir.glob("*.json"):
+        stem = candidate.stem
+        if stem.startswith(f"{plan_code}-") and _YEAR_RANGE_RE.fullmatch(
+            stem[len(plan_code) + 1 :]
+        ):
+            return True
+    return False
+
+
+def resolve_plan_code(plan_code: str, rules_dir: Path) -> str:
+    """Return the effective plan code for rules-file lookup.
+
+    Tries *plan_code* exactly first.  When no matching rules file exists,
+    progressively crops the trailing end in this order and retries:
+
+    1. Trailing parenthesised suffix — e.g. ``CEICAH3707(RPL)`` → ``CEICAH3707``
+    2. Everything after the rightmost ``_``
+    3. Everything after the rightmost ``-``
+
+    Each step is repeated until a match is found or no further cropping is
+    possible.  Returns *plan_code* unchanged when no match is found, so that
+    callers still receive a meaningful "file not found" path.
+    """
+    current = plan_code.strip()
+    seen: set[str] = set()
+
+    while current and current not in seen:
+        seen.add(current)
+        if _has_rule(current, rules_dir):
+            return current
+
+        # Strip trailing (...) with optional surrounding whitespace
+        m = _TRAILING_PARENS_RE.search(current)
+        if m:
+            candidate = current[: m.start()].strip()
+            if candidate and candidate not in seen:
+                current = candidate
+                continue
+
+        # Strip at rightmost _
+        idx = current.rfind("_")
+        if idx > 0:
+            candidate = current[:idx].strip()
+            if candidate and candidate not in seen:
+                current = candidate
+                continue
+
+        # Strip at rightmost -
+        idx = current.rfind("-")
+        if idx > 0:
+            candidate = current[:idx].strip()
+            if candidate and candidate not in seen:
+                current = candidate
+                continue
+
+        break
+
+    return plan_code
+
+
 def resolve_rule_file(plan_code: str, intake_year: int | None, rules_dir: Path) -> Path:
     """Return the best matching rule file for *plan_code*.
 
-    When *intake_year* is provided and a date-ranged file exists that covers
-    that year (e.g. ``PROGRAM-2026-2029.json``), that file is preferred.
-    Otherwise falls back to ``rules_dir/PROGRAM.json``.
+    First resolves the effective plan code via :func:`resolve_plan_code`, which
+    progressively crops trailing suffixes until a matching rules file is found.
+    A warning is logged when no rules file can be located even after cropping.
+
+    Once the effective code is known, year-range selection is applied: when
+    *intake_year* is provided and a date-ranged file exists that covers that
+    year (e.g. ``PROGRAM-2026-2029.json``), that file is preferred over the
+    plain ``PROGRAM.json``.
     """
+    effective_code = resolve_plan_code(plan_code, rules_dir)
+    if not _has_rule(effective_code, rules_dir):
+        logger.warning(
+            "No rules file found for plan code %r (tried progressive cropping; "
+            "no match in %s)",
+            plan_code,
+            rules_dir,
+        )
     if intake_year is not None:
         for candidate in sorted(rules_dir.glob("*.json")):
             stem = candidate.stem
-            if not stem.startswith(f"{plan_code}-"):
+            if not stem.startswith(f"{effective_code}-"):
                 continue
-            range_part = stem[len(plan_code) + 1 :]
+            range_part = stem[len(effective_code) + 1 :]
             m = _YEAR_RANGE_RE.fullmatch(range_part)
             if not m:
                 continue
             if int(m.group(1)) <= intake_year <= int(m.group(2)):
                 return candidate
-    return rules_dir / f"{plan_code}.json"
+    return rules_dir / f"{effective_code}.json"
 
 
 def resolve_rule_file_for_plan(
