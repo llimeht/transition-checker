@@ -10,7 +10,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 logger = logging.getLogger(__name__)
 
@@ -192,19 +192,25 @@ def load_rules_metadata(
     if not isinstance(raw, dict):
         return None
 
+    data = cast(dict[str, object], raw)
+
     # program
-    program_raw = raw.get("program", {})
+    program_raw = data.get("program")
+    program_typed: dict[str, object] = (
+        cast(dict[str, object], program_raw) if isinstance(program_raw, dict) else {}
+    )
     program: ProgramRef = {
-        "id": str(program_raw.get("id", "")) if isinstance(program_raw, dict) else "",
-        "name": str(program_raw.get("name", "")) if isinstance(program_raw, dict) else "",
+        "id": str(program_typed.get("id", "")),
+        "name": str(program_typed.get("name", "")),
     }
 
     # specialisations
-    specs_raw = raw.get("specialisations", [])
+    specs_raw = data.get("specialisations")
     specialisation: list[SpecialisationRef] = []
     if isinstance(specs_raw, list):
-        for s in specs_raw:
-            if isinstance(s, dict):
+        for s_raw in cast(list[object], specs_raw):
+            if isinstance(s_raw, dict):
+                s = cast(dict[str, object], s_raw)
                 specialisation.append(
                     {
                         "id": str(s.get("id", "")),
@@ -214,12 +220,12 @@ def load_rules_metadata(
 
     # uoc
     uoc: int = 0
-    uoc_raw = raw.get("uoc")
+    uoc_raw = data.get("uoc")
     if isinstance(uoc_raw, (int, float)):
         uoc = int(uoc_raw)
 
     # optional description
-    rules_description = str(raw.get("description", "")) if "description" in raw else ""
+    rules_description = str(data["description"]) if "description" in data else ""
 
     return {
         "plan_code": plan_code,
