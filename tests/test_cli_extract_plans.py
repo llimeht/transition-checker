@@ -664,6 +664,226 @@ def test_main_embeds_program_metadata_from_rules_dir(
     assert meta["uoc"] == 96
 
 
+def test_main_uses_header_plan_fields_for_program_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Header-derived plan_code/plan_description are used when present."""
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+    out_dir = tmp_path / "out"
+
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "TESTRULES.json").write_text(
+        json.dumps(
+            {
+                "program": {"id": "9999", "name": "Test Program"},
+                "specialisations": [],
+                "uoc": 96,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_read_excel(
+        _file: Path, sheet_name: str | None = None, **_kwargs: object
+    ) -> dict[str, pd.DataFrame]:
+        return {"SHEETNAME": pd.DataFrame()}
+
+    monkeypatch.setattr(pd, "read_excel", fake_read_excel)
+
+    def fake_iter_sheets(
+        _dfs: dict[str, pd.DataFrame],
+    ) -> Iterator[tuple[str, pd.DataFrame]]:
+        return iter([("SHEETNAME", pd.DataFrame())])
+
+    def fake_iter_plans(
+        _df: pd.DataFrame,
+    ) -> Iterator[tuple[str, pd.DataFrame, PlanMetadata]]:
+        plan = pd.DataFrame([{"Code": "TEST1001", "Period": "Term 1"}])
+        metadata: PlanMetadata = {
+            "notes": {
+                "graduate_outcome": "",
+                "adjustment_type": "",
+                "for_reviewers": [],
+                "for_students": [],
+            }
+        }
+        return iter([("2026 T1", plan, metadata)])
+
+    monkeypatch.setattr(extract_plans_cli, "iter_program_sheets", fake_iter_sheets)
+    monkeypatch.setattr(extract_plans_cli, "iter_plans", fake_iter_plans)
+
+    def fake_extract_program_sheet_header(_sheet: pd.DataFrame) -> ProgramSheetHeader:
+        return {
+            "program": "TESTRULES (48 UoC RPL)",
+            "career": "Undergraduate",
+            "uoc": 96,
+            "plan_code": "TESTRULES",
+            "plan_description": "48 UoC RPL",
+        }
+
+    captured: list[RulesMetadata | None] = []
+
+    def fake_export_plan(
+        _sheet: str,
+        _intake: str,
+        _header: ProgramSheetHeader,
+        _plan: pd.DataFrame,
+        _output_dir: Path,
+        _metadata: PlanMetadata,
+        *,
+        program_metadata: RulesMetadata | None = None,
+        **_kwargs: object,
+    ) -> Path:
+        captured.append(program_metadata)
+        return out_dir / "p.json"
+
+    def fake_course_terms(_plan: pd.DataFrame) -> dict[str, set[str]]:
+        return {"TEST1001": {"Term 1"}}
+
+    def fake_summarise_offerings(_offers: list[dict[str, set[str]]]) -> dict[str, set[str]]:
+        return {}
+
+    def fake_write_offerings_file(
+        _summary: dict[str, set[str]], _excel: Path, _output_dir: Path
+    ) -> Path:
+        return out_dir / "mapping_offerings.json"
+
+    def fake_write_offerings_csv(
+        _summary: dict[str, set[str]], _output_path: Path
+    ) -> Path:
+        return out_dir / "mapping_offerings.csv"
+
+    monkeypatch.setattr(extract_plans_cli, "extract_program_sheet_header", fake_extract_program_sheet_header)
+    monkeypatch.setattr(extract_plans_cli, "course_terms", fake_course_terms)
+    monkeypatch.setattr(extract_plans_cli, "export_plan", fake_export_plan)
+    monkeypatch.setattr(extract_plans_cli, "summarise_offerings", fake_summarise_offerings)
+    monkeypatch.setattr(extract_plans_cli, "write_offerings_file", fake_write_offerings_file)
+    monkeypatch.setattr(extract_plans_cli, "write_offerings_csv", fake_write_offerings_csv)
+
+    code = extract_plans_cli.main(
+        [str(excel), "--output-dir", str(out_dir), "--rules-dir", str(rules_dir)]
+    )
+
+    assert code == 0
+    assert len(captured) == 1
+    meta = captured[0]
+    assert meta is not None
+    assert meta["plan_code"] == "TESTRULES"
+    assert meta["plan_description"] == "48 UoC RPL"
+
+
+def test_main_falls_back_to_sheet_name_parens_when_header_plan_fields_blank(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Blank header plan fields fall back to parens-only parsing from sheet_name."""
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+    out_dir = tmp_path / "out"
+
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "TESTRULES.json").write_text(
+        json.dumps(
+            {
+                "program": {"id": "9999", "name": "Test Program"},
+                "specialisations": [],
+                "uoc": 96,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_read_excel(
+        _file: Path, sheet_name: str | None = None, **_kwargs: object
+    ) -> dict[str, pd.DataFrame]:
+        return {"TESTRULES (48 UoC RPL)": pd.DataFrame()}
+
+    monkeypatch.setattr(pd, "read_excel", fake_read_excel)
+
+    def fake_iter_sheets(
+        _dfs: dict[str, pd.DataFrame],
+    ) -> Iterator[tuple[str, pd.DataFrame]]:
+        return iter([("TESTRULES (48 UoC RPL)", pd.DataFrame())])
+
+    def fake_iter_plans(
+        _df: pd.DataFrame,
+    ) -> Iterator[tuple[str, pd.DataFrame, PlanMetadata]]:
+        plan = pd.DataFrame([{"Code": "TEST1001", "Period": "Term 1"}])
+        metadata: PlanMetadata = {
+            "notes": {
+                "graduate_outcome": "",
+                "adjustment_type": "",
+                "for_reviewers": [],
+                "for_students": [],
+            }
+        }
+        return iter([("2026 T1", plan, metadata)])
+
+    monkeypatch.setattr(extract_plans_cli, "iter_program_sheets", fake_iter_sheets)
+    monkeypatch.setattr(extract_plans_cli, "iter_plans", fake_iter_plans)
+
+    def fake_extract_program_sheet_header(_sheet: pd.DataFrame) -> ProgramSheetHeader:
+        return {
+            "program": "",
+            "career": "Undergraduate",
+            "uoc": 96,
+            "plan_code": "",
+            "plan_description": "",
+        }
+
+    captured: list[RulesMetadata | None] = []
+
+    def fake_export_plan(
+        _sheet: str,
+        _intake: str,
+        _header: ProgramSheetHeader,
+        _plan: pd.DataFrame,
+        _output_dir: Path,
+        _metadata: PlanMetadata,
+        *,
+        program_metadata: RulesMetadata | None = None,
+        **_kwargs: object,
+    ) -> Path:
+        captured.append(program_metadata)
+        return out_dir / "p.json"
+
+    def fake_course_terms(_plan: pd.DataFrame) -> dict[str, set[str]]:
+        return {"TEST1001": {"Term 1"}}
+
+    def fake_summarise_offerings(_offers: list[dict[str, set[str]]]) -> dict[str, set[str]]:
+        return {}
+
+    def fake_write_offerings_file(
+        _summary: dict[str, set[str]], _excel: Path, _output_dir: Path
+    ) -> Path:
+        return out_dir / "mapping_offerings.json"
+
+    def fake_write_offerings_csv(
+        _summary: dict[str, set[str]], _output_path: Path
+    ) -> Path:
+        return out_dir / "mapping_offerings.csv"
+
+    monkeypatch.setattr(extract_plans_cli, "extract_program_sheet_header", fake_extract_program_sheet_header)
+    monkeypatch.setattr(extract_plans_cli, "course_terms", fake_course_terms)
+    monkeypatch.setattr(extract_plans_cli, "export_plan", fake_export_plan)
+    monkeypatch.setattr(extract_plans_cli, "summarise_offerings", fake_summarise_offerings)
+    monkeypatch.setattr(extract_plans_cli, "write_offerings_file", fake_write_offerings_file)
+    monkeypatch.setattr(extract_plans_cli, "write_offerings_csv", fake_write_offerings_csv)
+
+    code = extract_plans_cli.main(
+        [str(excel), "--output-dir", str(out_dir), "--rules-dir", str(rules_dir)]
+    )
+
+    assert code == 0
+    assert len(captured) == 1
+    meta = captured[0]
+    assert meta is not None
+    assert meta["plan_code"] == "TESTRULES"
+    assert meta["plan_description"] == "48 UoC RPL"
+
+
 def test_main_program_metadata_is_none_when_rules_dir_disabled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

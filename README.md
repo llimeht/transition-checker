@@ -363,6 +363,37 @@ The objective combines hard-leaning penalties and softer steering penalties, inc
 
 ## Data, data sources, and data curation
 
+### Planning spreadsheets
+
+The planning spreadsheets are the primary source of truth for the transition plans. They are maintained by the transition project team and contain the following sheets:
+
+- Instructions and Glossary - this has details about how to use the spreadsheet and what the various columns mean.
+- TEMPLATE - duplicate this sheet for each program/specialisation to be planned.
+- Handbook Course Catalogue - this contains the official course catalogue information for all courses in the program/specialisation, including the prerequisite text from the STU054 report.
+- Local Course Overrides - updates/overrides to real courses and details of placeholder courses.
+
+Each program/specialisation that needs to be planned has its own sheet. The name of the sheet should correspond to the academic rules file that it will be validated against. For example, the `CEICAH3707` sheet will be validated against the `rules/CEICAH3707.json` file. The name needs to be unique within your workspace and should not contain any special characters (e.g. `*`, `?`, `:`) that are not valid in a filename or an Excel worksheet name.
+
+Each program/specialisation sheet contains a header block and the intended enrolment sequences for each intake.
+The header block consists of:
+
+- program/specialisation code - this can be used for whatever is meaningful for you, but is typically as described below
+- career (undergraduate or postgraduate) - this is used for course lookup formulae
+- UoC - this is used in formulae for quick checks of the total UoC in your plan
+
+Each intake cohort is represented by a further single row header containing the year and teaching period of the intake (e.g. `2026 T3`).
+The plan is then represented by rows containing the course codes for each teaching period, with each column representing a teaching period (e.g., T1, T2, S1, S2, Summer, Winter).
+The template contains the typical number of rows needed for courses in each teaching period, but you can add more rows if needed.
+The template contains non-standard teaching periods (Summer and Winter) to allow for the possibility of courses being offered in these periods, even though they will not typically be used.
+
+**Plan code** is intended to mean what you need it to mean for your work. It will typically be the same as the plan code that appears on a transcript (e.g. `CEICAH3707`). If you have a double major or a double degree, you can concatenate the plan codes (e.g. `MATSM13132+CEICAH3132`).
+The plan code can be extended with a description that is useful for your work; this can be configured to appear as a plan description in the visualised output of the plan; the plan description is given in parentheses.
+Examples:
+
+- `CEICAH3707` -> `plan_code=CEICAH3707`, `plan_description=""`
+- `CEICKS8338 (48 UoC RPL)` -> `plan_code=CEICKS8338`, `plan_description="48 UoC RPL"`
+- `CEICKS8338 (suggested enrolment plan)` -> `plan_code=CEICKS8338`, `plan_description="suggested enrolment plan"`
+
 ### Manage the offerings list
 
 Canonicalise and sort an offerings file in place:

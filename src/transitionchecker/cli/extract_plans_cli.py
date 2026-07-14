@@ -31,13 +31,13 @@ from transitionchecker.core.mapping_workbook import (
     iter_plans,
     iter_program_sheets,
     extract_program_sheet_header,
+    parse_plan_program_text,
     plan_has_exportable_content,
 )
 from transitionchecker.core.rules_loader import (
     RulesMetadata,
     intake_year_from_intake_string,
     load_rules_metadata,
-    parse_plan_code,
     resolve_rule_file,
 )
 from transitionchecker.utils.logging import configure_logging
@@ -482,10 +482,10 @@ def main(argv: list[str] | None = None) -> int:
         header = extract_program_sheet_header(df)
 
         # Resolve plan_code / plan_description once per sheet.
-        if rules_dir is not None:
-            plan_code, plan_description = parse_plan_code(sheet_name, rules_dir)
-        else:
-            plan_code, plan_description = sheet_name, ""
+        plan_code = str(header.get("plan_code", "")).strip()
+        plan_description = str(header.get("plan_description", "")).strip()
+        if not plan_code:
+            plan_code, plan_description = parse_plan_program_text(sheet_name)
 
         for intake, plan, metadata in iter_plans(df):
             logger.info(f"  Intake {intake}")

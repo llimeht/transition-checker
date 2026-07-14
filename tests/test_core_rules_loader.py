@@ -10,7 +10,6 @@ import pytest
 from transitionchecker.core.rules_loader import (
     intake_year_from_intake_string,
     load_rules_metadata,
-    parse_plan_code,
     resolve_rule_file,
     resolve_rule_file_for_plan,
 )
@@ -86,62 +85,6 @@ def test_resolve_rule_file_for_plan_falls_back_without_year_in_stem(
 ) -> None:
     result = resolve_rule_file_for_plan("PROG1234", "PROG1234_nodate", tmp_path)
     assert result == tmp_path / "PROG1234.json"
-
-
-# ---------------------------------------------------------------------------
-# parse_plan_code
-# ---------------------------------------------------------------------------
-
-
-def test_parse_plan_code_returns_full_name_when_exact_rule_exists(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "CEICAH3707.json").write_text("{}", encoding="utf-8")
-    code, desc = parse_plan_code("CEICAH3707", tmp_path)
-    assert code == "CEICAH3707"
-    assert desc == ""
-
-
-def test_parse_plan_code_matches_ranged_rule_file(tmp_path: Path) -> None:
-    (tmp_path / "CEICDH3707-2026-2029.json").write_text("{}", encoding="utf-8")
-    code, desc = parse_plan_code("CEICDH3707", tmp_path)
-    assert code == "CEICDH3707"
-    assert desc == ""
-
-
-def test_parse_plan_code_splits_on_space_when_prefix_has_rule(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "CEICAH3707.json").write_text("{}", encoding="utf-8")
-    code, desc = parse_plan_code("CEICAH3707 Honours track", tmp_path)
-    assert code == "CEICAH3707"
-    assert desc == "Honours track"
-
-
-def test_parse_plan_code_strips_parens_from_description(tmp_path: Path) -> None:
-    (tmp_path / "CEICKS8338.json").write_text("{}", encoding="utf-8")
-    code, desc = parse_plan_code("CEICKS8338 (48 UoC RPL)", tmp_path)
-    assert code == "CEICKS8338"
-    assert desc == "48 UoC RPL"
-
-
-def test_parse_plan_code_space_split_takes_priority_over_exact_match(
-    tmp_path: Path,
-) -> None:
-    """Space-prefixed qualifier is split off even when the full name also matches a rule."""
-    (tmp_path / "CEICKS8338.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "CEICKS8338 (48 UoC RPL).json").write_text("{}", encoding="utf-8")
-    code, desc = parse_plan_code("CEICKS8338 (48 UoC RPL)", tmp_path)
-    assert code == "CEICKS8338"
-    assert desc == "48 UoC RPL"
-
-
-def test_parse_plan_code_returns_full_name_when_no_rule_found(
-    tmp_path: Path,
-) -> None:
-    code, desc = parse_plan_code("UNKNOWN9999", tmp_path)
-    assert code == "UNKNOWN9999"
-    assert desc == ""
 
 
 # ---------------------------------------------------------------------------

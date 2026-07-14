@@ -9,6 +9,7 @@ from transitionchecker.core.mapping_workbook import (
     correct_single_row_enrol_year_outliers,
     detect_plan_section_start,
     extract_catalogue_overrides,
+    parse_plan_program_text,
     extract_program_sheet_header,
     find_template_sheet,
     iter_plans,
@@ -16,6 +17,28 @@ from transitionchecker.core.mapping_workbook import (
     plan_has_exportable_content,
     _looks_like_intake, # pyright: ignore[reportPrivateUsage]
 )
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected_code", "expected_description"),
+    [
+        ("CEICAH3707", "CEICAH3707", ""),
+        ("CEICKS8338 (48 UoC RPL)", "CEICKS8338", "48 UoC RPL"),
+        ("CEICKS8338(48 UoC RPL)", "CEICKS8338", "48 UoC RPL"),
+        ("CEICKS8338 ( 48 UoC RPL )", "CEICKS8338", "48 UoC RPL"),
+        (" CEICKS8338( 48 UoC RPL ) ", "CEICKS8338", "48 UoC RPL"),
+        ("CEICAH3707 Honours track", "CEICAH3707 Honours track", ""),
+        ("", "", ""),
+    ],
+)
+def test_parse_plan_program_text_parens_only(
+    raw: str,
+    expected_code: str,
+    expected_description: str,
+) -> None:
+    code, description = parse_plan_program_text(raw)
+    assert code == expected_code
+    assert description == expected_description
 
 
 def test_iter_program_sheets_skips_internal_and_normalizes_columns() -> None:
@@ -572,6 +595,8 @@ def test_extract_program_sheet_header_normal_layout() -> None:
     assert header["program"] == "CEICAH3707"
     assert header["career"] == "Undergraduate"
     assert header["uoc"] == 192
+    assert header.get("plan_code", "") == "CEICAH3707"
+    assert header.get("plan_description", "") == ""
 
 
 def test_extract_program_sheet_header_missing_returns_empty(caplog: pytest.LogCaptureFixture) -> None:
@@ -589,6 +614,8 @@ def test_extract_program_sheet_header_missing_returns_empty(caplog: pytest.LogCa
     assert header["program"] == ""
     assert header["career"] == ""
     assert header["uoc"] == 0
+    assert header.get("plan_code", "") == ""
+    assert header.get("plan_description", "") == ""
     assert any("absent or cropped" in r.message for r in caplog.records)
 
 
@@ -610,6 +637,8 @@ def test_extract_program_sheet_header_comment_rows_above() -> None:
     assert header["program"] == "CEICAH3707"
     assert header["career"] == "Undergraduate"
     assert header["uoc"] == 192
+    assert header.get("plan_code", "") == "CEICAH3707"
+    assert header.get("plan_description", "") == ""
 
 
 def test_extract_program_sheet_header_session_intake() -> None:
@@ -628,6 +657,8 @@ def test_extract_program_sheet_header_session_intake() -> None:
     assert header["program"] == "FOODAH1234"
     assert header["career"] == "Postgraduate"
     assert header["uoc"] == 96
+    assert header.get("plan_code", "") == "FOODAH1234"
+    assert header.get("plan_description", "") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -697,4 +728,6 @@ def test_extract_program_sheet_header_student_intake_cohort_format(
     assert header["program"] == ""
     assert header["career"] == ""
     assert header["uoc"] == 0
+    assert header.get("plan_code", "") == ""
+    assert header.get("plan_description", "") == ""
     assert any("absent or cropped" in r.message for r in caplog.records)

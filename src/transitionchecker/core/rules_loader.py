@@ -87,62 +87,6 @@ def intake_year_from_intake_string(intake: str) -> int | None:
 
 
 # ---------------------------------------------------------------------------
-# Plan-code / description parsing
-# ---------------------------------------------------------------------------
-
-
-def _has_rule(plan_code: str, rules_dir: Path) -> bool:
-    """Return True when at least one rules file exists for *plan_code*."""
-    if (rules_dir / f"{plan_code}.json").exists():
-        return True
-    for candidate in rules_dir.glob("*.json"):
-        stem = candidate.stem
-        if stem.startswith(f"{plan_code}-") and _YEAR_RANGE_RE.fullmatch(
-            stem[len(plan_code) + 1 :]
-        ):
-            return True
-    return False
-
-
-def _strip_parens(text: str) -> str:
-    """Strip a single layer of enclosing parentheses from *text*, if present."""
-    stripped = text.strip()
-    if stripped.startswith("(") and stripped.endswith(")"):
-        return stripped[1:-1].strip()
-    return stripped
-
-
-def parse_plan_code(sheet_name: str, rules_dir: Path) -> tuple[str, str]:
-    """Split *sheet_name* into ``(plan_code, plan_description)``.
-
-    When the sheet name contains a space, the prefix before the first space is
-    checked against available rules files.  If a match is found the remainder
-    becomes the description, with any enclosing parentheses stripped.
-
-    Example: ``"CEICKS8338 (48 UoC RPL)"`` → ``("CEICKS8338", "48 UoC RPL")``.
-
-    When the full sheet name matches a rules file exactly (no space separator),
-    the whole name is the plan code with an empty description.
-
-    When no match can be determined the full sheet name is returned as the
-    plan_code with an empty description.
-    """
-    # Try splitting on the first space first; a parenthesised qualifier after
-    # the code is the common pattern (e.g. "CEICKS8338 (48 UoC RPL)").
-    if " " in sheet_name:
-        prefix, rest = sheet_name.split(" ", 1)
-        if _has_rule(prefix, rules_dir):
-            return prefix, _strip_parens(rest)
-
-    # Exact match – full sheet name is the plan code with no description.
-    if _has_rule(sheet_name, rules_dir):
-        return sheet_name, ""
-
-    # No matching rule found – treat the whole name as the plan code.
-    return sheet_name, ""
-
-
-# ---------------------------------------------------------------------------
 # Metadata loading
 # ---------------------------------------------------------------------------
 

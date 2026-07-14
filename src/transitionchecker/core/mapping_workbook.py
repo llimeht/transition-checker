@@ -4,7 +4,7 @@ import logging
 import re
 from collections import Counter
 from collections.abc import Collection, Generator
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 import pandas as pd
 
@@ -47,6 +47,9 @@ END_INTAKE_MARKER = "Available Periods:"
 
 # Regex that matches a valid cohort/intake string such as "2026 T3" or "2028 S1".
 _INTAKE_RE = re.compile(r"^\d{4}\s+[ST]\d")
+_PLAN_WITH_SUFFIX_RE = re.compile(
+    r"^(?P<code>.*\S)\s*\(\s*(?P<description>[^()]*)\s*\)\s*$"
+)
 
 # Number of header rows above the data table in the catalogue sheet (1-based).
 CATALOGUE_SHEET_HEADER_ROWS = 3
@@ -66,6 +69,27 @@ class ProgramSheetHeader(TypedDict):
     program: str
     career: str
     uoc: int
+    plan_code: NotRequired[str]
+    plan_description: NotRequired[str]
+
+
+def parse_plan_program_text(text: str) -> tuple[str, str]:
+    """Parse a program text field into plan code and optional description.
+
+    Uses parens-only suffix parsing. A description is extracted only from a
+    trailing parenthesized suffix, allowing optional whitespace around and
+    inside the parentheses.
+    """
+    cleaned = text.strip()
+    if not cleaned:
+        return "", ""
+    match = _PLAN_WITH_SUFFIX_RE.fullmatch(cleaned)
+    if match is None:
+        return cleaned, ""
+    plan_code = match.group("code").strip()
+    if not plan_code:
+        return cleaned, ""
+    return plan_code, match.group("description").strip()
 
 
 class EnrolYearCorrection(TypedDict):
@@ -559,7 +583,8 @@ def extract_program_sheet_header(
     Args:
         sheet: A sheet already normalised by ``iter_program_sheets``.
     Returns:
-        Dictionary with keys ``program``, ``career``, and ``uoc``.
+        Dictionary with keys ``program``, ``career``, ``uoc``, ``plan_code``,
+        and ``plan_description``.
     """
     plan_start = detect_plan_section_start(sheet)
 
@@ -570,7 +595,13 @@ def extract_program_sheet_header(
             "program/career/uoc will be empty",
             plan_start,
         )
-        return ProgramSheetHeader(program="", career="", uoc=0)
+        return ProgramSheetHeader(
+            program="",
+            career="",
+            uoc=0,
+            plan_code="",
+            plan_description="",
+        )
 
     # Standard layout: header block is at rows plan_start-4 .. plan_start-2, col D.
     code = str(sheet.iloc[plan_start - 4, 3]).strip()
@@ -581,8 +612,11 @@ def extract_program_sheet_header(
     except (ValueError, TypeError):
         pass
 
+    plan_code, plan_description = parse_plan_program_text(code)
     return ProgramSheetHeader(
         program=code,
         career=career,
         uoc=uoc,
+        plan_code=plan_code,
+        plan_description=plan_description,
     )
