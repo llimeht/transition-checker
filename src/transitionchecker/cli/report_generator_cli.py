@@ -304,6 +304,9 @@ def _build_report_rows(
 
             notes_obj = as_json_object(result.get("notes", {}))
             notes = cast(dict[str, object], notes_obj or {})
+            program_metadata_obj = as_json_object(result.get("program_metadata", {}))
+            program_metadata = cast(dict[str, object], program_metadata_obj or {})
+            plan_description = str(program_metadata.get("plan_description", "") or "")
             graduation_outcome = str(notes.get("graduate_outcome", "") or "")
             adjustment_type = str(notes.get("adjustment_type", "") or "")
 
@@ -311,6 +314,7 @@ def _build_report_rows(
                 {
                     "json_filename": json_filename,
                     "plan": plan,
+                    "plan_description": plan_description,
                     "cohort": cohort,
                     "intake_year": intake_year,
                     "intake_term": intake_term,

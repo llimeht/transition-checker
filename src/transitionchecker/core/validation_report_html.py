@@ -100,7 +100,7 @@ def render_validation_table_report_html(
         table_rows = "\n".join(_render_validation_table_row(row) for row in rows)
         if not table_rows:
                 table_rows = (
-                        '<tr><td colspan="15" class="empty">No rows matched the selected inputs/filter.</td></tr>'
+                '<tr><td colspan="16" class="empty">No rows matched the selected inputs/filter.</td></tr>'
                 )
 
         return f"""<!doctype html>
@@ -180,6 +180,7 @@ def render_validation_table_report_html(
             <div class="column-controls">
                 <strong>Columns</strong>
                 <label><input type="checkbox" data-col-class="col-json-filename"> JSON filename</label>
+                <label><input type="checkbox" data-col-class="col-plan-description"> Plan description</label>
                 <label><input type="checkbox" data-col-class="col-cohort"> Cohort</label>
                 <label><input type="checkbox" data-col-class="col-validation-findings"> Validation findings</label>
                 <label><input type="checkbox" data-col-class="col-reviewer-notes"> Reviewer notes</label>
@@ -193,6 +194,7 @@ def render_validation_table_report_html(
                     <tr>
                         <th class="col-json-filename">JSON<br>filename</th>
                         <th class="col-plan">Plan</th>
+                        <th class="col-plan-description">Plan<br>description</th>
                         <th class="col-cohort">Cohort</th>
                         <th class="col-intake-year">Intake<br>year</th>
                         <th class="col-intake-term">Intake<br>term</th>
@@ -301,6 +303,7 @@ def _render_validation_table_row(row: Mapping[str, str]) -> str:
         "          <tr>"
         f"<td class=\"col-json-filename\">{escape(row.get('json_filename', ''))}</td>"
         f"<td class=\"col-plan\">{escape(row.get('plan', ''))}</td>"
+        f"<td class=\"wrap col-plan-description\">{escape(row.get('plan_description', ''))}</td>"
         f"<td class=\"col-cohort\">{escape(row.get('cohort', ''))}</td>"
         f"<td class=\"col-intake-year\">{escape(row.get('intake_year', ''))}</td>"
         f"<td class=\"col-intake-term\">{escape(row.get('intake_term', ''))}</td>"

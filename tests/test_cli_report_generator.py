@@ -48,6 +48,7 @@ def test_report_generates_html_and_applies_plan_filter(tmp_path: Path) -> None:
     result_common: dict[str, object] = {
         "rule_file": "CEICAH3707-2024-2029.json",
         "program_code": "CEICAH3707",
+        "program_metadata": {"plan_description": "Computer Engineering"},
         "findings": [{"failure_id": "annual-load:2026", "message": "overload", "accepted": True}],
         "offering_violations": [{"error_type": "period_not_allowed", "course_code": "COMP2521"}],
         "notes": {
@@ -96,8 +97,10 @@ def test_report_generates_html_and_applies_plan_filter(tmp_path: Path) -> None:
     assert code == 0
     html = output.read_text(encoding="utf-8")
     assert "CEICAH3707" in html
+    assert "Computer Engineering" in html
     assert "FOODJH3061" not in html
     assert "ACCEPTED" in html
+    assert "Plan<br>description" in html
     assert "Duration<br>(years)" in html
     assert "COMPLETE" in html
     assert "simple-datatables" in html
