@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -30,6 +31,95 @@ def test_main_returns_1_for_missing_excel(tmp_path: Path) -> None:
     missing = tmp_path / "missing.xlsx"
     code = validate_cli.main([str(missing)])
     assert code == 1
+
+
+def test_main_prints_shell_safe_override_hint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    plan_file = out_dir / "CEICAH3707_(54)_2024_T3.json"
+    plan_file.write_text('{"courses": [{"code": "COMP1511"}]}', encoding="utf-8")
+
+    rule_file = tmp_path / "rules" / "CEICAH3707.json"
+    rule_file.parent.mkdir()
+    rule_file.write_text("{}", encoding="utf-8")
+
+    canonical_offerings = tmp_path / "plans" / "offerings.json"
+    canonical_offerings.parent.mkdir()
+    canonical_offerings.write_text("{}", encoding="utf-8")
+
+    def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        if cmd[0] in {"extract-plans", "extract-template"}:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
+        if cmd[0] == "degree-rules":
+            degree_report: dict[str, object] = {
+                "valid": False,
+                "rule_failures": [],
+                "prerequisite_failures": [],
+                "unsupported_prerequisites": [],
+                "findings": [
+                    {
+                        "kind": "coreq",
+                        "failure_id": "coreq:COMP1511>=MATH1131",
+                        "message": "COMP1511 requires MATH1131 as a corequisite",
+                        "overrideable": True,
+                    }
+                ],
+                "warnings": [],
+                "notes": {
+                    "graduate_outcome": "",
+                    "adjustment_type": "",
+                    "for_reviewers": [],
+                    "for_students": [],
+                },
+            }
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=1,
+                stdout=json.dumps(degree_report),
+                stderr="",
+            )
+        if cmd[0] == "offering-checker":
+            offering_report: dict[str, object] = {"valid": True, "violations": []}
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(offering_report),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    def fake_resolve_rule_file(
+        _program_code: str, _plan_stem: str, _rules_dir: Path
+    ) -> Path:
+        return rule_file
+
+    monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
+    monkeypatch.setattr(validate_cli, "resolve_rule_file_for_plan", fake_resolve_rule_file)
+
+    code = validate_cli.main([str(excel), "--output-dir", str(out_dir)])
+
+    assert code == 1
+    output = capsys.readouterr().out
+    expected_hint = shlex.join(
+        [
+            "degree-rules",
+            str(rule_file),
+            "--plan",
+            str(plan_file),
+            "--add-override",
+            "coreq:COMP1511>=MATH1131",
+        ]
+    )
+    assert f"    \u2192 {expected_hint}" in output
 
 
 def test_main_propagates_export_failure_code(

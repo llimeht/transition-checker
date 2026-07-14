@@ -14,6 +14,7 @@ import json
 import fnmatch
 import io
 import re
+import shlex
 import subprocess
 import sys
 from contextlib import redirect_stderr, redirect_stdout
@@ -122,6 +123,24 @@ def _normalize_notes(value: object) -> dict[str, object]:
         "for_reviewers": _as_object_list(reviewers_raw),
         "for_students": _as_object_list(students_raw),
     }
+
+
+def _format_add_override_hint(
+    rule_file: Path, plan_file: Path, failure_id: str
+) -> str:
+    """Render a shell-safe override hint command."""
+
+    command = shlex.join(
+        [
+            "degree-rules",
+            str(rule_file),
+            "--plan",
+            str(plan_file),
+            "--add-override",
+            failure_id,
+        ]
+    )
+    return f"    \u2192 {command}"
 
 
 def _should_skip_placeholder_plan(courses: list[dict[str, object]]) -> bool:
@@ -607,7 +626,7 @@ def main(argv: list[str] | None = None) -> int:
                     detail_lines.append(f"  - [{fid}] {msg}" if fid else f"  - {msg}")
                     if fid and f.get("overrideable"):
                         detail_lines.append(
-                            f"    \u2192 degree-rules {rule_file_rel} --plan {plan_file_rel} --add-override '{fid}'"
+                            _format_add_override_hint(rule_file_rel, plan_file_rel, fid)
                         )
             elif not structured_findings and rule_failures:
                 detail_lines.append(f"rule_failures={len(rule_failures)}")
@@ -624,7 +643,7 @@ def main(argv: list[str] | None = None) -> int:
                     detail_lines.append(f"  - [{fid}] {msg}" if fid else f"  - {msg}")
                     if fid and f.get("overrideable"):
                         detail_lines.append(
-                            f"    \u2192 degree-rules {rule_file_rel} --plan {plan_file_rel} --add-override '{fid}'"
+                            _format_add_override_hint(rule_file_rel, plan_file_rel, fid)
                         )
             elif not structured_findings and prereq_failures:
                 detail_lines.append(f"prerequisite_failures={len(prereq_failures)}")
@@ -656,7 +675,7 @@ def main(argv: list[str] | None = None) -> int:
                     detail_lines.append(f"  - [{fid}] {msg}" if fid else f"  - {msg}")
                     if fid and f.get("overrideable"):
                         detail_lines.append(
-                            f"    \u2192 degree-rules {rule_file_rel} --plan {plan_file_rel} --add-override '{fid}'"
+                            _format_add_override_hint(rule_file_rel, plan_file_rel, fid)
                         )
 
             if annual_load_finding_lines:
@@ -669,7 +688,7 @@ def main(argv: list[str] | None = None) -> int:
                     detail_lines.append(f"  - [{fid}] {msg}" if fid else f"  - {msg}")
                     if fid and f.get("overrideable"):
                         detail_lines.append(
-                            f"    \u2192 degree-rules {rule_file_rel} --plan {plan_file_rel} --add-override '{fid}'"
+                            _format_add_override_hint(rule_file_rel, plan_file_rel, fid)
                         )
 
         if rule_process_error_output:
