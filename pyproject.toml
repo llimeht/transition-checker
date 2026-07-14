@@ -44,6 +44,7 @@ extract-template  = "transitionchecker.cli.extract_template_cli:main"
 cfcc-summary      = "transitionchecker.cli.cfcc_summary_cli:main"
 import-handbook   = "transitionchecker.cli.import_handbook_cli:main"
 import-erg        = "transitionchecker.cli.import_erg_cli:main"
+report-generator  = "transitionchecker.cli.report_generator_cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov"]

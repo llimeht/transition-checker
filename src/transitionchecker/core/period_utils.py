@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 import re
 
 
@@ -48,6 +49,33 @@ _PERIOD_DISPLAY_LABELS = {
     "term 3": "Term 3",
     "semester 1": "Semester 1",
     "semester 2": "Semester 2",
+}
+
+_CANONICAL_TO_SHORT = {
+    "term 1": "T1",
+    "term 2": "T2",
+    "term 3": "T3",
+    "semester 1": "S1",
+    "semester 2": "S2",
+    "summer term": "SUMMER",
+    "winter term": "WINTER",
+}
+
+# Anchors are month/day pairs and applied to any given year.
+_PERIOD_START_ANCHORS = {
+    "T1": (1, 1),
+    "T2": (5, 1),
+    "T3": (9, 1),
+    "S1": (1, 1),
+    "S2": (7, 1),
+}
+
+_PERIOD_END_ANCHORS = {
+    "T1": (4, 30),
+    "T2": (8, 31),
+    "T3": (12, 31),
+    "S1": (6, 30),
+    "S2": (12, 31),
 }
 
 
@@ -101,3 +129,59 @@ def period_display_label(period: str) -> str:
 
     canonical = canonical_period(period)
     return _PERIOD_DISPLAY_LABELS.get(canonical, canonical.title())
+
+
+def period_short_label(period: str) -> str:
+    """Return a short canonical period token (for example T1 or S2)."""
+
+    canonical = canonical_period(period)
+    return _CANONICAL_TO_SHORT.get(canonical, canonical.upper())
+
+
+def period_start_date(year: int, period: str) -> date | None:
+    """Return anchored period start date for a given year and period token."""
+
+    token = period_short_label(period)
+    anchor = _PERIOD_START_ANCHORS.get(token)
+    if anchor is None:
+        return None
+    month, day = anchor
+    return date(year, month, day)
+
+
+def period_end_date(year: int, period: str) -> date | None:
+    """Return anchored period end date for a given year and period token."""
+
+    token = period_short_label(period)
+    anchor = _PERIOD_END_ANCHORS.get(token)
+    if anchor is None:
+        return None
+    month, day = anchor
+    return date(year, month, day)
+
+
+def duration_years_between_periods(
+    start_year: int,
+    start_period: str,
+    end_year: int,
+    end_period: str,
+) -> float | None:
+    """Return fractional years between period start and end anchors."""
+
+    start = period_start_date(start_year, start_period)
+    end = period_end_date(end_year, end_period)
+    if start is None or end is None:
+        return None
+    if end < start:
+        return None
+
+    days = (end - start).days + 1
+    return days / 365.25
+
+
+def format_duration_years(duration_years: float | None) -> str:
+    """Format duration years for report display."""
+
+    if duration_years is None:
+        return ""
+    return f"{duration_years:.1f}"

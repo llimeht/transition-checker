@@ -81,6 +81,243 @@ def render_validation_report_html(
     )
 
 
+def render_validation_table_report_html(
+        *,
+        title: str,
+        generated_at_utc: str,
+        source_files: Sequence[str],
+        rows: Sequence[Mapping[str, str]],
+) -> str:
+        """Render an interactive consolidated table report from flattened rows."""
+
+        source_items = "".join(f"<li>{escape(item)}</li>" for item in source_files)
+        source_html = (
+                f"<details><summary>Source Files ({len(source_files)})</summary><ul>{source_items}</ul></details>"
+                if source_items
+                else ""
+        )
+
+        table_rows = "\n".join(_render_validation_table_row(row) for row in rows)
+        if not table_rows:
+                table_rows = (
+                        '<tr><td colspan="15" class="empty">No rows matched the selected inputs/filter.</td></tr>'
+                )
+
+        return f"""<!doctype html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"utf-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+    <title>{escape(title)}</title>
+    <link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/simple-datatables@9.0.3/dist/style.min.css\">
+    <style>
+        :root {{
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --text: #13233a;
+            --muted: #586475;
+            --border: #d2dcea;
+            --accent: #0f5ea8;
+        }}
+        * {{ box-sizing: border-box; }}
+        body {{ margin: 0; background: radial-gradient(circle at top right, #eef6ff 0%, var(--bg) 40%); color: var(--text); font-family: \"IBM Plex Sans\", \"Segoe UI\", sans-serif; }}
+        .container {{ max-width: 1920px; margin: 0 auto; padding: 0.6rem; }}
+        .panel {{ background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 0.9rem; }}
+        h1 {{ margin: 0 0 0.4rem 0; font-size: 1.4rem; }}
+        .meta {{ color: var(--muted); margin-bottom: 0.4rem; font-size: 0.92rem; }}
+        .status-note {{ color: var(--muted); font-size: 0.88rem; margin-top: 0.4rem; }}
+        .column-controls {{ display: flex; flex-wrap: wrap; gap: 0.8rem 1rem; align-items: center; margin-top: 0.5rem; font-size: 0.9rem; }}
+        .column-controls label {{ display: inline-flex; align-items: center; gap: 0.35rem; color: var(--muted); }}
+        table {{ width: 100%; }}
+        td {{ white-space: nowrap; }}
+        th {{ white-space: normal; line-height: 1.15; vertical-align: bottom; }}
+        td.wrap {{ white-space: normal; min-width: 280px; }}
+        .status-pill {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            padding: 0.14rem 0.5rem;
+            font-size: 0.79rem;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+            line-height: 1.1;
+        }}
+        .status-pill::before {{ font-size: 0.85rem; line-height: 1; }}
+
+        .status-validation-ok {{ color: #14532d; background: #edf9f0; border-color: #9ed6ae; }}
+        .status-validation-ok::before {{ content: "✓"; }}
+        .status-validation-accepted {{ color: #9a6700; background: #fff8e8; border-color: #f2d18b; }}
+        .status-validation-accepted::before {{ content: "⁉"; }}
+        .status-validation-fail {{ color: #991b1b; background: #fff1f0; border-color: #efb2ad; }}
+        .status-validation-fail::before {{ content: "✗"; }}
+        .status-validation-unknown {{ color: #334155; background: #f4f6f8; border-color: #cfd8e3; }}
+        .status-validation-unknown::before {{ content: "•"; }}
+
+        .status-impact-complete {{ color: #0f5132; background: #eaf8f1; border-color: #9ad6be; }}
+        .status-impact-complete::before {{ content: "◆"; }}
+        .status-impact-pending {{ color: #7a4a00; background: #fff6e8; border-color: #edcb96; }}
+        .status-impact-pending::before {{ content: "⌛"; }}
+        .status-impact-unknown {{ color: #475569; background: #f6f8fa; border-color: #d6dde7; }}
+        .status-impact-unknown::before {{ content: "○"; }}
+
+        .findings-list {{ margin: 0; padding-left: 1.1rem; }}
+        .findings-list li {{ margin-bottom: 0.2rem; }}
+        .empty {{ text-align: center; color: var(--muted); padding: 1rem; }}
+        details {{ margin-top: 0.35rem; }}
+        details ul {{ margin: 0.45rem 0 0 1.2rem; padding: 0; }}
+    </style>
+</head>
+<body>
+    <main class=\"container\">
+        <section class=\"panel\">
+            <h1>{escape(title)}</h1>
+            <div class=\"meta\">Generated (UTC): {escape(generated_at_utc)}</div>
+            <div class=\"meta\">Rows: {len(rows)}</div>
+            {source_html}
+            <div class=\"status-note\">Statuses are mapped to OK, FAIL, ACCEPTED. Placeholder-skipped plans are excluded.</div>
+            <div class="column-controls">
+                <strong>Columns</strong>
+                <label><input type="checkbox" data-col-class="col-json-filename"> JSON filename</label>
+                <label><input type="checkbox" data-col-class="col-cohort"> Cohort</label>
+                <label><input type="checkbox" data-col-class="col-validation-findings"> Validation findings</label>
+                <label><input type="checkbox" data-col-class="col-reviewer-notes"> Reviewer notes</label>
+                <label><input type="checkbox" data-col-class="col-student-notes"> Student notes</label>
+                <label><input type="checkbox" data-col-class="col-impact-assessment"> Impact Assessed</label>
+            </div>
+        </section>
+        <section class=\"panel\">
+            <table id=\"report-table\">
+                <thead>
+                    <tr>
+                        <th class="col-json-filename">JSON<br>filename</th>
+                        <th class="col-plan">Plan</th>
+                        <th class="col-cohort">Cohort</th>
+                        <th class="col-intake-year">Intake<br>year</th>
+                        <th class="col-intake-term">Intake<br>term</th>
+                        <th class="col-exit-year">Exit<br>year</th>
+                        <th class="col-exit-term">Exit<br>term</th>
+                        <th class="col-duration">Duration<br>(years)</th>
+                        <th class="col-validation-findings">Validation<br>findings</th>
+                        <th class="col-validation-status">Validation<br>status</th>
+                        <th class="col-graduation-outcome">Graduation<br>outcome</th>
+                        <th class="col-adjustment">Adjustment<br>type</th>
+                        <th class="col-reviewer-notes">Reviewer<br>notes</th>
+                        <th class="col-student-notes">Student<br>notes</th>
+                        <th class="col-impact-assessment">Impact assessment<br>status</th>
+                    </tr>
+                </thead>
+                <tbody>
+{table_rows}
+                </tbody>
+            </table>
+        </section>
+    </main>
+    <script src=\"https://cdn.jsdelivr.net/npm/simple-datatables@9.0.3\"></script>
+    <script>
+        const table = document.getElementById("report-table");
+        const defaultHiddenColumns = new Set(["col-json-filename", "col-cohort", "col-validation-findings", "col-reviewer-notes", "col-student-notes", "col-impact-assessment"]);
+
+        function applyColumnVisibility() {{
+            const checkboxes = document.querySelectorAll(".column-controls input[data-col-class]");
+            checkboxes.forEach((checkbox) => {{
+                const colClass = checkbox.getAttribute("data-col-class");
+                if (!colClass) {{
+                    return;
+                }}
+                const show = checkbox.checked;
+                document.querySelectorAll("." + colClass).forEach((cell) => {{
+                    cell.style.display = show ? "" : "none";
+                }});
+            }});
+        }}
+
+        document.querySelectorAll(".column-controls input[data-col-class]").forEach((checkbox) => {{
+            const colClass = checkbox.getAttribute("data-col-class");
+            checkbox.checked = colClass ? !defaultHiddenColumns.has(colClass) : true;
+            checkbox.addEventListener("change", applyColumnVisibility);
+        }});
+
+        if (table) {{
+            new simpleDatatables.DataTable(table, {{
+                searchable: true,
+                fixedHeight: true,
+                perPage: 50,
+                perPageSelect: [25, 50, 100, 250, 500],
+                labels: {{
+                    placeholder: "Search all columns...",
+                }},
+            }});
+
+            applyColumnVisibility();
+
+            const body = table.tBodies.length > 0 ? table.tBodies[0] : null;
+            if (body) {{
+                const observer = new MutationObserver(() => applyColumnVisibility());
+                observer.observe(body, {{ childList: true, subtree: true }});
+            }}
+        }}
+    </script>
+</body>
+</html>
+"""
+
+
+def _render_validation_table_row(row: Mapping[str, str]) -> str:
+    findings_html = row.get("validation_findings_html", "")
+    findings_cell = (
+        findings_html
+        if findings_html and findings_html != "none"
+        else escape(row.get("validation_findings", ""))
+    )
+    validation_status = str(row.get("validation_status", "") or "").strip().upper()
+    impact_status = str(row.get("impact_assessment_status", "") or "").strip().upper()
+
+    if validation_status == "OK":
+        validation_class = "status-validation-ok"
+    elif validation_status == "ACCEPTED":
+        validation_class = "status-validation-accepted"
+    elif validation_status == "FAIL":
+        validation_class = "status-validation-fail"
+    else:
+        validation_class = "status-validation-unknown"
+
+    if impact_status == "COMPLETE":
+        impact_class = "status-impact-complete"
+    elif impact_status == "PENDING":
+        impact_class = "status-impact-pending"
+    else:
+        impact_class = "status-impact-unknown"
+
+    validation_badge = (
+        f"<span class=\"status-pill {validation_class}\">{escape(validation_status or 'UNKNOWN')}</span>"
+    )
+    impact_badge = (
+        f"<span class=\"status-pill {impact_class}\">{escape(impact_status or 'UNKNOWN')}</span>"
+    )
+
+    return (
+        "          <tr>"
+        f"<td class=\"col-json-filename\">{escape(row.get('json_filename', ''))}</td>"
+        f"<td class=\"col-plan\">{escape(row.get('plan', ''))}</td>"
+        f"<td class=\"col-cohort\">{escape(row.get('cohort', ''))}</td>"
+        f"<td class=\"col-intake-year\">{escape(row.get('intake_year', ''))}</td>"
+        f"<td class=\"col-intake-term\">{escape(row.get('intake_term', ''))}</td>"
+        f"<td class=\"col-exit-year\">{escape(row.get('exit_year', ''))}</td>"
+        f"<td class=\"col-exit-term\">{escape(row.get('exit_term', ''))}</td>"
+        f"<td class=\"col-duration-years\">{escape(row.get('duration_years', ''))}</td>"
+        f"<td class=\"wrap col-validation-findings\">{findings_cell}</td>"
+        f"<td class=\"col-validation-status\">{validation_badge}</td>"
+        f"<td class=\"wrap col-graduation-outcome\">{escape(row.get('graduation_outcome', ''))}</td>"
+        f"<td class=\"wrap col-adjustment\">{escape(row.get('adjustment_type', ''))}</td>"
+        f"<td class=\"wrap col-reviewer-notes\">{escape(row.get('reviewer_notes', ''))}</td>"
+        f"<td class=\"wrap col-student-notes\">{escape(row.get('student_notes', ''))}</td>"
+        f"<td class=\"col-impact-assessment\">{impact_badge}</td>"
+        "</tr>"
+    )
+
+
 def _render_page_template(
     *,
     title: str,

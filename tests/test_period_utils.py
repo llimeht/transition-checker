@@ -6,10 +6,15 @@ import pytest
 
 from transitionchecker.core.period_utils import (
     canonical_period,
+    duration_years_between_periods,
+    format_duration_years,
     is_nonstandard_period,
     natural_sort_key,
     period_display_label,
+    period_end_date,
     period_rank,
+    period_short_label,
+    period_start_date,
 )
 
 
@@ -144,3 +149,43 @@ class TestNaturalSortKey:
 
     def test_unknown_period_maps_to_fallback(self) -> None:
         assert natural_sort_key("hexamester 1") == (99, 0)
+
+
+class TestPeriodShortLabel:
+    @pytest.mark.parametrize(
+        "period, expected",
+        [
+            ("term 1", "T1"),
+            ("T2", "T2"),
+            ("semester 1", "S1"),
+            ("S2", "S2"),
+        ],
+    )
+    def test_known_short_labels(self, period: str, expected: str) -> None:
+        assert period_short_label(period) == expected
+
+
+class TestPeriodAnchoredDates:
+    def test_period_start_date(self) -> None:
+        date = period_start_date(2024, "T2")
+        assert date is not None
+        assert date.isoformat() == "2024-05-01"
+
+    def test_period_end_date(self) -> None:
+        date = period_end_date(2024, "S2")
+        assert date is not None
+        assert date.isoformat() == "2024-12-31"
+
+
+class TestDurationYearsBetweenPeriods:
+    def test_duration_is_fractional_years(self) -> None:
+        duration = duration_years_between_periods(2024, "T1", 2028, "S2")
+        assert duration is not None
+        assert duration > 4.5
+
+    def test_duration_none_for_unknown_period(self) -> None:
+        assert duration_years_between_periods(2024, "X1", 2028, "S2") is None
+
+    def test_format_duration_years(self) -> None:
+        assert format_duration_years(4.666) == "4.7"
+        assert format_duration_years(None) == ""

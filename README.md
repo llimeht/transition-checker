@@ -176,6 +176,42 @@ The overrides are stored next to the plans (with `degree_rules_overrides` includ
 and can be edited/deleted by hand.
 The above override was created in `plans/TEST/TESTAH1234_2025_T2.degree_rules_overrides.json`
 
+## Reporting and governance
+
+### Build consolidated HTML reports from validation results
+
+Combine multiple `*_validation_results.json` files into one sortable/filterable HTML report:
+
+```bash
+report-generator report \
+  plans/CEIC/*_validation_results.json \
+  --filter '*3707*' \
+  --output plans/CEIC/validation_consolidated_3707.html
+```
+
+The generated table includes:
+
+- JSON filename
+- plan / cohort
+- intake year / term
+- computed exit year / term
+- computed duration (years, 1 decimal)
+- validation findings summary
+- validation status (`OK`, `FAIL`, `ACCEPTED`)
+- graduation outcome / adjustment type
+- reviewer notes / student notes
+- impact assessment status
+
+Notes:
+
+- Rows with `skipped_placeholder` status are excluded.
+- The `report` subcommand expects one or more validation result files (explicit paths or shell-expanded globs).
+- The HTML report uses a CDN-hosted `simple-datatables` bundle for in-browser sorting/searching.
+
+### Pack validation results into a single file
+
+`report-generator pack` is reserved for the next implementation phase and currently returns a non-zero status with a placeholder message.
+
 ## Making enrolment plans
 
 With degree rules, prereq information, offerings, and available teaching periods,
