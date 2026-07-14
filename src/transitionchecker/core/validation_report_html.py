@@ -128,10 +128,39 @@ def render_validation_table_report_html(
         .status-note {{ color: var(--muted); font-size: 0.88rem; margin-top: 0.4rem; }}
         .column-controls {{ display: flex; flex-wrap: wrap; gap: 0.8rem 1rem; align-items: center; margin-top: 0.5rem; font-size: 0.9rem; }}
         .column-controls label {{ display: inline-flex; align-items: center; gap: 0.35rem; color: var(--muted); }}
-        table {{ width: 100%; }}
+        table {{ width: 100%; table-layout: fixed; }}
+        th, td {{ padding: 0.35rem 0.42rem; font-size: 0.84rem; }}
         td {{ white-space: nowrap; }}
         th {{ white-space: normal; line-height: 1.15; vertical-align: bottom; }}
-        td.wrap {{ white-space: normal; min-width: 280px; }}
+        td.wrap {{ white-space: normal; min-width: 0; }}
+        .col-plan {{ width: 7rem; }}
+        .col-plan-description {{ width: 12rem; }}
+        .col-intake-year,
+        .col-exit-year {{ width: 4.5rem; }}
+        .col-intake-term,
+        .col-exit-term {{ width: 4.8rem; }}
+        .col-duration-years {{ width: 5.5rem; }}
+        .col-validation-status,
+        .col-impact-assessment {{ width: 8rem; }}
+        .col-graduation-outcome,
+        .col-adjustment {{ width: 10rem; }}
+        .col-reviewer-notes,
+        .col-student-notes {{ width: 11rem; }}
+        .cell-elide-one,
+        .cell-elide-two {{
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }}
+        .cell-elide-one {{ white-space: nowrap; }}
+        .cell-elide-two {{
+            white-space: normal;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            line-height: 1.2;
+            max-height: 2.4em;
+        }}
         .status-pill {{
             display: inline-flex;
             align-items: center;
@@ -167,6 +196,52 @@ def render_validation_table_report_html(
         .empty {{ text-align: center; color: var(--muted); padding: 1rem; }}
         details {{ margin-top: 0.35rem; }}
         details ul {{ margin: 0.45rem 0 0 1.2rem; padding: 0; }}
+
+        @media print {{
+            body {{
+                background: #ffffff !important;
+            }}
+            .container {{
+                max-width: none;
+                padding: 0;
+            }}
+            .panel {{
+                border: 0;
+                border-radius: 0;
+                padding: 0;
+                margin: 0 0 0.4rem 0;
+            }}
+            .column-controls,
+            .status-note,
+            .datatable-top,
+            .datatable-bottom {{
+                display: none !important;
+            }}
+            .datatable-container {{
+                overflow: visible !important;
+                max-height: none !important;
+                height: auto !important;
+            }}
+            table {{
+                table-layout: auto !important;
+            }}
+            #report-table th,
+            #report-table td {{
+                display: table-cell !important;
+                white-space: normal !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
+            }}
+            #report-table .cell-elide-one,
+            #report-table .cell-elide-two {{
+                display: block !important;
+                white-space: normal !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
+                -webkit-line-clamp: unset !important;
+                max-height: none !important;
+            }}
+        }}
     </style>
 </head>
 <body>
@@ -200,7 +275,7 @@ def render_validation_table_report_html(
                         <th class="col-intake-term">Intake<br>term</th>
                         <th class="col-exit-year">Exit<br>year</th>
                         <th class="col-exit-term">Exit<br>term</th>
-                        <th class="col-duration">Duration<br>(years)</th>
+                        <th class="col-duration-years">Duration<br>(years)</th>
                         <th class="col-validation-findings">Validation<br>findings</th>
                         <th class="col-validation-status">Validation<br>status</th>
                         <th class="col-graduation-outcome">Graduation<br>outcome</th>
@@ -299,11 +374,23 @@ def _render_validation_table_row(row: Mapping[str, str]) -> str:
         f"<span class=\"status-pill {impact_class}\">{escape(impact_status or 'UNKNOWN')}</span>"
     )
 
+    plan_description = row.get("plan_description", "")
+    graduation_outcome = row.get("graduation_outcome", "")
+    adjustment_type = row.get("adjustment_type", "")
+    reviewer_notes = row.get("reviewer_notes", "")
+    student_notes = row.get("student_notes", "")
+
+    plan_description_html = _render_elided_text(plan_description, lines=2)
+    graduation_outcome_html = _render_elided_text(graduation_outcome, lines=2)
+    adjustment_type_html = _render_elided_text(adjustment_type, lines=2)
+    reviewer_notes_html = _render_elided_text(reviewer_notes, lines=1)
+    student_notes_html = _render_elided_text(student_notes, lines=1)
+
     return (
         "          <tr>"
         f"<td class=\"col-json-filename\">{escape(row.get('json_filename', ''))}</td>"
         f"<td class=\"col-plan\">{escape(row.get('plan', ''))}</td>"
-        f"<td class=\"wrap col-plan-description\">{escape(row.get('plan_description', ''))}</td>"
+        f"<td class=\"wrap col-plan-description\">{plan_description_html}</td>"
         f"<td class=\"col-cohort\">{escape(row.get('cohort', ''))}</td>"
         f"<td class=\"col-intake-year\">{escape(row.get('intake_year', ''))}</td>"
         f"<td class=\"col-intake-term\">{escape(row.get('intake_term', ''))}</td>"
@@ -312,13 +399,20 @@ def _render_validation_table_row(row: Mapping[str, str]) -> str:
         f"<td class=\"col-duration-years\">{escape(row.get('duration_years', ''))}</td>"
         f"<td class=\"wrap col-validation-findings\">{findings_cell}</td>"
         f"<td class=\"col-validation-status\">{validation_badge}</td>"
-        f"<td class=\"wrap col-graduation-outcome\">{escape(row.get('graduation_outcome', ''))}</td>"
-        f"<td class=\"wrap col-adjustment\">{escape(row.get('adjustment_type', ''))}</td>"
-        f"<td class=\"wrap col-reviewer-notes\">{escape(row.get('reviewer_notes', ''))}</td>"
-        f"<td class=\"wrap col-student-notes\">{escape(row.get('student_notes', ''))}</td>"
+        f"<td class=\"wrap col-graduation-outcome\">{graduation_outcome_html}</td>"
+        f"<td class=\"wrap col-adjustment\">{adjustment_type_html}</td>"
+        f"<td class=\"wrap col-reviewer-notes\">{reviewer_notes_html}</td>"
+        f"<td class=\"wrap col-student-notes\">{student_notes_html}</td>"
         f"<td class=\"col-impact-assessment\">{impact_badge}</td>"
         "</tr>"
     )
+
+
+def _render_elided_text(value: str, *, lines: int) -> str:
+    text = value.strip()
+    escaped_text = escape(text)
+    class_name = "cell-elide-two" if lines > 1 else "cell-elide-one"
+    return f'<span class="{class_name}" title="{escaped_text}">{escaped_text}</span>'
 
 
 def _render_page_template(
