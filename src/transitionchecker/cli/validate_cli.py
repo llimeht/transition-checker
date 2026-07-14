@@ -408,6 +408,12 @@ def main(argv: list[str] | None = None) -> int:
         except (json.JSONDecodeError, OSError):
             plan_data = None
 
+        program_metadata: dict[str, object] | None = (
+            _as_json_object(plan_data.get("program_metadata"))
+            if plan_data is not None
+            else None
+        )
+
         if plan_data is not None:
             courses = _as_object_dict_list(plan_data.get("courses", []))
             if _should_skip_placeholder_plan(courses):
@@ -421,6 +427,7 @@ def main(argv: list[str] | None = None) -> int:
                         "program_code": program_code,
                         "rule_file": rule_name,
                         "status": "skipped_placeholder",
+                        "program_metadata": program_metadata,
                     }
                 )
                 continue
@@ -522,6 +529,7 @@ def main(argv: list[str] | None = None) -> int:
                     "program_code": program_code,
                     "rule_file": rule_name,
                     "status": "accepted" if has_accepted else "valid",
+                    "program_metadata": program_metadata,
                     "rule_failures": rule_failures,
                     "prerequisite_failures": prereq_failures,
                     "unsupported_prerequisites": unsupported_prereqs,
@@ -549,6 +557,7 @@ def main(argv: list[str] | None = None) -> int:
             "program_code": program_code,
             "rule_file": rule_name,
             "status": "failed",
+            "program_metadata": program_metadata,
             "rule_failures": rule_failures,
             "prerequisite_failures": prereq_failures,
             "unsupported_prerequisites": unsupported_prereqs,
