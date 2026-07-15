@@ -194,6 +194,7 @@ def render_validation_table_report_html(
         .findings-list {{ margin: 0; padding-left: 1.1rem; }}
         .findings-list li {{ margin-bottom: 0.2rem; }}
         .empty {{ text-align: center; color: var(--muted); padding: 1rem; }}
+        .is-hidden-column {{ display: none !important; }}
         details {{ margin-top: 0.35rem; }}
         details ul {{ margin: 0.45rem 0 0 1.2rem; padding: 0; }}
 
@@ -297,6 +298,9 @@ def render_validation_table_report_html(
         const defaultHiddenColumns = new Set(["col-json-filename", "col-cohort", "col-validation-findings", "col-reviewer-notes", "col-student-notes", "col-impact-assessment"]);
 
         function applyColumnVisibility() {{
+            if (!table) {{
+                return;
+            }}
             const checkboxes = document.querySelectorAll(".column-controls input[data-col-class]");
             checkboxes.forEach((checkbox) => {{
                 const colClass = checkbox.getAttribute("data-col-class");
@@ -304,8 +308,8 @@ def render_validation_table_report_html(
                     return;
                 }}
                 const show = checkbox.checked;
-                document.querySelectorAll("." + colClass).forEach((cell) => {{
-                    cell.style.display = show ? "" : "none";
+                table.querySelectorAll("." + colClass).forEach((cell) => {{
+                    cell.classList.toggle("is-hidden-column", !show);
                 }});
             }});
         }}
@@ -317,7 +321,7 @@ def render_validation_table_report_html(
         }});
 
         if (table) {{
-            new simpleDatatables.DataTable(table, {{
+            const datatable = new simpleDatatables.DataTable(table, {{
                 searchable: true,
                 fixedHeight: true,
                 perPage: 50,
@@ -329,11 +333,14 @@ def render_validation_table_report_html(
 
             applyColumnVisibility();
 
-            const body = table.tBodies.length > 0 ? table.tBodies[0] : null;
-            if (body) {{
-                const observer = new MutationObserver(() => applyColumnVisibility());
-                observer.observe(body, {{ childList: true, subtree: true }});
+            if (typeof datatable.on === "function") {{
+                ["datatable.page", "datatable.perpage", "datatable.update", "datatable.search", "datatable.sort"].forEach((eventName) => {{
+                    datatable.on(eventName, applyColumnVisibility);
+                }});
             }}
+
+            const observer = new MutationObserver(() => applyColumnVisibility());
+            observer.observe(table, {{ childList: true, subtree: true }});
         }}
     </script>
 </body>
