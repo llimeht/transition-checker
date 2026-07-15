@@ -94,7 +94,7 @@ Notes:
 - An object with `"min"` and `"from"` means a minimum number of choices from a list.
 - The optional `"rpl"` list seeds prerequisite/corequisite validation with implicitly granted courses (such as magic-backend codes that appear via RPL), but those courses do not count as satisfying `"required"` clauses unless they also appear in the student's actual completed or planned course history.
 - The name of each object inside `"required"` is informational only, but matching it against the handbook helps with clarity.
-- In groups of electives as illustrated above, the `"placeholder"` course code can be used in enrolment plans as a generic pseudo-course-code rather than specifying exact courses.
+- In groups of electives as illustrated above, and in simple `"or"` clauses, the `"placeholder"` course code can be used in enrolment plans as a generic pseudo-course-code rather than specifying exact courses.
 - These files are usually edited carefully by hand - once created, they don't often need to be changed. If you do edit them by hand, be extra careful with brackets and commas.
 
 ## 2. Exported plan files

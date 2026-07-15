@@ -141,6 +141,10 @@ def _is_placeholder_min_from(node: dict[str, Any]) -> bool:
     return set(node.keys()) == {"min", "from", "placeholder"}
 
 
+def _is_placeholder_or(node: dict[str, Any]) -> bool:
+    return set(node.keys()) == {"or", "placeholder"}
+
+
 # ---------------------------------------------------------------------------
 # Unified ErgExpr evaluator
 # ---------------------------------------------------------------------------
@@ -356,7 +360,11 @@ def _clause_summary(clause: dict[str, Any], max_items: int = 4) -> str:
             else:
                 labels.append("...")
         suffix = "|..." if len(options) > max_items else ""
-        return f"or[{'|'.join(labels)}{suffix}]"
+        summary = f"or[{'|'.join(labels)}{suffix}]"
+        placeholder = clause.get("placeholder")
+        if isinstance(placeholder, str) and placeholder.strip():
+            summary += f" placeholder[{placeholder.strip()}]"
+        return summary
     if "min" in clause and "from" in clause:
         n = clause["min"]
         raw_from = clause.get("from")
@@ -571,7 +579,7 @@ def _collect_missing_atoms(
             )
         return missing
 
-    if set(node.keys()) == {"or"}:
+    if set(node.keys()) == {"or"} or _is_placeholder_or(node):
         if evaluate_expression(expr, completed_courses, completed_uoc):
             return []
         return ["__ONEOF__"]
@@ -1149,10 +1157,30 @@ def normalize_clause(clause: Any) -> RuleExpr:
                 )
             return normalized_clause
 
+        if keys == {"or", "placeholder"}:
+            children_value = operator_clause["or"]
+            if not isinstance(children_value, list):
+                raise RuleValidationError("<clause>", "'or' value must be an array")
+            children = cast(list[object], children_value)
+            if len(children) < 2:
+                raise RuleValidationError(
+                    "<clause>", "'or' must contain at least 2 child expressions"
+                )
+            return {
+                "or": [normalize_clause(child) for child in children],
+                "placeholder": _validate_placeholder_code(
+                    operator_clause["placeholder"],
+                    "<clause>.placeholder",
+                ),
+            }
+
         if len(operator_clause) != 1:
             raise RuleValidationError(
                 "<clause>",
-                "operator clause must contain exactly one key (or 'min' + 'from')",
+                (
+                    "operator clause must contain exactly one key "
+                    "(or 'min' + 'from', or 'or' + 'placeholder')"
+                ),
             )
         op = next(iter(operator_clause.keys()))
         if op not in ("and", "or"):
@@ -1379,6 +1407,13 @@ def _collect_expression_course_codes(expr: RuleExpr) -> set[str]:
             codes.add(cast(str, node["placeholder"]))
         return codes
 
+    if set(node.keys()) == {"or"} or _is_placeholder_or(node):
+        for child in cast(list[RuleExpr], node["or"]):
+            codes.update(_collect_expression_course_codes(child))
+        if _is_placeholder_or(node):
+            codes.add(cast(str, node["placeholder"]))
+        return codes
+
     if len(node) == 1:
         op = next(iter(node.keys()))
         if op in {"and", "or"}:
@@ -1506,9 +1541,10 @@ def _consume_required_expression(
         return (False, consumed) if preserve_partial_consumption else (False, Counter())
 
     if len(node) != 1:
-        raise RuleValidationError("<eval>", "invalid expression shape")
+        if not _is_placeholder_or(node):
+            raise RuleValidationError("<eval>", "invalid expression shape")
 
-    op = next(iter(node.keys()))
+    op = "or" if _is_placeholder_or(node) else next(iter(node.keys()))
     children = cast(list[RuleExpr], node[op])
     if op == "and":
         consumed = Counter()
@@ -1540,6 +1576,10 @@ def _consume_required_expression(
             )
             if child_satisfied:
                 return True, child_consumed
+        if _is_placeholder_or(node):
+            placeholder = cast(str, node["placeholder"])
+            if remaining_courses[placeholder] > 0:
+                return True, Counter({placeholder: 1})
         return False, Counter()
 
     raise RuleValidationError("<eval>", f"unknown operator '{op}'")
@@ -1616,9 +1656,28 @@ def validate_canonical_expression(expr: RuleExpr, path: str = "<clause>") -> Non
             validate_canonical_expression(child, f"{path}.from[{idx}]")
         return
 
+    if keys == {"or", "placeholder"}:
+        _validate_placeholder_code(expr["placeholder"], f"{path}.placeholder")
+
+        children_value = expr["or"]
+        if not isinstance(children_value, list):
+            raise RuleValidationError(path, "'or' must be an array")
+        children = cast(list[RuleExpr], children_value)
+        if len(children) < 2:
+            raise RuleValidationError(
+                path, "'or' must contain at least 2 child expressions"
+            )
+        for idx, child in enumerate(children):
+            validate_canonical_expression(child, f"{path}.or[{idx}]")
+        return
+
     if len(keys) != 1:
         raise RuleValidationError(
-            path, "operator object must contain exactly one key (or 'min' + 'from')"
+            path,
+            (
+                "operator object must contain exactly one key "
+                "(or 'min' + 'from', or 'or' + 'placeholder')"
+            ),
         )
 
     op = next(iter(keys))
@@ -1682,6 +1741,23 @@ def evaluate_expression(
             placeholder,
         )
         return satisfied >= min_count
+
+    if set(node.keys()) == {"or"} or _is_placeholder_or(node):
+        children = cast(list[RuleExpr], node["or"])
+        if any(
+            evaluate_expression(child, completed_courses, completed_uoc)
+            for child in children
+        ):
+            return True
+        if _is_placeholder_or(node):
+            placeholder = cast(str, node["placeholder"])
+            if any(
+                _is_course_code(child) and cast(str, child) == placeholder
+                for child in children
+            ):
+                return False
+            return completed_courses[placeholder] > 0
+        return False
 
     if len(node) != 1:
         raise RuleValidationError("<eval>", "invalid expression shape")
@@ -1897,6 +1973,15 @@ def expression_to_text(expr: RuleExpr, parent_op: str | None = None) -> str:
             return f"ALL OF ({items}){placeholder_text}"
         return f"AT LEAST {min_count} OF ({items}){placeholder_text}"
 
+    if set(node.keys()) == {"or"} or _is_placeholder_or(node):
+        children = cast(list[RuleExpr], node["or"])
+        text = " OR ".join(expression_to_text(child, "or") for child in children)
+        if _is_placeholder_or(node):
+            text = f"{text} [placeholder {cast(str, node['placeholder'])}]"
+        if parent_op is not None and parent_op != "or":
+            return f"({text})"
+        return text
+
     op = next(iter(node.keys()))
     children = cast(list[RuleExpr], node[op])
     joiner = f" {op.upper()} "
@@ -1972,6 +2057,15 @@ def diagnose_expression(
         if placeholder is not None:
             options = f"{options}; placeholder {placeholder}"
         return f"need {needed} more from ({options})"
+
+    if set(node.keys()) == {"or"} or _is_placeholder_or(node):
+        options = ", ".join(
+            expression_to_text(child)
+            for child in cast(list[RuleExpr], node["or"])
+        )
+        if _is_placeholder_or(node):
+            options = f"{options}; placeholder {cast(str, node['placeholder'])}"
+        return f"none of the alternatives were completed: ({options})"
 
     op = next(iter(node.keys()))
     children = cast(list[RuleExpr], node[op])

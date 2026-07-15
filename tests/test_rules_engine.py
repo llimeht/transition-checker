@@ -277,6 +277,23 @@ class TestValidateRulesConfig:
         clause = validated["required"]["Electives"][0]
         assert clause["placeholder"] == "CEICEEEE"
 
+    def test_placeholder_or_is_accepted(self) -> None:
+        config: dict[str, Any] = {
+            "required": {
+                "Pathway": [
+                    {
+                        "or": ["TEST2001", "TEST2002"],
+                        "placeholder": "ceiceeee",
+                    }
+                ]
+            }
+        }
+
+        validated = validate_rules_config(config)
+
+        clause = validated["required"]["Pathway"][0]
+        assert clause["placeholder"] == "CEICEEEE"
+
     def test_rpl_is_normalized_as_uppercase_course_codes(self) -> None:
         validated = validate_rules_config(
             {
@@ -475,6 +492,43 @@ class TestEvaluateRequired:
         result = evaluate_required(normalized, completed)
         assert result["Level 1"]
         assert result["Level 2"]
+
+    def test_placeholder_counts_toward_or_clause(self) -> None:
+        normalized = validate_rules_config(
+            {
+                "required": {
+                    "Pathway": [
+                        {
+                            "or": ["TEST2001", "TEST2002"],
+                            "placeholder": "CEICeeee",
+                        }
+                    ]
+                }
+            }
+        )
+
+        completed = Counter(["CEICEEEE"])
+        result = evaluate_required(normalized, completed)
+
+        assert result["Pathway"]
+
+    def test_plain_or_does_not_count_placeholder_rows(self) -> None:
+        normalized = validate_rules_config(
+            {
+                "required": {
+                    "Pathway": [
+                        {
+                            "or": ["TEST2001", "TEST2002"],
+                        }
+                    ]
+                }
+            }
+        )
+
+        completed = Counter(["CEICEEEE"])
+        result = evaluate_required(normalized, completed)
+
+        assert not result["Pathway"]
 
     def test_placeholder_counts_toward_min_from(self) -> None:
         normalized = validate_rules_config(
