@@ -321,11 +321,14 @@ def render_validation_table_report_html(
         }});
 
         if (table) {{
+            const totalRows = {max(len(rows), 1)};
+            const perPageOptions = Array.from(new Set([25, 50, 100, 250, 500, totalRows])).sort((left, right) => left - right);
+
             const datatable = new simpleDatatables.DataTable(table, {{
                 searchable: true,
-                fixedHeight: true,
-                perPage: 50,
-                perPageSelect: [25, 50, 100, 250, 500],
+                fixedHeight: false,
+                perPage: totalRows,
+                perPageSelect: perPageOptions,
                 labels: {{
                     placeholder: "Search all columns...",
                 }},
