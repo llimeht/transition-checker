@@ -81,6 +81,18 @@ def test_resolve_rule_file_for_plan_extracts_year_from_stem(tmp_path: Path) -> N
     assert result == tmp_path / "PROG1234-2026-2029.json"
 
 
+def test_resolve_rule_file_for_plan_extracts_year_after_descriptive_suffix(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "MATSB13970-2026-2029.json").write_text("{}", encoding="utf-8")
+    result = resolve_rule_file_for_plan(
+        "MATSB13970",
+        "MATSB13970_(Suggested)_2027_T2",
+        tmp_path,
+    )
+    assert result == tmp_path / "MATSB13970-2026-2029.json"
+
+
 def test_resolve_rule_file_for_plan_falls_back_without_year_in_stem(
     tmp_path: Path,
 ) -> None:

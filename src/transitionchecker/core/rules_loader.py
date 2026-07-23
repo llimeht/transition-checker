@@ -146,9 +146,10 @@ def resolve_rule_file_for_plan(
     intake_year: int | None = None
     prefix = f"{plan_code}_"
     if plan_stem.startswith(prefix):
-        segment = plan_stem[len(prefix) :].split("_", 1)[0]
-        if _INTAKE_YEAR_RE.fullmatch(segment):
-            intake_year = int(segment)
+        for segment in plan_stem[len(prefix) :].split("_"):
+            if _INTAKE_YEAR_RE.fullmatch(segment):
+                intake_year = int(segment)
+                break
     return resolve_rule_file(plan_code, intake_year, rules_dir)
 
 
