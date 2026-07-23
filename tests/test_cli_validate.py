@@ -614,7 +614,7 @@ def test_main_reports_annual_load_structured_findings(
     output = capsys.readouterr().out
     assert "annual_load_failures=1" in output
     assert "[annual-load:2026]" in output
-    assert "--add-override 'annual-load:2026'" in output
+    assert "--add-override annual-load:2026" in output
 
 
 def test_main_skips_placeholder_plan_with_blank_rows(
