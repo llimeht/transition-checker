@@ -10,6 +10,7 @@ import pytest
 from transitionchecker.core.catalogue import Catalogue, CatalogueEntry
 from transitionchecker.rules_engine import (
     _apply_equivalences,  # pyright: ignore[reportPrivateUsage]
+    CourseEquivalence,
     RuleValidationError,
     extract_scheduled_courses,
     validate_annual_loads,
@@ -18,6 +19,7 @@ from transitionchecker.rules_engine import (
     validate_plan_prerequisites,
     validate_plan_prerequisites_detailed,
     validate_rules_config,
+    validate_unmatched_courses,
     evaluate_required,
 )
 
@@ -1117,3 +1119,76 @@ class TestCourseEquivalences:
         assert not failures
         assert not findings
         assert not warnings
+
+
+class TestValidateUnmatchedCourses:
+    """Tests for validate_unmatched_courses."""
+
+    def _simple_rules(self) -> dict[str, Any]:
+        return {
+            "schemaVersion": 2,
+            "required": {
+                "Core": ["TEST1001", "TEST1002"],
+                "Electives": [
+                    {"min": 1, "from": ["TEST2001", "TEST2002"]},
+                ],
+            },
+        }
+
+    def test_all_courses_matched_returns_no_findings(self) -> None:
+        validated = validate_rules_config(self._simple_rules())
+        completed = Counter(["TEST1001", "TEST1002", "TEST2001"])
+        findings = validate_unmatched_courses(completed, validated)
+        assert findings == []
+
+    def test_unmatched_course_produces_finding(self) -> None:
+        validated = validate_rules_config(self._simple_rules())
+        completed = Counter(["TEST1001", "TEST1002", "TEST2001", "TEST9999"])
+        findings = validate_unmatched_courses(completed, validated)
+        assert len(findings) == 1
+        f = findings[0]
+        assert f["failure_id"] == "rule:unmatched:TEST9999"
+        assert f["kind"] == "rule"
+        assert f["overrideable"] is True
+        assert f["accepted"] is False
+        assert "TEST9999" in f["message"]
+
+    def test_multiple_unmatched_courses_sorted_by_code(self) -> None:
+        validated = validate_rules_config(self._simple_rules())
+        completed = Counter(["TEST1001", "FREE9002", "FREE9001"])
+        findings = validate_unmatched_courses(completed, validated)
+        ids = [f["failure_id"] for f in findings]
+        assert ids == ["rule:unmatched:FREE9001", "rule:unmatched:FREE9002"]
+
+    def test_rpl_courses_excluded(self) -> None:
+        rules: dict[str, Any] = {
+            "schemaVersion": 2,
+            "required": {"Core": ["TEST1001"]},
+            "rpl": ["TEST9999"],
+        }
+        validated = validate_rules_config(rules)
+        rpl = Counter(["TEST9999"])
+        completed = Counter(["TEST1001", "TEST9999"])
+        findings = validate_unmatched_courses(completed, validated, rpl_courses=rpl)
+        assert findings == []
+
+    def test_equivalence_covered_course_excluded(self) -> None:
+        validated = validate_rules_config(self._simple_rules())
+        # Student holds TEST1001CEIC which maps to TEST1001 (in rules) via equivalence.
+        completed = Counter(["TEST1001CEIC", "TEST1002", "TEST2001"])
+        equivalences: list[CourseEquivalence] = [{"held": "TEST1001CEIC", "equivalent_to": "TEST1001"}]
+        findings = validate_unmatched_courses(
+            completed, validated, equivalences=equivalences
+        )
+        assert findings == []
+
+    def test_equivalence_not_covering_rule_code_still_unmatched(self) -> None:
+        validated = validate_rules_config(self._simple_rules())
+        # TEST1001CEIC maps to TEST5999 which is NOT in rules — should be unmatched.
+        completed = Counter(["TEST1001", "TEST1002", "TEST2001", "TEST1001CEIC"])
+        equivalences: list[CourseEquivalence] = [{"held": "TEST1001CEIC", "equivalent_to": "TEST5999"}]
+        findings = validate_unmatched_courses(
+            completed, validated, equivalences=equivalences
+        )
+        assert len(findings) == 1
+        assert findings[0]["failure_id"] == "rule:unmatched:TEST1001CEIC"

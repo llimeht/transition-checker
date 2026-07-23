@@ -536,8 +536,14 @@ def test_plan_report_allocations_include_unmatched_courses(
         stderr=err,
     )
 
-    assert exit_code == 0
+    assert exit_code == 1
     payload = json.loads(out.getvalue())
+    # TEST9999 is not matched by any rule clause and generates an unmatched finding.
+    assert any(
+        f["failure_id"] == "rule:unmatched:TEST9999"
+        for f in payload["findings"]
+    )
+    # The existing unmatched_courses allocation field still lists it.
     assert payload["unmatched_courses"] == ["TEST9999"]
     assert payload["shared_course_allocations"] == {
         "double_counted": [],
@@ -1585,7 +1591,10 @@ def test_nonstandard_period_override_silences_finding(tmp_path: Path) -> None:
 
     override_file = tmp_path / "plan.degree_rules_overrides.json"
     override_file.write_text(
-        json.dumps({"overrides": [{"failure_id": "nonstandard-period:TEST1001"}]}),
+        json.dumps({"overrides": [
+            {"failure_id": "nonstandard-period:TEST1001"},
+            {"failure_id": "rule:unmatched:TEST1001"},
+        ]}),
         encoding="utf-8",
     )
 
@@ -1687,7 +1696,11 @@ def test_annual_load_override_silences_finding(tmp_path: Path) -> None:
 
     override_file = tmp_path / "plan.degree_rules_overrides.json"
     override_file.write_text(
-        json.dumps({"overrides": [{"failure_id": "annual-load:2026"}]}),
+        json.dumps({"overrides": [
+            {"failure_id": "annual-load:2026"},
+            {"failure_id": "rule:unmatched:TEST1001"},
+            {"failure_id": "rule:unmatched:TEST1002"},
+        ]}),
         encoding="utf-8",
     )
 

@@ -1422,6 +1422,74 @@ def _collect_expression_course_codes(expr: RuleExpr) -> set[str]:
     return codes
 
 
+def _collect_all_rule_codes(normalized_config: dict[str, Any]) -> set[str]:
+    """Collect all course codes referenced in any required rule clause."""
+    codes: set[str] = set()
+    required = normalized_config.get("required", {})
+    if not isinstance(required, dict):
+        return codes
+    for clauses in cast(dict[str, Any], required).values():
+        if not isinstance(clauses, list):
+            continue
+        for clause in cast(list[RuleExpr], clauses):
+            codes.update(_collect_expression_course_codes(clause))
+    return codes
+
+
+def validate_unmatched_courses(
+    completed_courses: Counter[str],
+    normalized_config: dict[str, Any],
+    rpl_courses: Counter[str] | None = None,
+    equivalences: list[CourseEquivalence] | None = None,
+) -> list[ValidationFinding]:
+    """Return findings for plan courses not referenced by any required rule clause.
+
+    A course is considered unmatched when it does not appear in any clause
+    expression across all required levels and is not an RPL course.  Courses
+    covered by an equivalence that maps them to a rule-referenced code are
+    treated as matched and excluded.
+
+    Args:
+        completed_courses: Counter of course codes present in the plan.
+        normalized_config: Validated canonical rules configuration.
+        rpl_courses: Optional RPL courses to exclude (prereq-only, not rule targets).
+        equivalences: Optional directional equivalences; a held code that maps to
+            a rule-referenced equivalent_to code is treated as matched.
+
+    Returns:
+        List of overrideable findings for each unmatched course, sorted by code.
+    """
+    rule_codes = _collect_all_rule_codes(normalized_config)
+    _rpl: set[str] = set(rpl_courses.keys()) if rpl_courses else set()
+
+    # A held code is "covered" if it maps via an equivalence to a rule code.
+    equiv_covered: set[str] = set()
+    for eq in equivalences or []:
+        held = eq.get("held", "")
+        equiv_to = eq.get("equivalent_to", "")
+        if held and equiv_to and equiv_to in rule_codes and held in completed_courses:
+            equiv_covered.add(held)
+
+    findings: list[ValidationFinding] = []
+    for code in sorted(completed_courses.keys()):
+        if code in rule_codes:
+            continue
+        if code in _rpl:
+            continue
+        if code in equiv_covered:
+            continue
+        findings.append(
+            {
+                "failure_id": f"rule:unmatched:{code}",
+                "kind": "rule",
+                "message": f"{code}: not matched by any degree rule",
+                "overrideable": True,
+                "accepted": False,
+            }
+        )
+    return findings
+
+
 def _collect_placeholder_clauses(
     normalized_config: dict[str, Any],
 ) -> dict[str, list[tuple[str, int, dict[str, Any]]]]:
@@ -2962,7 +3030,14 @@ def run_rules_command(
             include_bucket_allocations=command.plan_report_allocations,
         )
 
-        all_findings = [*rule_findings, *prereq_findings]
+        unmatched_findings = validate_unmatched_courses(
+            completed_courses,
+            validated,
+            rpl_courses=rpl_courses,
+            equivalences=equivalences,
+        )
+
+        all_findings = [*rule_findings, *unmatched_findings, *prereq_findings]
         warnings: list[ValidationWarning] = [
             *equivalence_warnings,
             *rule_warnings,
