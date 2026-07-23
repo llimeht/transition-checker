@@ -102,6 +102,40 @@ def _as_object_dict_list(value: object) -> list[dict[str, object]]:
     return dict_items
 
 
+def _looks_like_plan_json(value: object) -> bool:
+    """Return whether *value* appears to be an exported plan payload."""
+
+    payload = _as_json_object(value)
+    if payload is None:
+        return False
+
+    courses = payload.get("courses")
+    return isinstance(courses, list)
+
+
+def _discover_plan_json_files(directory: Path) -> list[Path]:
+    """Return JSON files in *directory* that appear to be plan payloads."""
+
+    plan_files: list[Path] = []
+    for candidate in sorted(directory.glob("*.json")):
+        if not candidate.is_file() or candidate.name.endswith(".degree_rules_overrides.json"):
+            continue
+        try:
+            raw = json.loads(candidate.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if _looks_like_plan_json(raw):
+            plan_files.append(candidate)
+    return plan_files
+
+
+def _file_signature(path: Path) -> tuple[int, int]:
+    """Return a stable file signature based on mtime and size."""
+
+    stat = path.stat()
+    return (stat.st_mtime_ns, stat.st_size)
+
+
 def _normalize_notes(value: object) -> dict[str, object]:
     """Return a stable notes object from report payloads."""
 
@@ -288,6 +322,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: File not found: {excel_file}")
         return 1
 
+    pre_export_plan_signatures = {
+        path: _file_signature(path) for path in _discover_plan_json_files(output_dir)
+    }
+
     print(f"📊 Exporting plans from: {excel_file}")
     export_result = run_cmd(
         [
@@ -309,6 +347,25 @@ def main(argv: list[str] | None = None) -> int:
         print(export_result.stdout, end="")
 
     print("✅ Export complete!")
+
+    post_export_plan_files = _discover_plan_json_files(output_dir)
+    exported_plan_files = [
+        path
+        for path in post_export_plan_files
+        if pre_export_plan_signatures.get(path) != _file_signature(path)
+    ]
+
+    # Some tests and workflows may not mutate plan files during mocked extraction.
+    # In that case, fall back to validating all discovered plan-shaped JSON files.
+    plans_detected_from_export = bool(exported_plan_files)
+    plan_candidates = exported_plan_files if plans_detected_from_export else post_export_plan_files
+
+    stale_plan_files = [
+        path
+        for path in post_export_plan_files
+        if path not in set(exported_plan_files)
+        and (args.plan_filter is None or fnmatch.fnmatch(path.stem, args.plan_filter))
+    ]
 
     print()
     print(f"📚 Extracting catalogue and overrides from: {excel_file}")
@@ -345,18 +402,20 @@ def main(argv: list[str] | None = None) -> int:
 
     plan_files = sorted(
         p
-        for p in output_dir.glob("*.json")
-        if p.is_file()
-        and not p.name.endswith("_offerings.json")
-        and not p.name.endswith("_offering_violations.json")
-        and not p.name.endswith(".degree_rules_overrides.json")
-        and (
-            args.plan_filter is None or fnmatch.fnmatch(p.stem, args.plan_filter)
-        )
+        for p in plan_candidates
+        if args.plan_filter is None or fnmatch.fnmatch(p.stem, args.plan_filter)
     )
 
+    if plans_detected_from_export and stale_plan_files:
+        print(
+            f"⚠️  Found {len(stale_plan_files)} stale plan file(s) in {output_dir} "
+            "that were not exported from this workbook run:"
+        )
+        for stale in stale_plan_files:
+            print(f"   - {stale.name}")
+
     if not plan_files:
-        print("⚠️  No plan files found to validate")
+        print("⚠️  No exported plan files found to validate")
         report["summary"] = {
             "total_plan_files": 0,
             "valid": 0,
@@ -364,7 +423,12 @@ def main(argv: list[str] | None = None) -> int:
             "skipped_no_rule": 0,
             "skipped_placeholder": 0,
             "accepted": 0,
+            "stale_not_exported": len(stale_plan_files)
+            if plans_detected_from_export
+            else 0,
         }
+        if plans_detected_from_export and stale_plan_files:
+            report["stale_plan_files"] = [str(path) for path in stale_plan_files]
         write_validation_report(report_path, report)
         print(f"☑️ Validation report written to: {report_path}")
         if args.human_report == "html":
@@ -782,7 +846,12 @@ def main(argv: list[str] | None = None) -> int:
         "skipped_no_rule": skipped_no_rule,
         "skipped_placeholder": skipped_placeholder,
         "accepted": accepted,
+        "stale_not_exported": len(stale_plan_files)
+        if plans_detected_from_export
+        else 0,
     }
+    if plans_detected_from_export and stale_plan_files:
+        report["stale_plan_files"] = [str(path) for path in stale_plan_files]
     write_validation_report(report_path, report)
     print(f"\n☑️ Validation report written to: {report_path}")
 

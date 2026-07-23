@@ -289,6 +289,109 @@ def test_main_filters_plan_files_by_glob(
     }
 
 
+def test_main_validates_only_exported_plans_and_warns_stale_plan_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    exported_plan = out_dir / "CEICKS8338_2026_T1.json"
+    stale_plan = out_dir / "CEICAH3707_2026_T1.json"
+
+    exported_plan.write_text('{"courses": [{"code": "COMP1511"}]}', encoding="utf-8")
+    stale_plan.write_text('{"courses": [{"code": "COMP1521"}]}', encoding="utf-8")
+    (out_dir / "catalogue.json").write_text("[]", encoding="utf-8")
+    (out_dir / "catalogue_overrides.json").write_text("[]", encoding="utf-8")
+    (out_dir / "mapping_validation_results.json").write_text("{}", encoding="utf-8")
+
+    run_calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        run_calls.append(cmd)
+        if cmd[0] == "extract-plans":
+            # Simulate this run exporting/rewriting only one plan.
+            exported_plan.write_text(
+                '{"sheet": "CEICKS8338", "intake": "2026_T1", "courses": [{"code": "COMP1511"}]}',
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
+        if cmd[0] == "extract-template":
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
+        if cmd[0] == "degree-rules":
+            degree_report: dict[str, object] = {
+                "valid": True,
+                "rule_failures": [],
+                "prerequisite_failures": [],
+                "unsupported_prerequisites": [],
+                "findings": [],
+                "warnings": [],
+                "notes": {
+                    "graduate_outcome": "",
+                    "adjustment_type": "",
+                    "for_reviewers": [],
+                    "for_students": [],
+                },
+            }
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(degree_report),
+                stderr="",
+            )
+        if cmd[0] == "offering-checker":
+            offering_report: dict[str, object] = {"valid": True, "violations": []}
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(offering_report),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    def fake_resolve_rule_file(
+        _program_code: str, _plan_stem: str, _script_dir: Path
+    ) -> Path:
+        return tmp_path / "rules" / "CEICKS8338.json"
+
+    monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
+    monkeypatch.setattr(validate_cli, "resolve_rule_file_for_plan", fake_resolve_rule_file)
+
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "CEICKS8338.json").write_text("{}", encoding="utf-8")
+    canonical_offerings = tmp_path / "plans" / "offerings.json"
+    canonical_offerings.parent.mkdir()
+    canonical_offerings.write_text("{}", encoding="utf-8")
+
+    code = validate_cli.main([str(excel), "--output-dir", str(out_dir), "--filter", "CEIC*"])
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "stale plan file(s)" in output
+    assert stale_plan.name in output
+    assert "catalogue.json" not in output
+    assert "catalogue_overrides.json" not in output
+
+    degree_rule_calls = [cmd for cmd in run_calls if cmd[0] == "degree-rules"]
+    assert len(degree_rule_calls) == 1
+    assert degree_rule_calls[0][degree_rule_calls[0].index("--plan") + 1] == str(exported_plan)
+
+    report = json.loads(
+        (out_dir / "mapping_validation_results.json").read_text(encoding="utf-8")
+    )
+    assert report["summary"]["total_plan_files"] == 1
+    assert report["summary"]["stale_not_exported"] == 1
+    assert report["stale_plan_files"] == [str(stale_plan)]
+
+
 def test_main_writes_html_and_suppresses_missing_rule_id_warning_by_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
