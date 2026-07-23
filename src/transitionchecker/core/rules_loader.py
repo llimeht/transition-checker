@@ -114,7 +114,6 @@ def resolve_rule_file(plan_code: str, intake_year: int | None, rules_dir: Path) 
 
     First resolves the effective plan code via :func:`resolve_plan_code`, which
     progressively crops trailing suffixes until a matching rules file is found.
-    A warning is logged when no rules file can be located even after cropping.
 
     Once the effective code is known, year-range selection is applied: when
     *intake_year* is provided and a date-ranged file exists that covers that
@@ -122,13 +121,6 @@ def resolve_rule_file(plan_code: str, intake_year: int | None, rules_dir: Path) 
     plain ``PROGRAM.json``.
     """
     effective_code = resolve_plan_code(plan_code, rules_dir)
-    if not _has_rule(effective_code, rules_dir):
-        logger.warning(
-            "No rules file found for plan code %r (tried progressive cropping; "
-            "no match in %s)",
-            plan_code,
-            rules_dir,
-        )
     if intake_year is not None:
         for candidate in sorted(rules_dir.glob("*.json")):
             stem = candidate.stem

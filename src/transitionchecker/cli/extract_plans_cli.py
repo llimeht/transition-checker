@@ -431,7 +431,7 @@ def main(argv: list[str] | None = None) -> int:
         if rules_dir:
             logger.info("Auto-discovered rules directory: %s", rules_dir)
         else:
-            logger.debug("No rules directory found; program_metadata will be null")
+            logger.warning("No rules directory found; program_metadata will be null")
     else:
         rules_dir = None
 
@@ -491,7 +491,7 @@ def main(argv: list[str] | None = None) -> int:
             logger.info(f"  Intake {intake}")
             plan, corrections = correct_single_row_enrol_year_outliers(plan)
             for correction in corrections:
-                logger.warning(
+                logger.info(
                     "  Corrected enrol_year outlier: row=%s code=%s year=%s period=%s %s -> %s",
                     correction["row_index"],
                     correction["code"] or "<blank>",
@@ -513,11 +513,19 @@ def main(argv: list[str] | None = None) -> int:
                 rules_file = resolve_rule_file(plan_code, intake_yr, rules_dir)
                 prog_metadata = load_rules_metadata(rules_file, plan_code, plan_description)
                 if prog_metadata is None:
-                    logger.debug(
-                        "  No rules metadata for %s (rules file not found: %s)",
-                        sheet_name,
-                        rules_file,
-                    )
+                    if rules_file.exists():
+                        logger.debug(
+                            "  No rules metadata for %s (could not load rules file: %s)",
+                            sheet_name,
+                            rules_file,
+                        )
+                    else:
+                        logger.warning(
+                            "Rules file not found for sheet '%s' intake '%s': should be '%s'",
+                            sheet_name,
+                            intake,
+                            rules_file,
+                        )
 
             path = export_plan(
                 sheet_name,

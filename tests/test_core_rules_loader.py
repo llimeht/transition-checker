@@ -154,13 +154,9 @@ def test_resolve_rule_file_uses_cropped_code_with_ranged_file(
     assert result == tmp_path / "CEICAH3707-2026-2029.json"
 
 
-def test_resolve_rule_file_logs_warning_when_no_match(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    import logging
-    with caplog.at_level(logging.WARNING, logger="transitionchecker.core.rules_loader"):
-        resolve_rule_file("UNKNOWN9999", 2026, tmp_path)
-    assert any("UNKNOWN9999" in r.message for r in caplog.records)
+def test_resolve_rule_file_returns_unresolved_path_when_no_match(tmp_path: Path) -> None:
+    result = resolve_rule_file("UNKNOWN9999", 2026, tmp_path)
+    assert result == tmp_path / "UNKNOWN9999.json"
 
 
 # ---------------------------------------------------------------------------

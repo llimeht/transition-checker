@@ -333,7 +333,6 @@ def main(argv: list[str] | None = None) -> int:
             str(excel_file),
             "--output-dir",
             str(output_dir),
-            "-v",
         ]
     )
     if export_result.returncode != 0:
@@ -345,6 +344,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if export_result.stdout:
         print(export_result.stdout, end="")
+    if export_result.stderr:
+        print(export_result.stderr, end="", file=sys.stderr)
 
     print("✅ Export complete!")
 
@@ -388,6 +389,8 @@ def main(argv: list[str] | None = None) -> int:
         return extract_result.returncode
     if extract_result.stdout:
         print(extract_result.stdout, end="")
+    if extract_result.stderr:
+        print(extract_result.stderr, end="", file=sys.stderr)
     print("✅ Catalogue extracted!")
 
     print()
