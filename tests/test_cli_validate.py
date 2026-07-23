@@ -681,6 +681,72 @@ def test_main_skips_placeholder_plan_with_blank_rows(
     assert report["results"][0]["status"] == "skipped_placeholder"
 
 
+def test_main_reports_missing_rule_file_for_selected_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    selected_plan = out_dir / "CEICKS8338_2026_T1.json"
+    selected_plan.write_text('{"courses": [{"code": "COMP1511"}]}', encoding="utf-8")
+    (tmp_path / "rules").mkdir()
+
+    run_calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        run_calls.append(cmd)
+        if cmd[0] in {"extract-plans", "extract-template"}:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    def fake_resolve_rule_file(
+        _program_code: str,
+        _plan_stem: str,
+        _script_dir: Path,
+    ) -> Path:
+        return tmp_path / "rules" / "DOES_NOT_EXIST.json"
+
+    monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
+    monkeypatch.setattr(validate_cli, "resolve_rule_file_for_plan", fake_resolve_rule_file)
+
+    code = validate_cli.main(
+        [
+            str(excel),
+            "--output-dir",
+            str(out_dir),
+            "--filter",
+            "CEICKS8338*",
+        ]
+    )
+
+    assert code == 1
+    output = capsys.readouterr().out
+    assert "Rules file not found" in output
+
+    degree_rule_calls = [cmd for cmd in run_calls if cmd[0] == "degree-rules"]
+    assert degree_rule_calls == []
+    offering_calls = [cmd for cmd in run_calls if cmd[0] == "offering-checker"]
+    assert offering_calls == []
+
+    report = json.loads(
+        (out_dir / "mapping_validation_results.json").read_text(encoding="utf-8")
+    )
+    assert report["summary"]["total_plan_files"] == 1
+    assert report["summary"]["failed"] == 1
+    assert report["summary"]["skipped_no_rule"] == 1
+    assert report["results"][0]["status"] == "failed"
+    assert "Rules file not found" in report["results"][0]["error_output"]
+
+
 def test_main_surfaces_degree_rules_process_error_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

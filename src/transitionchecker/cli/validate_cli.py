@@ -417,7 +417,31 @@ def main(argv: list[str] | None = None) -> int:
             plan_file_rel = plan_file
 
         if not rule_file.is_file():
+            print(
+                f"  {plan_file.name:<{plan_col_width}}  {rule_name:<{rule_col_width}}  {'✗ FAIL':<{status_col_width}}"
+            )
+            missing_rule_message = f"Rules file not found: {rule_file}"
+            results.append(
+                {
+                    "plan_file": str(plan_file),
+                    "program_code": program_code,
+                    "rule_file": rule_name,
+                    "status": "failed",
+                    "rule_failures": [],
+                    "prerequisite_failures": [],
+                    "unsupported_prerequisites": [],
+                    "findings": [],
+                    "warnings": [],
+                    "notes": _normalize_notes({}),
+                    "offering_violations": [],
+                    "error_output": missing_rule_message,
+                }
+            )
+            failure_details.append(
+                (plan_file.name, rule_name, f"rule_process_error=1\n  - {missing_rule_message}")
+            )
             skipped_no_rule += 1
+            failed += 1
             continue
 
         try:
