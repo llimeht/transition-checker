@@ -101,10 +101,19 @@ This will extract all plans from the spreadsheet and validate them against degre
 plan-validate plans/CEIC/CEIC_Sequences.xlsx
 ```
 
-To validate only a subset of exported plans, pass a glob that matches the plan filename stem:
+To validate only a subset of exported plans, you can pass one or more glob filters
+(`--filter` may be repeated; values are OR-ed):
 
 ```bash
-plan-validate plans/CEIC/CEIC_Sequences.xlsx --filter 'CEICKS8338*'
+plan-validate plans/CEIC/CEIC_Sequences.xlsx \
+  --filter 'CEICKS8338*' \
+  --filter 'FOOD*S8338*'
+```
+
+You can also use regex filters (`--filter-regex` may be repeated; values are OR-ed):
+
+```bash
+plan-validate plans/CEIC/CEIC_Sequences.xlsx --filter-regex '_2026_T[12]$'
 ```
 
 ### Check offering violations for a single plan
@@ -187,6 +196,25 @@ report-generator report \
   plans/CEIC/*_validation_results.json \
   --filter '*3707*' \
   --output plans/CEIC/validation_consolidated_3707.html
+```
+
+You can combine multiple glob filters with OR semantics:
+
+```bash
+report-generator report \
+  plans/CEIC/*_validation_results.json \
+  --filter '*3707*' \
+  --filter '*3061*' \
+  --output plans/CEIC/validation_consolidated_ceic_food.html
+```
+
+Regex filtering is also supported:
+
+```bash
+report-generator report \
+  plans/CEIC/*_validation_results.json \
+  --filter-regex '(8037|5036|7037)' \
+  --output plans/CEIC/validation_8037_suite.html
 ```
 
 The generated table includes:

@@ -1004,3 +1004,174 @@ def test_main_surfaces_degree_rules_process_error_output(
     entry = report["results"][0]
     assert entry["status"] == "failed"
     assert "shared-courses.over-limit-double-counted" in entry["error_output"]
+
+
+def test_main_filter_supports_repeated_globs_with_or_semantics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    ceic_plan = out_dir / "CEICKS8338_2026_T1.json"
+    food_plan = out_dir / "FOODJH3061_2026_T1.json"
+    mats_plan = out_dir / "MATSM13132_2026_T1.json"
+    for plan in (ceic_plan, food_plan, mats_plan):
+        plan.write_text('{"courses": [{"code": "COMP1511"}]}', encoding="utf-8")
+
+    run_calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        run_calls.append(cmd)
+        if cmd[0] in {"extract-plans", "extract-template"}:
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+        if cmd[0] == "degree-rules":
+            degree_report: dict[str, object] = {
+                "valid": True,
+                "rule_failures": [],
+                "prerequisite_failures": [],
+                "unsupported_prerequisites": [],
+                "findings": [],
+                "warnings": [],
+                "notes": {},
+            }
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(degree_report),
+                stderr="",
+            )
+        if cmd[0] == "offering-checker":
+            offering_report: dict[str, object] = {"valid": True, "violations": []}
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(offering_report),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    def fake_resolve_rule_file(
+        _program_code: str,
+        _plan_stem: str,
+        _script_dir: Path,
+    ) -> Path:
+        return tmp_path / "rules" / "SHARED.json"
+
+    monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
+    monkeypatch.setattr(validate_cli, "resolve_rule_file_for_plan", fake_resolve_rule_file)
+
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "SHARED.json").write_text("{}", encoding="utf-8")
+    offerings_dir = tmp_path / "plans"
+    offerings_dir.mkdir()
+    (offerings_dir / "offerings.json").write_text("{}", encoding="utf-8")
+
+    code = validate_cli.main(
+        [
+            str(excel),
+            "--output-dir",
+            str(out_dir),
+            "--filter",
+            "CEICKS*",
+            "--filter",
+            "FOOD*",
+        ]
+    )
+
+    assert code == 0
+    degree_rule_calls = [cmd for cmd in run_calls if cmd[0] == "degree-rules"]
+    selected = {Path(cmd[cmd.index("--plan") + 1]).name for cmd in degree_rule_calls}
+    assert selected == {ceic_plan.name, food_plan.name}
+
+
+def test_main_filter_regex_selects_matching_plan_stems(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    term1_plan = out_dir / "CEICKS8338_2026_T1.json"
+    term2_plan = out_dir / "CEICKS8338_2026_T2.json"
+    for plan in (term1_plan, term2_plan):
+        plan.write_text('{"courses": [{"code": "COMP1511"}]}', encoding="utf-8")
+
+    run_calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        run_calls.append(cmd)
+        if cmd[0] in {"extract-plans", "extract-template"}:
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+        if cmd[0] == "degree-rules":
+            degree_report: dict[str, object] = {
+                "valid": True,
+                "rule_failures": [],
+                "prerequisite_failures": [],
+                "unsupported_prerequisites": [],
+                "findings": [],
+                "warnings": [],
+                "notes": {},
+            }
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(degree_report),
+                stderr="",
+            )
+        if cmd[0] == "offering-checker":
+            offering_report: dict[str, object] = {"valid": True, "violations": []}
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(offering_report),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    def fake_resolve_rule_file(
+        _program_code: str,
+        _plan_stem: str,
+        _script_dir: Path,
+    ) -> Path:
+        return tmp_path / "rules" / "SHARED.json"
+
+    monkeypatch.setattr(validate_cli, "run_cmd", fake_run)
+    monkeypatch.setattr(validate_cli, "resolve_rule_file_for_plan", fake_resolve_rule_file)
+
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "SHARED.json").write_text("{}", encoding="utf-8")
+    offerings_dir = tmp_path / "plans"
+    offerings_dir.mkdir()
+    (offerings_dir / "offerings.json").write_text("{}", encoding="utf-8")
+
+    code = validate_cli.main(
+        [
+            str(excel),
+            "--output-dir",
+            str(out_dir),
+            "--filter-regex",
+            r"_T1$",
+        ]
+    )
+
+    assert code == 0
+    degree_rule_calls = [cmd for cmd in run_calls if cmd[0] == "degree-rules"]
+    selected = {Path(cmd[cmd.index("--plan") + 1]).name for cmd in degree_rule_calls}
+    assert selected == {term1_plan.name}
+
+
+def test_main_filter_regex_invalid_pattern_raises_parser_error(tmp_path: Path) -> None:
+    excel = tmp_path / "mapping.xlsx"
+    excel.write_text("placeholder", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        validate_cli.main([str(excel), "--filter-regex", "("])
+
+    assert exc.value.code == 2

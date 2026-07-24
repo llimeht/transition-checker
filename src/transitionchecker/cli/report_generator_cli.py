@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import json
 import re
 from datetime import datetime, timezone
@@ -16,6 +15,7 @@ from transitionchecker.core.period_utils import (
     format_duration_years,
     period_short_label,
 )
+from transitionchecker.core.plan_filtering import PlanMatcher, compile_plan_matcher
 from transitionchecker.core.validation_report_html import (
     render_validation_table_report_html,
     write_validation_report_html,
@@ -46,9 +46,23 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     )
     report_parser.add_argument(
         "--filter",
-        dest="plan_filter",
-        default="*",
-        help="Glob filter applied to the plan code (for example: '*3707*').",
+        dest="plan_filters",
+        action="append",
+        default=None,
+        help=(
+            "Glob filter applied to plan identifiers; may be repeated or given as "
+            "a comma-separated list (OR semantics)."
+        ),
+    )
+    report_parser.add_argument(
+        "--filter-regex",
+        dest="plan_filter_regexes",
+        action="append",
+        default=None,
+        help=(
+            "Regex filter applied to plan identifiers; may be repeated or given as "
+            "a comma-separated list (OR semantics)."
+        ),
     )
     report_parser.add_argument(
         "--output",
@@ -252,7 +266,7 @@ def _derive_impact_assessment_status(graduation_outcome: str, adjustment_type: s
 def _build_report_rows(
     *,
     report_paths: list[Path],
-    plan_filter: str,
+    plan_matcher: PlanMatcher,
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     plan_cache: dict[Path, dict[str, object]] = {}
@@ -274,7 +288,7 @@ def _build_report_rows(
             plan_file = str(result.get("plan_file", ""))
             json_filename = Path(plan_file).name
             plan, cohort, intake_year, intake_term = _parse_plan_identity(plan_file)
-            if not fnmatch.fnmatch(plan, plan_filter):
+            if not plan_matcher.matches(plan_stem=Path(plan_file).stem, plan_code=plan):
                 continue
 
             exit_year = ""
@@ -339,6 +353,15 @@ def _build_report_rows(
 
 
 def _run_report(args: argparse.Namespace) -> int:
+    try:
+        plan_matcher = compile_plan_matcher(
+            glob_patterns=cast(list[str] | None, args.plan_filters),
+            regex_patterns=cast(list[str] | None, args.plan_filter_regexes),
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        return 2
+
     input_patterns = cast(list[str], args.inputs)
     report_paths = _expand_input_paths(input_patterns)
     cwd = Path.cwd().resolve()
@@ -350,7 +373,7 @@ def _run_report(args: argparse.Namespace) -> int:
             print(f"  - {item}")
         return 1
 
-    rows = _build_report_rows(report_paths=report_paths, plan_filter=str(args.plan_filter))
+    rows = _build_report_rows(report_paths=report_paths, plan_matcher=plan_matcher)
     html = render_validation_table_report_html(
         title=str(args.title),
         generated_at_utc=datetime.now(timezone.utc).isoformat(),

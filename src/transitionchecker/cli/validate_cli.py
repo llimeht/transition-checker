@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import fnmatch
 import io
 import re
 import shlex
@@ -23,6 +22,7 @@ from pathlib import Path
 from typing import Callable, cast
 
 from transitionchecker.core import as_json_object
+from transitionchecker.core.plan_filtering import compile_plan_matcher
 from transitionchecker.core.rules_loader import resolve_rule_file_for_plan
 from transitionchecker.cli.degree_rules_cli import main as degree_rules_main
 from transitionchecker.cli.extract_plans_cli import main as extract_plans_main
@@ -221,11 +221,22 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--filter",
-        dest="plan_filter",
+        dest="plan_filters",
+        action="append",
         default=None,
         help=(
-            "Glob pattern for exported plan filenames to validate "
-            "(for example: 'CEICKS8338*')"
+            "Glob pattern(s) for exported plan filenames to validate; may be "
+            "repeated or provided as comma-separated values (OR semantics)."
+        ),
+    )
+    parser.add_argument(
+        "--filter-regex",
+        dest="plan_filter_regexes",
+        action="append",
+        default=None,
+        help=(
+            "Regex pattern(s) for exported plan filenames to validate; may be "
+            "repeated or provided as comma-separated values (OR semantics)."
         ),
     )
     parser.add_argument(
@@ -307,6 +318,13 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = _build_cli_parser()
     args = parser.parse_args(argv)
+    try:
+        plan_matcher = compile_plan_matcher(
+            glob_patterns=cast(list[str] | None, args.plan_filters),
+            regex_patterns=cast(list[str] | None, args.plan_filter_regexes),
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
     excel_file = Path(args.excel_file)
     output_dir = Path(args.output_dir) if args.output_dir else excel_file.parent
@@ -365,7 +383,10 @@ def main(argv: list[str] | None = None) -> int:
         path
         for path in post_export_plan_files
         if path not in set(exported_plan_files)
-        and (args.plan_filter is None or fnmatch.fnmatch(path.stem, args.plan_filter))
+        and plan_matcher.matches(
+            plan_stem=path.stem,
+            plan_code=path.stem.split("_", 1)[0],
+        )
     ]
 
     print()
@@ -406,7 +427,10 @@ def main(argv: list[str] | None = None) -> int:
     plan_files = sorted(
         p
         for p in plan_candidates
-        if args.plan_filter is None or fnmatch.fnmatch(p.stem, args.plan_filter)
+        if plan_matcher.matches(
+            plan_stem=p.stem,
+            plan_code=p.stem.split("_", 1)[0],
+        )
     )
 
     if plans_detected_from_export and stale_plan_files:

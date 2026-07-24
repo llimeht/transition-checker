@@ -201,3 +201,126 @@ def test_report_derives_pending_impact_status_when_not_assessed(tmp_path: Path) 
     html = output.read_text(encoding="utf-8")
     assert "PENDING" in html
     assert "COMPLETE" not in html
+
+
+def test_report_filter_supports_repeated_globs_with_or_semantics(tmp_path: Path) -> None:
+    plan_a = tmp_path / "CEICAH3707_2024_T2.json"
+    plan_b = tmp_path / "FOODJH3061_2024_T2.json"
+    _make_plan(plan_a, [{"code": "COMP1511", "year": 2024, "period": "T2"}])
+    _make_plan(plan_b, [{"code": "FOOD1001", "year": 2024, "period": "T2"}])
+
+    report = tmp_path / "validation_results.json"
+    _make_validation_report(
+        report,
+        [
+            {
+                "plan_file": str(plan_a),
+                "status": "accepted",
+                "findings": [],
+                "offering_violations": [],
+                "notes": {},
+            },
+            {
+                "plan_file": str(plan_b),
+                "status": "accepted",
+                "findings": [],
+                "offering_violations": [],
+                "notes": {},
+            },
+        ],
+    )
+
+    output = tmp_path / "report.html"
+    code = report_generator_cli.main(
+        [
+            "report",
+            str(report),
+            "--filter",
+            "*3707*",
+            "--filter",
+            "*3061*",
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert code == 0
+    html = output.read_text(encoding="utf-8")
+    assert "CEICAH3707" in html
+    assert "FOODJH3061" in html
+
+
+def test_report_filter_regex_matches_plan_stem(tmp_path: Path) -> None:
+    plan_a = tmp_path / "CEICAH3707_2024_T2.json"
+    plan_b = tmp_path / "CEICAH3707_2025_T1.json"
+    _make_plan(plan_a, [{"code": "COMP1511", "year": 2024, "period": "T2"}])
+    _make_plan(plan_b, [{"code": "COMP2511", "year": 2025, "period": "T1"}])
+
+    report = tmp_path / "validation_results.json"
+    _make_validation_report(
+        report,
+        [
+            {
+                "plan_file": str(plan_a),
+                "status": "accepted",
+                "findings": [],
+                "offering_violations": [],
+                "notes": {},
+            },
+            {
+                "plan_file": str(plan_b),
+                "status": "accepted",
+                "findings": [],
+                "offering_violations": [],
+                "notes": {},
+            },
+        ],
+    )
+
+    output = tmp_path / "report.html"
+    code = report_generator_cli.main(
+        [
+            "report",
+            str(report),
+            "--filter-regex",
+            r"_2024_T2$",
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert code == 0
+    html = output.read_text(encoding="utf-8")
+    assert "CEICAH3707_2024_T2.json" in html
+    assert "CEICAH3707_2025_T1.json" not in html
+
+
+def test_report_filter_regex_invalid_pattern_returns_error(tmp_path: Path) -> None:
+    plan = tmp_path / "CEICAH3707_2024_T2.json"
+    _make_plan(plan, [{"code": "COMP1511", "year": 2024, "period": "T2"}])
+    report = tmp_path / "validation_results.json"
+    _make_validation_report(
+        report,
+        [
+            {
+                "plan_file": str(plan),
+                "status": "accepted",
+                "findings": [],
+                "offering_violations": [],
+                "notes": {},
+            }
+        ],
+    )
+
+    code = report_generator_cli.main(
+        [
+            "report",
+            str(report),
+            "--filter-regex",
+            "(",
+            "--output",
+            str(tmp_path / "report.html"),
+        ]
+    )
+
+    assert code == 2
